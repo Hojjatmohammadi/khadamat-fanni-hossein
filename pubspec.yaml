@@ -6,12 +6,12 @@ version: 1.0.0+1
 environment:
   sdk: '>=3.3.0 <4.0.0'
 
-dependencies:image_picker: ^1.1.2
-flutter_image_compress: ^2.4.0
+dependencies:
   flutter:
     sdk: flutter
   image_picker: ^1.1.2
   flutter_image_compress: ^2.4.0
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -21,4 +21,3 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.jpg
-    path_provider: ^2.1.5
