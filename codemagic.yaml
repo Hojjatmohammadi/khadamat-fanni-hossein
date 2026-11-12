@@ -1,4 +1,3 @@
-
 workflows:
   android-apk:
     name: Build Khadamat Fanni Hossein Release APK
@@ -9,11 +8,11 @@ workflows:
       - name: Prepare Android project
         script: |
           if [ ! -d android ]; then
-            flutter create --platforms=android .
+            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
       - name: Get packages
         script: flutter pub get
-      - name: Build Release APK
+      - name: Build universal release APK
         script: flutter build apk --release
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
