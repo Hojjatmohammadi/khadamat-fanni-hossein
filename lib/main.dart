@@ -33,7 +33,6 @@ class HoseinApp extends StatelessWidget {
             fillColor: Colors.white,
           ),
         ),
-        home: const LoginPage(),
       );
 }
 
