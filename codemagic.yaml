@@ -1,7 +1,7 @@
 
 workflows:
   android-apk:
-    name: Build Khadamat Fanni Hossein APK
+    name: Build Khadamat Fanni Hossein Release APK
     max_build_duration: 60
     environment:
       flutter: stable
@@ -13,7 +13,7 @@ workflows:
           fi
       - name: Get packages
         script: flutter pub get
-      - name: Build APK
-        script: flutter build apk --debug
+      - name: Build Release APK
+        script: flutter build apk --release
     artifacts:
-      - build/app/outputs/flutter-apk/app-debug.apk
+      - build/app/outputs/flutter-apk/app-release.apk
