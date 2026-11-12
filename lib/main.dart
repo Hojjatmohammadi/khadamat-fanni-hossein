@@ -431,24 +431,38 @@ class _SimpleListPageState extends State<SimpleListPage> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
             FilledButton(
-              onPressed: () {
-                final item = <String, String>{};
-                for (int i = 0; i < widget.fields.length; i++) {
-                  item[widget.fields[i]] = controllers[i].text.trim();
-                }
-                if (item.values.any((value) => value.isNotEmpty)) {
-                  final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
-                  DemoStore.add(category, item).then((_) {
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  }).catchError((error) {
-                    if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
-                    }
-                  });
-                } else {
-                  Navigator.pop(dialogContext, false);
-                }
-              },
+              onPressed: () async {
+  final item = <String, String>{};
+
+  for (int i = 0; i < widget.fields.length; i++) {
+    item[widget.fields[i]] = controllers[i].text.trim();
+  }
+
+  if (!item.values.any((value) => value.isNotEmpty)) {
+    Navigator.of(dialogContext).pop(false);
+    return;
+  }
+
+  try {
+    final category = widget.title == 'مشتری'
+        ? 'customers'
+        : widget.title == 'پذیرش تعمیر'
+            ? 'repairs'
+            : 'sales';
+
+    await DemoStore.add(category, item);
+
+    if (!dialogContext.mounted) return;
+
+    Navigator.of(dialogContext).pop(true);
+  } catch (error) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')),
+    );
+  }
+},
               child: const Text('ذخیره'),
             ),
           ],
@@ -688,28 +702,41 @@ class _ProductPageState extends State<ProductPage> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
               FilledButton(
-                onPressed: () {
-                  if (c[0].text.trim().isEmpty) return;
-                  final qty = number(c[4]);
-                  final total = totalCost();
-                  final item = <String, String>{};
-                  for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
-                  item['تصویر کالا'] = productImageBase64 ?? '';
-                  item['هزینه پست'] = shipping.text;
-                  item['هزینه باربری / حمل'] = freight.text;
-                  item['سایر هزینه‌ها'] = other.text;
-                  item['مشمول ارزش افزوده'] = vatIncluded ? 'بله' : 'خیر';
-                  item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
-                  item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
-                  item['بهای تمام‌شده هر واحد'] = (qty > 0 ? total / qty : 0).toStringAsFixed(0);
-                  DemoStore.add('products', item).then((_) {
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  }).catchError((error) {
-                    if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
-                    }
-                  });
-                },
+                onPressed: () async {
+  if (c[0].text.trim().isEmpty) return;
+
+  final qty = number(c[4]);
+  final total = totalCost();
+  final item = <String, String>{};
+
+  for (int i = 0; i < names.length; i++) {
+    item[names[i]] = c[i].text.trim();
+  }
+
+  item['تصویر کالا'] = productImageBase64 ?? '';
+  item['هزینه پست'] = shipping.text;
+  item['هزینه باربری / حمل'] = freight.text;
+  item['سایر هزینه‌ها'] = other.text;
+  item['مشمول ارزش افزوده'] = vatIncluded ? 'بله' : 'خیر';
+  item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
+  item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
+  item['بهای تمام‌شده هر واحد'] =
+      (qty > 0 ? total / qty : 0).toStringAsFixed(0);
+
+  try {
+    await DemoStore.add('products', item);
+
+    if (!dialogContext.mounted) return;
+
+    Navigator.of(dialogContext).pop(true);
+  } catch (error) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
+    );
+  }
+},
                 child: const Text('ذخیره کالا'),
               ),
             ],
