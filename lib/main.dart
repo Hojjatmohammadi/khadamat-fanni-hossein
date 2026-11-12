@@ -33,6 +33,7 @@ class HoseinApp extends StatelessWidget {
             fillColor: Colors.white,
           ),
         ),
+        home: const HomePage(),
       );
 }
 
@@ -93,97 +94,6 @@ class DemoStore {
   }
 }
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final pin = TextEditingController();
-  String error = '';
-
-  @override
-  void dispose() {
-    pin.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: black,
-          body: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 132,
-                      height: 132,
-                      decoration: BoxDecoration(color: yellow, borderRadius: BorderRadius.circular(28)),
-                      clipBehavior: Clip.antiAlias,
-                      child: Image.asset(
-                        'assets/logo.jpg',
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.build, size: 72, color: black),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 28, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    const Text('نسخه آزمایشی', style: TextStyle(color: Colors.white70)),
-                    const SizedBox(height: 28),
-                    TextField(
-                      controller: pin,
-                      keyboardType: TextInputType.number,
-                      obscureText: true,
-                      textAlign: TextAlign.center,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) {
-                        if (pin.text == '1234') {
-                          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomePage()));
-                        } else {
-                          setState(() => error = 'رمز آزمایشی نادرست است. رمز نمونه: 1234');
-                        }
-                      },
-                      decoration: const InputDecoration(labelText: 'رمز ورود آزمایشی', hintText: 'رمز را وارد کنید'),
-                    ),
-                    if (error.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(error, style: const TextStyle(color: Colors.redAccent)),
-                      ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(backgroundColor: yellow, foregroundColor: black, padding: const EdgeInsets.all(15)),
-                        onPressed: () {
-                          if (pin.text == '1234') {
-                            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomePage()));
-                          } else {
-                            setState(() => error = 'رمز آزمایشی نادرست است. رمز نمونه: 1234');
-                          }
-                        },
-                        child: const Text('ورود به برنامه'),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('رمز ورود نمونه: 1234', style: TextStyle(color: Colors.white54)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-}
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -193,40 +103,66 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
+  final List<int> _tabHistory = [];
   final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها'];
 
-  Future<bool> _handleBack() async {
+  void _selectTab(int nextTab) {
+    if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
+    setState(() {
+      _tabHistory.add(tab);
+      tab = nextTab;
+    });
+  }
+
+  Future<void> _handleBack() async {
     if (scaffoldKey.currentState?.isDrawerOpen == true) {
       scaffoldKey.currentState?.closeDrawer();
-      return false;
+      return;
     }
+
+    if (_tabHistory.isNotEmpty) {
+      setState(() {
+        tab = _tabHistory.removeLast();
+      });
+      return;
+    }
+
     if (tab != 0) {
       setState(() => tab = 0);
-      return false;
+      return;
     }
+
     final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => Directionality(
-            textDirection: TextDirection.rtl,
-            child: AlertDialog(
-              title: const Text('خروج از برنامه'),
-              content: const Text('آیا می‌خواهید از برنامه خارج شوید؟'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('ادامه کار')),
-                FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('خروج')),
-              ],
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('خروج از برنامه'),
+          content: const Text('آیا می‌خواهید از برنامه خارج شوید؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('ادامه کار'),
             ),
-          ),
-        ) ??
-        false;
-    if (shouldExit) await SystemNavigator.pop();
-    return false;
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('خروج'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    if (shouldExit == true) {
+      await SystemNavigator.pop();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      Dashboard(onSelect: (i) => setState(() => tab = i)),
+      Dashboard(onSelect: _selectTab),
       ProductPage(onChanged: () => setState(() {})),
       CustomerPage(onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
@@ -235,33 +171,39 @@ class _HomePageState extends State<HomePage> {
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: WillPopScope(
-        onWillPop: _handleBack,
+      child: PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) {
+            _handleBack();
+          }
+        },
         child: Scaffold(
           key: scaffoldKey,
           appBar: AppBar(
             title: Text(titles[tab]),
-            actions: [
-              IconButton(
-                tooltip: 'خروج از حساب',
-                onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage())),
-                icon: const Icon(Icons.logout),
-              ),
-            ],
           ),
           body: pages[tab],
           drawer: Drawer(
             child: ListView(
               children: [
-                const DrawerHeader(
-                  decoration: BoxDecoration(color: black),
+                DrawerHeader(
+                  decoration: const BoxDecoration(color: black),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Icon(Icons.handyman, color: yellow, size: 44),
-                      SizedBox(height: 8),
-                      Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 22, fontWeight: FontWeight.bold)),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.asset(
+                          'assets/logo.jpg',
+                          width: 68,
+                          height: 68,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 22, fontWeight: FontWeight.bold)),
                       Text('نسخه آزمایشی', style: TextStyle(color: Colors.white70)),
                     ],
                   ),
@@ -272,7 +214,7 @@ class _HomePageState extends State<HomePage> {
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
-                      setState(() => tab = i);
+                      _selectTab(i);
                       Navigator.pop(context);
                     },
                   ),
@@ -303,9 +245,17 @@ class Dashboard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(color: black, borderRadius: BorderRadius.circular(18)),
-          child: const Row(
+          child: Row(
             children: [
-              CircleAvatar(backgroundColor: yellow, child: Icon(Icons.handyman, color: black)),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.asset(
+                  'assets/logo.jpg',
+                  width: 62,
+                  height: 62,
+                  fit: BoxFit.cover,
+                ),
+              ),
               SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -430,38 +380,24 @@ class _SimpleListPageState extends State<SimpleListPage> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
             FilledButton(
-              onPressed: () async {
-  final item = <String, String>{};
-
-  for (int i = 0; i < widget.fields.length; i++) {
-    item[widget.fields[i]] = controllers[i].text.trim();
-  }
-
-  if (!item.values.any((value) => value.isNotEmpty)) {
-    Navigator.of(dialogContext).pop(false);
-    return;
-  }
-
-  try {
-    final category = widget.title == 'مشتری'
-        ? 'customers'
-        : widget.title == 'پذیرش تعمیر'
-            ? 'repairs'
-            : 'sales';
-
-    await DemoStore.add(category, item);
-
-    if (!dialogContext.mounted) return;
-
-    Navigator.of(dialogContext).pop(true);
-  } catch (error) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')),
-    );
-  }
-},
+              onPressed: () {
+                final item = <String, String>{};
+                for (int i = 0; i < widget.fields.length; i++) {
+                  item[widget.fields[i]] = controllers[i].text.trim();
+                }
+                if (item.values.any((value) => value.isNotEmpty)) {
+                  final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+                  DemoStore.add(category, item).then((_) {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  }).catchError((error) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
+                    }
+                  });
+                } else {
+                  Navigator.pop(dialogContext, false);
+                }
+              },
               child: const Text('ذخیره'),
             ),
           ],
@@ -701,41 +637,28 @@ class _ProductPageState extends State<ProductPage> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
               FilledButton(
-                onPressed: () async {
-  if (c[0].text.trim().isEmpty) return;
-
-  final qty = number(c[4]);
-  final total = totalCost();
-  final item = <String, String>{};
-
-  for (int i = 0; i < names.length; i++) {
-    item[names[i]] = c[i].text.trim();
-  }
-
-  item['تصویر کالا'] = productImageBase64 ?? '';
-  item['هزینه پست'] = shipping.text;
-  item['هزینه باربری / حمل'] = freight.text;
-  item['سایر هزینه‌ها'] = other.text;
-  item['مشمول ارزش افزوده'] = vatIncluded ? 'بله' : 'خیر';
-  item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
-  item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
-  item['بهای تمام‌شده هر واحد'] =
-      (qty > 0 ? total / qty : 0).toStringAsFixed(0);
-
-  try {
-    await DemoStore.add('products', item);
-
-    if (!dialogContext.mounted) return;
-
-    Navigator.of(dialogContext).pop(true);
-  } catch (error) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
-    );
-  }
-},
+                onPressed: () {
+                  if (c[0].text.trim().isEmpty) return;
+                  final qty = number(c[4]);
+                  final total = totalCost();
+                  final item = <String, String>{};
+                  for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
+                  item['تصویر کالا'] = productImageBase64 ?? '';
+                  item['هزینه پست'] = shipping.text;
+                  item['هزینه باربری / حمل'] = freight.text;
+                  item['سایر هزینه‌ها'] = other.text;
+                  item['مشمول ارزش افزوده'] = vatIncluded ? 'بله' : 'خیر';
+                  item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
+                  item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
+                  item['بهای تمام‌شده هر واحد'] = (qty > 0 ? total / qty : 0).toStringAsFixed(0);
+                  DemoStore.add('products', item).then((_) {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  }).catchError((error) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
+                    }
+                  });
+                },
                 child: const Text('ذخیره کالا'),
               ),
             ],
