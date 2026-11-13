@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
+import '../accounting/accounting_engine.dart';
 
 /// Relational tables and a non-destructive migration from the original
 /// JSON records table. The legacy table remains available during rollout.
@@ -104,6 +105,7 @@ class AppDatabaseSchema {
     await db.execute('CREATE INDEX IF NOT EXISTS invoices_customer_idx ON invoices(customer_id)');
     await db.execute('CREATE INDEX IF NOT EXISTS invoices_created_idx ON invoices(created_at)');
     await db.execute('CREATE INDEX IF NOT EXISTS invoice_items_invoice_idx ON invoice_items(invoice_id)');
+    await AccountingEngine.createTables(db);
   }
 
   static String _text(Map<String, Object?> data, String key) =>
