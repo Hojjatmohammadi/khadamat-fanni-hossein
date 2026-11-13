@@ -33,6 +33,7 @@ class AppSettings {
   static String themeMode = 'روشن';
   static String drawerImage = '';
   static double fontScale = 1.0;
+  static String productImageMode = 'عکس پیش‌فرض';
   static Map<String, List<String>> productGroups = {
     'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
     'قطعات مکانیکی': ['بلبرینگ', 'چرخ‌دنده', 'شفت', 'بوش'],
@@ -49,6 +50,7 @@ class AppSettings {
     themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
     drawerImage = _prefs.getString('drawer_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    productImageMode = _prefs.getString('product_image_mode') ?? 'عکس پیش‌فرض';
     final savedGroups = _prefs.getString('product_groups');
     if (savedGroups != null) {
       try {
@@ -87,6 +89,12 @@ class AppSettings {
     await _prefs.setString('theme_mode', themeMode);
     await _prefs.setString('drawer_image', drawerImage);
     await _prefs.setDouble('font_scale', fontScale);
+    revision.value++;
+  }
+
+  static Future<void> saveProductImageMode(String mode) async {
+    productImageMode = mode;
+    await _prefs.setString('product_image_mode', mode);
     revision.value++;
   }
 
@@ -429,6 +437,23 @@ class _HomePageState extends State<HomePage> {
           appBar: AppBar(
             title: Text(titles[tab]),
             actions: [
+              if (tab == 1)
+                PopupMenuButton<String>(
+                  tooltip: 'تنظیم نمایش عکس کالا',
+                  icon: const Icon(Icons.more_vert),
+                  initialValue: AppSettings.productImageMode,
+                  onSelected: (value) async {
+                    await AppSettings.saveProductImageMode(value);
+                    if (mounted) setState(() {});
+                  },
+                  itemBuilder: (context) => [
+                    for (final option in ['عدم نمایش عکس کالا', 'عکس پیش‌فرض', 'کوچک کردن عکس کالا'])
+                      PopupMenuItem<String>(value: option, child: Row(children: [
+                        Expanded(child: Text(option)),
+                        if (AppSettings.productImageMode == option) const Icon(Icons.check, size: 18),
+                      ])),
+                  ],
+                ),
               if (tab == 1 || tab == 2 || tab == 3 || tab == 4 || tab == 7)
                 IconButton(tooltip: 'افزودن مورد جدید', onPressed: _addForCurrentTab, icon: const Icon(Icons.add)),
               IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search)),
@@ -1366,9 +1391,22 @@ class _ProductPageState extends State<ProductPage> {
                 const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
               for (final item in DemoStore.products.reversed)
                 Card(child: ListTile(
-                  leading: (item['تصویر کالا'] ?? '').isNotEmpty
-                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
-                      : CircleAvatar(child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2)),
+                  leading: AppSettings.productImageMode == 'عدم نمایش عکس کالا'
+                      ? null
+                      : (item['تصویر کالا'] ?? '').isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                base64Decode(item['تصویر کالا']!),
+                                width: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 28 : 48,
+                                height: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 28 : 48,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : CircleAvatar(
+                              radius: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 14 : 20,
+                              child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2, size: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 16 : 24),
+                            ),
                   title: Text(item['نام کالا'] ?? 'بدون نام'),
                   onLongPress: () => setState(() => _selectedProducts.add(jsonEncode(item))),
                   onTap: () {
