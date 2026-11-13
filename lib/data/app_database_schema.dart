@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-/// Normalized relational schema and a one-time, non-destructive migration
-/// from the original JSON-in-records storage.
+/// Relational tables and a non-destructive migration from the original
+/// JSON records table. The legacy table remains available during rollout.
 class AppDatabaseSchema {
   AppDatabaseSchema._();
 
@@ -114,95 +114,115 @@ class AppDatabaseSchema {
     const persian = '۰۱۲۳۴۵۶۷۸۹';
     const arabic = '٠١٢٣٤٥٦٧٨٩';
     for (var i = 0; i < 10; i++) {
-      value = value.replaceAll(persian[i], '$i').replaceAll(arabic[i], '$i');
+      value = value.replaceAll(persian[i], i.toString());
+      value = value.replaceAll(arabic[i], i.toString());
     }
     value = value.replaceAll(',', '').replaceAll('٬', '').replaceAll('٫', '.');
     return double.tryParse(value) ?? 0;
   }
 
+  static Map<String, Object?> _decode(Object? raw) {
+    if (raw is! String || raw.isEmpty) return <String, Object?>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {
+      // Keep the original legacy row untouched if its JSON is malformed.
+    }
+    return <String, Object?>{};
+  }
+
+  static void _assertNumeric(
+    Map<String, Object?> data,
+    List<String> keys, {
+    bool allowDecimal = false,
+  }) {
+    final pattern = allowDecimal
+        ? RegExp(r'^\\d+(?:\\.\\d{1,3})?$')
+        : RegExp(r'^\\d+$');
+    for (final key in keys) {
+      final value = _text(data, key);
+      if (value.isNotEmpty && !pattern.hasMatch(value)) {
+        throw StateError('فیلد «' + key + '» فقط باید عدد باشد.');
+      }
+    }
+  }
+
+  /// Copies legacy JSON rows to the normalized schema once, without deleting
+  /// or rewriting any original row.
   static Future<void> migrateLegacyRecords(DatabaseExecutor db) async {
     final rows = await db.query('records', orderBy: 'id ASC');
     if (rows.isEmpty) return;
 
     final customerIdsByName = <String, int>{};
     for (final row in rows.where((r) => r['category'] == 'customers')) {
-      final id = row['id'] as int;
+      final legacyId = row['id'] as int;
       final data = _decode(row['data']);
       final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-      final customerId = await db.insert(
-        'customers',
-        {
-          'first_name': parts.isEmpty ? '' : parts.first,
-          'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
-          'phone': _text(data, 'شماره تماس'),
-          'address': _text(data, 'آدرس'),
-          'notes': _text(data, 'توضیحات'),
-          'created_at': _text(row, 'created_at').isEmpty
-              ? DateTime.now().toIso8601String()
-              : _text(row, 'created_at'),
-          'legacy_source_id': id,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-      if (customerId > 0 && fullName.isNotEmpty) {
+      final parts = fullName.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
+      final customerId = await db.insert('customers', {
+        'first_name': parts.isEmpty ? '' : parts.first,
+        'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
+        'phone': _text(data, 'شماره تماس'),
+        'address': _text(data, 'آدرس'),
+        'notes': _text(data, 'توضیحات'),
+        'created_at': _text(row, 'created_at').isEmpty
+            ? DateTime.now().toIso8601String()
+            : _text(row, 'created_at'),
+        'legacy_source_id': legacyId,
+      });
+      if (fullName.isNotEmpty) {
         customerIdsByName.putIfAbsent(fullName, () => customerId);
       }
     }
 
     for (final row in rows.where((r) => r['category'] == 'products')) {
       final data = _decode(row['data']);
-      await db.insert(
-        'products',
-        {
-          'code': _text(data, 'کد کالا'),
-          'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
-          'category': _text(data, 'گروه اصلی'),
-          'subcategory': _text(data, 'زیرگروه'),
-          'unit': unit,
-          'quantity': _number(data, 'موجودی'),
-          'purchase_price': _number(data, 'قیمت خرید هر واحد'),
-          'sale_price': _number(data, 'قیمت فروش'),
-          'is_used': _text(data, 'وضعیت کالا') == 'دست دوم' ||
-                  _text(data, 'این کالا دست دوم است') == 'بله'
-              ? 1
-              : 0,
-          'image_base64': '', // Image remains in the legacy record until file-based storage is introduced.
-          'shipping_cost': _number(data, 'هزینه پست'),
-          'freight_cost': _number(data, 'هزینه باربری / حمل'),
-          'other_cost': _number(data, 'سایر هزینه‌ها'),
-          'vat_rate': _number(data, 'درصد ارزش افزوده'),
-          'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
-          'created_at': _text(row, 'created_at').isEmpty
-              ? DateTime.now().toIso8601String()
-              : _text(row, 'created_at'),
-          'legacy_source_id': row['id'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      final unit = _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش');
+      await db.insert('products', {
+        'code': _text(data, 'کد کالا'),
+        'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
+        'category': _text(data, 'گروه اصلی'),
+        'subcategory': _text(data, 'زیرگروه'),
+        'unit': unit,
+        'quantity': _number(data, 'موجودی'),
+        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
+        'sale_price': _number(data, 'قیمت فروش'),
+        'is_used': _text(data, 'وضعیت کالا') == 'دست دوم' ||
+                _text(data, 'این کالا دست دوم است') == 'بله'
+            ? 1
+            : 0,
+        // Keep old image payloads in records to avoid doubling database size.
+        'image_base64': '',
+        'shipping_cost': _number(data, 'هزینه پست'),
+        'freight_cost': _number(data, 'هزینه باربری / حمل'),
+        'other_cost': _number(data, 'سایر هزینه‌ها'),
+        'vat_rate': _number(data, 'درصد ارزش افزوده'),
+        'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
+        'created_at': _text(row, 'created_at').isEmpty
+            ? DateTime.now().toIso8601String()
+            : _text(row, 'created_at'),
+        'legacy_source_id': row['id'],
+      });
     }
 
     for (final row in rows.where((r) => r['category'] == 'repairs')) {
       final data = _decode(row['data']);
       final customerName = _text(data, 'نام مشتری');
-      await db.insert(
-        'repairs',
-        {
-          'customer_id': customerIdsByName[customerName],
-          'customer_name_snapshot': customerName,
-          'device_type': _text(data, 'نوع دستگاه'),
-          'problem_description': _text(data, 'شرح عیب'),
-          'labor_cost': _number(data, 'اجرت'),
-          'status': _text(data, 'وضعیت تعمیر').isEmpty
-              ? 'پذیرفته شد'
-              : _text(data, 'وضعیت تعمیر'),
-          'received_at': _text(row, 'created_at').isEmpty
-              ? DateTime.now().toIso8601String()
-              : _text(row, 'created_at'),
-          'legacy_source_id': row['id'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await db.insert('repairs', {
+        'customer_id': customerIdsByName[customerName],
+        'customer_name_snapshot': customerName,
+        'device_type': _text(data, 'نوع دستگاه'),
+        'problem_description': _text(data, 'شرح عیب'),
+        'labor_cost': _number(data, 'اجرت'),
+        'status': _text(data, 'وضعیت تعمیر').isEmpty
+            ? 'پذیرفته شد'
+            : _text(data, 'وضعیت تعمیر'),
+        'received_at': _text(row, 'created_at').isEmpty
+            ? DateTime.now().toIso8601String()
+            : _text(row, 'created_at'),
+        'legacy_source_id': row['id'],
+      });
     }
 
     for (final row in rows.where((r) => r['category'] == 'sales')) {
@@ -210,41 +230,33 @@ class AppDatabaseSchema {
       final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
       final total = _number(data, 'مبلغ کل');
       final discount = _number(data, 'تخفیف');
-      final received = _number(data, 'مبلغ دریافتی');
-      final invoiceId = await db.insert(
-        'invoices',
-        {
-          'invoice_number': 'LEGACY-${row['id']}',
-          'customer_name_snapshot': _text(data, 'نام مشتری'),
-          'subtotal': total + discount,
-          'discount': discount,
-          'total': total,
-          'received_amount': received,
-          'created_at': _text(row, 'created_at').isEmpty
-              ? DateTime.now().toIso8601String()
-              : _text(row, 'created_at'),
-          'legacy_source_id': row['id'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-      if (invoiceId > 0) {
-        final description = _text(data, 'شرح کالا/خدمت').isEmpty
-            ? 'مورد ثبت‌شده در نسخه قبلی'
-            : _text(data, 'شرح کالا/خدمت');
-        await db.insert('invoice_items', {
-          'invoice_id': invoiceId,
-          'product_name_snapshot': description,
-          'quantity': quantity,
-          'unit_price': (total + discount) / quantity,
-          'line_total': total + discount,
-        });
-      }
+      final invoiceId = await db.insert('invoices', {
+        'invoice_number': 'LEGACY-' + row['id'].toString(),
+        'customer_name_snapshot': _text(data, 'نام مشتری'),
+        'subtotal': total + discount,
+        'discount': discount,
+        'total': total,
+        'received_amount': _number(data, 'مبلغ دریافتی'),
+        'created_at': _text(row, 'created_at').isEmpty
+            ? DateTime.now().toIso8601String()
+            : _text(row, 'created_at'),
+        'legacy_source_id': row['id'],
+      });
+      final description = _text(data, 'شرح کالا/خدمت').isEmpty
+          ? 'مورد ثبت‌شده در نسخه قبلی'
+          : _text(data, 'شرح کالا/خدمت');
+      await db.insert('invoice_items', {
+        'invoice_id': invoiceId,
+        'product_name_snapshot': description,
+        'quantity': quantity,
+        'unit_price': (total + discount) / quantity,
+        'line_total': total + discount,
+      });
     }
   }
 
-
-  /// Mirrors newly saved legacy-form records into the normalized tables while
-  /// the existing screens are being migrated incrementally.
+  /// Mirrors new writes from the current screens into normalized tables
+  /// inside the same SQLite transaction as the legacy JSON row.
   static Future<void> insertLegacyRecord(
     DatabaseExecutor db,
     String category,
@@ -255,12 +267,25 @@ class AppDatabaseSchema {
     final data = Map<String, Object?>.from(item);
     if (category == 'customers') {
       final phone = _text(data, 'شماره تماس');
-      if (!RegExp(r'^\d{11}
-      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      if (!RegExp(r'^\\d{11}$').hasMatch(phone)) {
+        throw StateError('شماره موبایل باید دقیقاً ۱۱ رقم باشد.');
+      }
+      final duplicate = await db.query(
+        'customers',
+        columns: ['id'],
+        where: 'phone = ?',
+        whereArgs: [phone],
+        limit: 1,
+      );
+      if (duplicate.isNotEmpty) {
+        throw StateError('این شماره موبایل قبلاً ثبت شده است.');
+      }
+      final fullName = _text(data, 'نام مشتری');
+      final parts = fullName.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
       await db.insert('customers', {
         'first_name': parts.isEmpty ? '' : parts.first,
         'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
-        'phone': _text(data, 'شماره تماس'),
+        'phone': phone,
         'address': _text(data, 'آدرس'),
         'notes': _text(data, 'توضیحات'),
         'created_at': createdAt,
@@ -276,12 +301,12 @@ class AppDatabaseSchema {
         'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
         'category': _text(data, 'گروه اصلی'),
         'subcategory': _text(data, 'زیرگروه'),
-        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
+        'unit': unit,
         'quantity': _number(data, 'موجودی'),
         'purchase_price': _number(data, 'قیمت خرید هر واحد'),
         'sale_price': _number(data, 'قیمت فروش'),
-        'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
-                _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
+        'is_used': _text(data, 'وضعیت کالا') == 'دست دوم' ? 1 : 0,
+        // Image bytes remain in the legacy row until file-based image storage.
         'image_base64': '',
         'shipping_cost': _number(data, 'هزینه پست'),
         'freight_cost': _number(data, 'هزینه باربری / حمل'),
@@ -307,7 +332,9 @@ class AppDatabaseSchema {
         'device_type': _text(data, 'نوع دستگاه'),
         'problem_description': _text(data, 'شرح عیب'),
         'labor_cost': _number(data, 'اجرت'),
-        'status': _text(data, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(data, 'وضعیت تعمیر'),
+        'status': _text(data, 'وضعیت تعمیر').isEmpty
+            ? 'پذیرفته شد'
+            : _text(data, 'وضعیت تعمیر'),
         'received_at': createdAt,
         'legacy_source_id': sourceId,
       });
@@ -317,7 +344,7 @@ class AppDatabaseSchema {
       final total = _number(data, 'مبلغ کل');
       final discount = _number(data, 'تخفیف');
       final invoiceId = await db.insert('invoices', {
-        'invoice_number': 'LEGACY-$sourceId',
+        'invoice_number': 'LEGACY-' + sourceId.toString(),
         'customer_name_snapshot': _text(data, 'نام مشتری'),
         'subtotal': total + discount,
         'discount': discount,
@@ -337,365 +364,7 @@ class AppDatabaseSchema {
         'line_total': total + discount,
       });
     } else {
-      throw ArgumentError('دسته اطلاعات نامعتبر است: $category');
+      throw ArgumentError('دسته اطلاعات نامعتبر است: ' + category);
     }
-  }
-
-  static void _assertNumeric(
-    Map<String, Object?> data,
-    List<String> keys, {
-    bool allowDecimal = false,
-  }) {
-    final pattern = allowDecimal ? RegExp(r'^\\d+(?:\\.\\d{1,3})?
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
-  }
-}
-).hasMatch(phone)) {
-        throw StateError('شماره موبایل باید دقیقاً ۱۱ رقم باشد.');
-      }
-      final duplicate = await db.query(
-        'customers',
-        columns: ['id'],
-        where: 'phone = ?',
-        whereArgs: [phone],
-        limit: 1,
-      );
-      if (duplicate.isNotEmpty) {
-        throw StateError('این شماره موبایل قبلاً ثبت شده است.');
-      }
-      final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-      await db.insert('customers', {
-        'first_name': parts.isEmpty ? '' : parts.first,
-        'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
-        'phone': _text(data, 'شماره تماس'),
-        'address': _text(data, 'آدرس'),
-        'notes': _text(data, 'توضیحات'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'products') {
-      await db.insert('products', {
-        'code': _text(data, 'کد کالا'),
-        'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
-        'category': _text(data, 'گروه اصلی'),
-        'subcategory': _text(data, 'زیرگروه'),
-        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
-        'quantity': _number(data, 'موجودی'),
-        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
-        'sale_price': _number(data, 'قیمت فروش'),
-        'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
-                _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
-        'image_base64': '',
-        'shipping_cost': _number(data, 'هزینه پست'),
-        'freight_cost': _number(data, 'هزینه باربری / حمل'),
-        'other_cost': _number(data, 'سایر هزینه‌ها'),
-        'vat_rate': _number(data, 'درصد ارزش افزوده'),
-        'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'repairs') {
-      final customerName = _text(data, 'نام مشتری');
-      final matches = await db.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [customerName],
-        limit: 2,
-      );
-      await db.insert('repairs', {
-        'customer_id': matches.length == 1 ? matches.first['id'] : null,
-        'customer_name_snapshot': customerName,
-        'device_type': _text(data, 'نوع دستگاه'),
-        'problem_description': _text(data, 'شرح عیب'),
-        'labor_cost': _number(data, 'اجرت'),
-        'status': _text(data, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(data, 'وضعیت تعمیر'),
-        'received_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'sales') {
-      final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
-      final total = _number(data, 'مبلغ کل');
-      final discount = _number(data, 'تخفیف');
-      final invoiceId = await db.insert('invoices', {
-        'invoice_number': 'LEGACY-$sourceId',
-        'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total + discount,
-        'discount': discount,
-        'total': total,
-        'received_amount': _number(data, 'مبلغ دریافتی'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-      final description = _text(data, 'شرح کالا/خدمت').isEmpty
-          ? 'مورد ثبت‌شده در نسخه قبلی'
-          : _text(data, 'شرح کالا/خدمت');
-      await db.insert('invoice_items', {
-        'invoice_id': invoiceId,
-        'product_name_snapshot': description,
-        'quantity': quantity,
-        'unit_price': (total + discount) / quantity,
-        'line_total': total + discount,
-      });
-    } else {
-      throw ArgumentError('دسته اطلاعات نامعتبر است: $category');
-    }
-  }
-
-  static Map<String, Object?> _decode(Object? raw) {
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
-  }
-}
-) : RegExp(r'^\\d+
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
-  }
-}
-).hasMatch(phone)) {
-        throw StateError('شماره موبایل باید دقیقاً ۱۱ رقم باشد.');
-      }
-      final duplicate = await db.query(
-        'customers',
-        columns: ['id'],
-        where: 'phone = ?',
-        whereArgs: [phone],
-        limit: 1,
-      );
-      if (duplicate.isNotEmpty) {
-        throw StateError('این شماره موبایل قبلاً ثبت شده است.');
-      }
-      final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-      await db.insert('customers', {
-        'first_name': parts.isEmpty ? '' : parts.first,
-        'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
-        'phone': _text(data, 'شماره تماس'),
-        'address': _text(data, 'آدرس'),
-        'notes': _text(data, 'توضیحات'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'products') {
-      await db.insert('products', {
-        'code': _text(data, 'کد کالا'),
-        'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
-        'category': _text(data, 'گروه اصلی'),
-        'subcategory': _text(data, 'زیرگروه'),
-        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
-        'quantity': _number(data, 'موجودی'),
-        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
-        'sale_price': _number(data, 'قیمت فروش'),
-        'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
-                _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
-        'image_base64': '',
-        'shipping_cost': _number(data, 'هزینه پست'),
-        'freight_cost': _number(data, 'هزینه باربری / حمل'),
-        'other_cost': _number(data, 'سایر هزینه‌ها'),
-        'vat_rate': _number(data, 'درصد ارزش افزوده'),
-        'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'repairs') {
-      final customerName = _text(data, 'نام مشتری');
-      final matches = await db.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [customerName],
-        limit: 2,
-      );
-      await db.insert('repairs', {
-        'customer_id': matches.length == 1 ? matches.first['id'] : null,
-        'customer_name_snapshot': customerName,
-        'device_type': _text(data, 'نوع دستگاه'),
-        'problem_description': _text(data, 'شرح عیب'),
-        'labor_cost': _number(data, 'اجرت'),
-        'status': _text(data, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(data, 'وضعیت تعمیر'),
-        'received_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'sales') {
-      final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
-      final total = _number(data, 'مبلغ کل');
-      final discount = _number(data, 'تخفیف');
-      final invoiceId = await db.insert('invoices', {
-        'invoice_number': 'LEGACY-$sourceId',
-        'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total + discount,
-        'discount': discount,
-        'total': total,
-        'received_amount': _number(data, 'مبلغ دریافتی'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-      final description = _text(data, 'شرح کالا/خدمت').isEmpty
-          ? 'مورد ثبت‌شده در نسخه قبلی'
-          : _text(data, 'شرح کالا/خدمت');
-      await db.insert('invoice_items', {
-        'invoice_id': invoiceId,
-        'product_name_snapshot': description,
-        'quantity': quantity,
-        'unit_price': (total + discount) / quantity,
-        'line_total': total + discount,
-      });
-    } else {
-      throw ArgumentError('دسته اطلاعات نامعتبر است: $category');
-    }
-  }
-
-  static Map<String, Object?> _decode(Object? raw) {
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
-  }
-}
-);
-    for (final key in keys) {
-      final value = _text(data, key);
-      if (value.isNotEmpty && !pattern.hasMatch(value)) {
-        throw StateError('فیلد «$key» فقط باید عدد باشد.');
-      }
-    }
-  }
-  static Map<String, Object?> _decode(Object? raw) {
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
-  }
-}
-).hasMatch(phone)) {
-        throw StateError('شماره موبایل باید دقیقاً ۱۱ رقم باشد.');
-      }
-      final duplicate = await db.query(
-        'customers',
-        columns: ['id'],
-        where: 'phone = ?',
-        whereArgs: [phone],
-        limit: 1,
-      );
-      if (duplicate.isNotEmpty) {
-        throw StateError('این شماره موبایل قبلاً ثبت شده است.');
-      }
-      final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-      await db.insert('customers', {
-        'first_name': parts.isEmpty ? '' : parts.first,
-        'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
-        'phone': _text(data, 'شماره تماس'),
-        'address': _text(data, 'آدرس'),
-        'notes': _text(data, 'توضیحات'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'products') {
-      await db.insert('products', {
-        'code': _text(data, 'کد کالا'),
-        'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
-        'category': _text(data, 'گروه اصلی'),
-        'subcategory': _text(data, 'زیرگروه'),
-        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
-        'quantity': _number(data, 'موجودی'),
-        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
-        'sale_price': _number(data, 'قیمت فروش'),
-        'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
-                _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
-        'image_base64': '',
-        'shipping_cost': _number(data, 'هزینه پست'),
-        'freight_cost': _number(data, 'هزینه باربری / حمل'),
-        'other_cost': _number(data, 'سایر هزینه‌ها'),
-        'vat_rate': _number(data, 'درصد ارزش افزوده'),
-        'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'repairs') {
-      final customerName = _text(data, 'نام مشتری');
-      final matches = await db.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [customerName],
-        limit: 2,
-      );
-      await db.insert('repairs', {
-        'customer_id': matches.length == 1 ? matches.first['id'] : null,
-        'customer_name_snapshot': customerName,
-        'device_type': _text(data, 'نوع دستگاه'),
-        'problem_description': _text(data, 'شرح عیب'),
-        'labor_cost': _number(data, 'اجرت'),
-        'status': _text(data, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(data, 'وضعیت تعمیر'),
-        'received_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-    } else if (category == 'sales') {
-      final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
-      final total = _number(data, 'مبلغ کل');
-      final discount = _number(data, 'تخفیف');
-      final invoiceId = await db.insert('invoices', {
-        'invoice_number': 'LEGACY-$sourceId',
-        'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total + discount,
-        'discount': discount,
-        'total': total,
-        'received_amount': _number(data, 'مبلغ دریافتی'),
-        'created_at': createdAt,
-        'legacy_source_id': sourceId,
-      });
-      final description = _text(data, 'شرح کالا/خدمت').isEmpty
-          ? 'مورد ثبت‌شده در نسخه قبلی'
-          : _text(data, 'شرح کالا/خدمت');
-      await db.insert('invoice_items', {
-        'invoice_id': invoiceId,
-        'product_name_snapshot': description,
-        'quantity': quantity,
-        'unit_price': (total + discount) / quantity,
-        'line_total': total + discount,
-      });
-    } else {
-      throw ArgumentError('دسته اطلاعات نامعتبر است: $category');
-    }
-  }
-
-  static Map<String, Object?> _decode(Object? raw) {
-    if (raw is! String || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Keep the original legacy row untouched if its JSON is malformed.
-    }
-    return <String, Object?>{};
   }
 }
