@@ -369,6 +369,29 @@ class DemoStore {
     }
   }
 
+  static Future<void> replaceJournalEntries(String reference, List<Map<String,String>> entries) async {
+    final createdAt = DateTime.now().toIso8601String();
+    await _db!.transaction((txn) async {
+      final existing = await txn.query('records', columns: ['id','data'],
+          where: 'category = ?', whereArgs: ['journalEntries']);
+      for (final row in existing) {
+        final decoded = jsonDecode(row['data'] as String) as Map<String,dynamic>;
+        if ((decoded['مرجع سند'] ?? '').toString() == reference) {
+          await txn.delete('records', where: 'id = ?', whereArgs: [row['id']]);
+        }
+      }
+      for (final entry in entries) {
+        await txn.insert('records', {
+          'category': 'journalEntries',
+          'data': jsonEncode(entry),
+          'created_at': createdAt,
+        });
+      }
+    });
+    journalEntries.removeWhere((x) => x['مرجع سند'] == reference);
+    journalEntries.addAll(entries.map((x) => Map<String,String>.from(x)));
+  }
+
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
     final savedItem = Map<String, String>.from(item);
@@ -3339,18 +3362,18 @@ class _ReportsPageState extends State<ReportsPage> {
 
   static Future<void> _postJournal(String reference, String date, String description,
       List<Map<String,String>> lines) async {
-    final old = DemoStore.journalEntries.where((x) => x['مرجع سند'] == reference).toList();
-    if (old.isNotEmpty) await DemoStore.delete('journalEntries', old);
     final debit = lines.fold<int>(0, (sum, x) => sum + PartyAccounting.amount(x, 'بدهکار'));
     final credit = lines.fold<int>(0, (sum, x) => sum + PartyAccounting.amount(x, 'بستانکار'));
     if (debit != credit) {
       throw StateError('سند حسابداری تراز نیست. بدهکار: $debit، بستانکار: $credit');
     }
+    final entries = <Map<String,String>>[];
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       final value = PartyAccounting.amount(line, 'بدهکار') + PartyAccounting.amount(line, 'بستانکار');
       if (value == 0) continue;
-      await DemoStore.add('journalEntries', {
+      entries.add({
+        'شناسه سند': reference + ':' + (i + 1).toString(),
         'مرجع سند': reference,
         'ردیف': (i + 1).toString(),
         'تاریخ': date,
@@ -3362,6 +3385,7 @@ class _ReportsPageState extends State<ReportsPage> {
         'بستانکار': PartyAccounting.amount(line, 'بستانکار').toString(),
       });
     }
+    await DemoStore.replaceJournalEntries(reference, entries);
   }
 
   static Map<String,String> _line(String account, int debit, int credit,
