@@ -1,3 +1,11 @@
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:excel/excel.dart';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:persian_datetime_picker/persian_datetime_picker.dart';
@@ -2430,8 +2438,7 @@ class _ReportsPageState extends State<ReportsPage> {
     super.dispose();
   }
 
-  int _amount(Map<String, String> item, String key) =>
-      int.tryParse((item[key] ?? '').replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+  int _amount(Map<String, String> item, String key) => PartyAccounting.amount(item, key);
 
   String _money(int value) => value.toString().replaceAllMapped(
       RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
@@ -2480,6 +2487,107 @@ class _ReportsPageState extends State<ReportsPage> {
       return (start == null || !date.isBefore(start)) && (end == null || !date.isAfter(end));
     }).toList();
   }
+
+  Future<Uint8List> _renderReportPng(String title, List<Map<String,String>> rows, String amountKey) async {
+    const width = 1200.0;
+    const margin = 42.0;
+    const rowHeight = 58.0;
+    final height = (300 + rows.length * rowHeight).clamp(520, 12000).toDouble();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
+    canvas.drawRect(const ui.Rect.fromLTWH(0, 0, width, 160), ui.Paint()..color = const ui.Color(0xFF238B50));
+
+    void drawText(String value, double y, {double size = 27, ui.Color color = const ui.Color(0xFF202020), bool bold = false}) {
+      final painter = TextPainter(
+        text: TextSpan(text: value, style: TextStyle(fontSize: size, color: color, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+        textDirection: ui.TextDirection.rtl,
+        maxLines: 2,
+      )..layout(maxWidth: width - margin * 2);
+      painter.paint(canvas, ui.Offset(width - margin - painter.width, y));
+    }
+
+    drawText(AppSettings.storeName, 28, size: 40, color: const ui.Color(0xFFFFFFFF), bold: true);
+    drawText(title, 92, size: 32, color: const ui.Color(0xFFFFFFFF));
+    drawText('تاریخ از: ' + (fromController.text.isEmpty ? 'ابتدا' : fromController.text) +
+        '    تا: ' + (toController.text.isEmpty ? 'همه تاریخ‌ها' : toController.text), 190, size: 25);
+    final total = rows.fold<int>(0, (sum, row) => sum + _amount(row, amountKey));
+    drawText('تعداد موارد: ' + rows.length.toString() + '    جمع: ' + _money(total) + ' تومان', 235, size: 26, bold: true);
+
+    var y = 305.0;
+    for (final row in rows.take(180)) {
+      final name = row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
+          row['شرح کالا/خدمت'] ?? row['نوع عملیات'] ?? row['عنوان گزارش'] ?? 'بدون عنوان';
+      final date = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ?? row['تاریخ ثبت کالا'] ?? '';
+      final line = name + '    |    ' + date + '    |    ' + _money(_amount(row, amountKey)) + ' تومان';
+      drawText(line, y, size: 24);
+      canvas.drawLine(ui.Offset(margin, y + rowHeight - 8), ui.Offset(width - margin, y + rowHeight - 8),
+          ui.Paint()..color = const ui.Color(0xFFE2E2E2)..strokeWidth = 1);
+      y += rowHeight;
+    }
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    return data!.buffer.asUint8List();
+  }
+
+  Future<void> _exportReport(String title, List<Map<String,String>> rows, String amountKey, String type) async {
+    try {
+      final directory = await getTemporaryDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch.toString();
+      if (type == 'اکسل') {
+        final book = Excel.createExcel();
+        final sheet = book['گزارش'];
+        sheet.appendRow([
+          TextCellValue('فروشگاه'), TextCellValue('عنوان گزارش'),
+          TextCellValue('تاریخ'), TextCellValue('شرح'), TextCellValue('ماهیت'),
+          TextCellValue('مبلغ'),
+        ]);
+        for (final row in rows) {
+          final name = row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
+              row['شرح کالا/خدمت'] ?? row['نوع عملیات'] ?? row['عنوان گزارش'] ?? '';
+          final date = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ?? '';
+          sheet.appendRow([
+            TextCellValue(AppSettings.storeName),
+            TextCellValue(title),
+            TextCellValue(date),
+            TextCellValue(name),
+            TextCellValue(row['ماهیت'] ?? ''),
+            IntCellValue(_amount(row, amountKey)),
+          ]);
+        }
+        final bytes = book.encode();
+        if (bytes == null) throw Exception('ساخت فایل اکسل ناموفق بود');
+        final file = File(directory.path + '/report_' + stamp + '.xlsx');
+        await file.writeAsBytes(bytes, flush: true);
+        await Share.shareXFiles([XFile(file.path)], text: title);
+        return;
+      }
+
+      final png = await _renderReportPng(title, rows, amountKey);
+      if (type == 'عکس') {
+        final file = File(directory.path + '/report_' + stamp + '.png');
+        await file.writeAsBytes(png, flush: true);
+        await Share.shareXFiles([XFile(file.path)], text: title);
+      } else {
+        final document = pw.Document();
+        document.addPage(pw.Page(build: (_) => pw.Center(
+          child: pw.Image(pw.MemoryImage(png), fit: pw.BoxFit.contain),
+        )));
+        await Printing.sharePdf(bytes: await document.save(), filename: 'report_' + stamp + '.pdf');
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تهیه خروجی ناموفق بود: ' + error.toString())),
+        );
+      }
+    }
+  }
+
   Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage, {bool dateFilter = true}) async {
     final startDate = _parseReportDate(fromController.text);
     final endDate = _parseReportDate(toController.text);
@@ -2514,7 +2622,10 @@ class _ReportsPageState extends State<ReportsPage> {
                     )),
                   ]),
           ),
-          actions: [_horizontalDialogActions([
+          actions: [Wrap(spacing: 4, runSpacing: 4, children: [
+            TextButton(onPressed: () => _exportReport(title, rows, amountKey, 'عکس'), child: const Text('خروجی عکس')),
+            TextButton(onPressed: () => _exportReport(title, rows, amountKey, 'اکسل'), child: const Text('خروجی اکسل')),
+            TextButton(onPressed: () => _exportReport(title, rows, amountKey, 'PDF'), child: const Text('خروجی PDF')),
             TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن')),
           ])],
         ),
