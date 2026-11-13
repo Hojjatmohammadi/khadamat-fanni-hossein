@@ -814,6 +814,38 @@ class _ProductPageState extends State<ProductPage> {
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
+  Future<void> editProduct(Map<String, String> item) async {
+    final editable = item.keys.where((k) => k != 'تصویر کالا').toList();
+    final controllers = {for (final key in editable) key: TextEditingController(text: item[key] ?? '')};
+    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('ویرایش کالا'),
+        content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [for (final key in editable)
+            Padding(padding: const EdgeInsets.only(bottom: 9), child: TextField(
+              controller: controllers[key],
+              keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','قیمت خرید هر واحد'].contains(key) ? TextInputType.number : TextInputType.text,
+              decoration: InputDecoration(labelText: key),
+            )),
+          ],
+        ))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+          FilledButton(onPressed: () async {
+            final changed = Map<String,String>.from(item);
+            for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
+            await DemoStore.update('products', item, changed);
+            if (d.mounted) Navigator.pop(d, true);
+          }, child: const Text('ذخیره تغییرات')),
+        ],
+      ),
+    ));
+    for (final c in controllers.values) { c.dispose(); }
+    if (result == true && mounted) { setState(() {}); widget.onChanged(); }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
@@ -833,6 +865,8 @@ class _ProductPageState extends State<ProductPage> {
                     ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
                     : const CircleAvatar(child: Icon(Icons.inventory_2)),
                 title: Text(item['نام کالا'] ?? 'بدون نام'),
+                onTap: () => editProduct(item),
+                trailing: const Icon(Icons.edit_outlined),
                 subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
               )),
           ],
@@ -1056,7 +1090,11 @@ class OperationsPage extends StatelessWidget {
         FilledButton(onPressed: () async {
           if (name.text.trim().isEmpty || amount.text.trim().isEmpty) return;
           final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
-          await DemoStore.add('operations', data);
+          if (existing == null) {
+            await DemoStore.add('operations', data);
+          } else {
+            await DemoStore.update('operations', existing, data);
+          }
           if (d.mounted) Navigator.pop(d, true);
         }, child: const Text('ثبت عملیات')),
       ],
