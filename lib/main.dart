@@ -1490,36 +1490,78 @@ class _OperationsPageState extends State<OperationsPage> {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
     final note = TextEditingController(text: existing?['توضیحات'] ?? '');
+    final initialName = name.text, initialAmount = amount.text, initialNote = note.text;
     String method = existing?['روش'] ?? 'نقدی';
+    final initialMethod = method;
     final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
-    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, set) => AlertDialog(
-      title: Text(op),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
-        TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
-        if (op == 'پرداخت وجه' || op == 'دریافت وجه')
-          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
-        TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
-      ])),
-      actions: [
-        if (existing != null) TextButton.icon(onPressed: () async {
-          if (!await _confirmDelete(d, 1)) return;
-          await DemoStore.delete('operations', [existing]);
-          if (d.mounted) Navigator.pop(d, true);
-        }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
-        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
-        FilledButton(onPressed: () async {
-          if (name.text.trim().isEmpty || amount.text.trim().isEmpty) return;
-          final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
-          if (existing == null) {
-            await DemoStore.add('operations', data);
-          } else {
-            await DemoStore.update('operations', existing, data);
-          }
-          if (d.mounted) Navigator.pop(d, true);
-        }, child: const Text('ثبت عملیات')),
-      ],
-    ))));
+
+    bool dirty() => existing == null
+        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی'
+        : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod;
+
+    Future<void> requestClose(BuildContext dialogContext) async {
+      if (!dirty()) { Navigator.pop(dialogContext, false); return; }
+      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تغییرات ذخیره نشده‌اند'),
+          content: const Text('اطلاعات این عملیات ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
+          ],
+        ),
+      ));
+      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) { if (!didPop) requestClose(dialogContext); },
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
+            title: Text(op),
+            content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
+              TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+              if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+                DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
+              TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+            ])),
+            actions: [
+              if (existing != null) TextButton.icon(onPressed: () async {
+                if (!await _confirmDelete(dialogContext, 1)) return;
+                await DemoStore.delete('operations', [existing]);
+                if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+              }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
+              TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
+              FilledButton(onPressed: () async {
+                if (name.text.trim().isEmpty && amount.text.trim().isEmpty && note.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+                  return;
+                }
+                if (name.text.trim().isEmpty || amount.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام شخص و مبلغ را وارد کنید.')));
+                  return;
+                }
+                final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': existing?['تاریخ'] ?? DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
+                try {
+                  if (existing == null) await DemoStore.add('operations', data);
+                  else await DemoStore.update('operations', existing, data);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                } catch (error) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ذخیره عملیات ناموفق بود: $error')));
+                }
+              }, child: const Text('ثبت عملیات')),
+            ],
+          )),
+        ),
+      ),
+    );
     name.dispose(); amount.dispose(); note.dispose();
     if (result == true) widget.onChanged();
   }
