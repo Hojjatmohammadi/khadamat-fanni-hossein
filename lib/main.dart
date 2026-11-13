@@ -5,36 +5,94 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'data/app_database_schema.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DemoStore.init();
+  await AppSettings.load();
   runApp(const HoseinApp());
 }
 
 const yellow = Color(0xFFFFD400);
 const black = Color(0xFF171717);
 
+class AppSettings {
+  static late SharedPreferences _prefs;
+  static final revision = ValueNotifier<int>(0);
+  static String storeName = 'خدمات فنی حسین';
+  static String managerName = '';
+  static String phone = '';
+  static String address = '';
+  static String postalCode = '';
+  static bool darkMode = false;
+  static double fontScale = 1.0;
+
+  static Future<void> load() async {
+    _prefs = await SharedPreferences.getInstance();
+    storeName = _prefs.getString('store_name') ?? storeName;
+    managerName = _prefs.getString('manager_name') ?? '';
+    phone = _prefs.getString('store_phone') ?? '';
+    address = _prefs.getString('store_address') ?? '';
+    postalCode = _prefs.getString('store_postal_code') ?? '';
+    darkMode = _prefs.getBool('dark_mode') ?? false;
+    fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+  }
+
+  static Future<void> save({
+    required String newStoreName,
+    required String newManagerName,
+    required String newPhone,
+    required String newAddress,
+    required String newPostalCode,
+    required bool newDarkMode,
+    required double newFontScale,
+  }) async {
+    storeName = newStoreName.trim().isEmpty ? 'فروشگاه من' : newStoreName.trim();
+    managerName = newManagerName.trim();
+    phone = newPhone.trim();
+    address = newAddress.trim();
+    postalCode = newPostalCode.trim();
+    darkMode = newDarkMode;
+    fontScale = newFontScale;
+    await _prefs.setString('store_name', storeName);
+    await _prefs.setString('manager_name', managerName);
+    await _prefs.setString('store_phone', phone);
+    await _prefs.setString('store_address', address);
+    await _prefs.setString('store_postal_code', postalCode);
+    await _prefs.setBool('dark_mode', darkMode);
+    await _prefs.setDouble('font_scale', fontScale);
+    revision.value++;
+  }
+}
+
 class HoseinApp extends StatelessWidget {
   const HoseinApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'خدمات فنی حسین',
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: yellow, brightness: Brightness.light),
-          scaffoldBackgroundColor: const Color(0xFFF7F7F7),
-          appBarTheme: const AppBarTheme(backgroundColor: black, foregroundColor: yellow),
-          inputDecorationTheme: const InputDecorationTheme(
-            border: OutlineInputBorder(),
-            filled: true,
-            fillColor: Colors.white,
-          ),
-        ),
-        home: const HomePage(),
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: AppSettings.revision,
+        builder: (context, _, __) {
+          final brightness = AppSettings.darkMode ? Brightness.dark : Brightness.light;
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'خدمات فنی حسین',
+            theme: ThemeData(
+              useMaterial3: true,
+              colorScheme: ColorScheme.fromSeed(seedColor: yellow, brightness: brightness),
+              scaffoldBackgroundColor: AppSettings.darkMode ? const Color(0xFF121212) : const Color(0xFFF7F7F7),
+              appBarTheme: const AppBarTheme(backgroundColor: black, foregroundColor: yellow),
+              inputDecorationTheme: InputDecorationTheme(
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: AppSettings.darkMode ? const Color(0xFF252525) : Colors.white,
+              ),
+              textTheme: ThemeData(brightness: brightness).textTheme.apply(fontSizeFactor: AppSettings.fontScale),
+            ),
+            home: const HomePage(),
+          );
+        },
       );
 }
 
@@ -121,7 +179,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها'];
+  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -185,6 +243,7 @@ class _HomePageState extends State<HomePage> {
       RepairPage(onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
       const ReportsPage(),
+      const SettingsPage(),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -235,6 +294,16 @@ class _HomePageState extends State<HomePage> {
                       Navigator.pop(context);
                     },
                   ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('تنظیمات برنامه'),
+                  selected: tab == 6,
+                  onTap: () {
+                    _selectTab(6);
+                    Navigator.pop(context);
+                  },
+                ),
               ],
             ),
           ),
@@ -251,42 +320,14 @@ class Dashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = [
-      ('کالاهای ثبت‌شده', DemoStore.products.length.toString(), Icons.inventory_2),
-      ('مشتریان', DemoStore.customers.length.toString(), Icons.people),
-      ('پذیرش تعمیرات', DemoStore.repairs.length.toString(), Icons.build),
-      ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt),
+      ('کالاهای ثبت‌شده', DemoStore.products.length.toString(), Icons.inventory_2, 1),
+      ('مشتریان', DemoStore.customers.length.toString(), Icons.people, 2),
+      ('پذیرش تعمیرات', DemoStore.repairs.length.toString(), Icons.build, 3),
+      ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt, 4),
     ];
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: black, borderRadius: BorderRadius.circular(18)),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.asset(
-                  'assets/logo.jpg',
-                  width: 62,
-                  height: 62,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontWeight: FontWeight.bold, fontSize: 20)),
-                    Text('مدیریت فروشگاه و تعمیرات', style: TextStyle(color: Colors.white70)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -297,32 +338,28 @@ class Dashboard extends StatelessWidget {
           children: [
             for (final s in stats)
               Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(s.$3, color: Colors.amber.shade800, size: 28),
-                      const SizedBox(height: 6),
-                      Text(s.$2, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                      Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ],
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => onSelect(s.$4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(s.$3, color: Colors.amber.shade800, size: 28),
+                        const SizedBox(height: 6),
+                        Text(s.$2, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                        Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        const Icon(Icons.touch_app_outlined, size: 16, color: Colors.grey),
+                      ],
+                    ),
                   ),
                 ),
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت مشتری'), (3, 'پذیرش تعمیر'), (4, 'صدور فاکتور')])
-          Card(
-            child: ListTile(
-              title: Text(e.$2),
-              trailing: const Icon(Icons.chevron_left),
-              onTap: () => onSelect(e.$1),
-            ),
-          ),
         const Padding(
           padding: EdgeInsets.all(8),
           child: Text(
@@ -465,15 +502,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
         body: ListView(
           padding: const EdgeInsets.all(12),
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.icon(
-                onPressed: addItem,
-                icon: const Icon(Icons.add),
-                label: const Text('ثبت مورد جدید'),
-              ),
-            ),
-            const SizedBox(height: 8),
             if (widget.data.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(28),
@@ -744,8 +772,7 @@ class _ProductPageState extends State<ProductPage> {
         body: ListView(
           padding: const EdgeInsets.all(12),
           children: [
-            Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: addProduct, icon: const Icon(Icons.add), label: const Text('ثبت کالا'))),
-            const SizedBox(height: 8),
+
             if (DemoStore.products.isEmpty)
               const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
             for (final item in DemoStore.products.reversed)
@@ -800,6 +827,107 @@ class SalesPage extends StatelessWidget {
         fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
         primary: 'نام مشتری',
         onChanged: onChanged,
+      );
+}
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late final TextEditingController storeName;
+  late final TextEditingController managerName;
+  late final TextEditingController phone;
+  late final TextEditingController address;
+  late final TextEditingController postalCode;
+  late bool darkMode;
+  late double fontScale;
+
+  @override
+  void initState() {
+    super.initState();
+    storeName = TextEditingController(text: AppSettings.storeName);
+    managerName = TextEditingController(text: AppSettings.managerName);
+    phone = TextEditingController(text: AppSettings.phone);
+    address = TextEditingController(text: AppSettings.address);
+    postalCode = TextEditingController(text: AppSettings.postalCode);
+    darkMode = AppSettings.darkMode;
+    fontScale = AppSettings.fontScale;
+  }
+
+  @override
+  void dispose() {
+    storeName.dispose();
+    managerName.dispose();
+    phone.dispose();
+    address.dispose();
+    postalCode.dispose();
+    super.dispose();
+  }
+
+  Future<void> saveSettings() async {
+    await AppSettings.save(
+      newStoreName: storeName.text,
+      newManagerName: managerName.text,
+      newPhone: phone.text,
+      newAddress: address.text,
+      newPostalCode: postalCode.text,
+      newDarkMode: darkMode,
+      newFontScale: fontScale,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تنظیمات با موفقیت ذخیره شد')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('مشخصات فروشگاه', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          TextField(controller: storeName, decoration: const InputDecoration(labelText: 'نام فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: managerName, decoration: const InputDecoration(labelText: 'نام مدیر / صاحب فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'کد پستی')),
+          const Divider(height: 32),
+          const Text('تنظیمات ظاهری', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('حالت تیره'),
+            value: darkMode,
+            onChanged: (value) => setState(() => darkMode = value),
+          ),
+          Text('اندازه نوشته‌ها: ${(fontScale * 100).round()}٪'),
+          Slider(
+            value: fontScale,
+            min: 0.85,
+            max: 1.25,
+            divisions: 8,
+            label: '${(fontScale * 100).round()}٪',
+            onChanged: (value) => setState(() => fontScale = value),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: saveSettings,
+            icon: const Icon(Icons.save),
+            label: const Text('ذخیره تنظیمات'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'مشخصات و تنظیمات این بخش روی همین گوشی ذخیره می‌شوند. در مرحله بعد می‌توان آن‌ها را به سربرگ فاکتور و نسخه پشتیبان متصل کرد.',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
       );
 }
 
