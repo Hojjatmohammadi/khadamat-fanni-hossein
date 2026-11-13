@@ -477,7 +477,7 @@ class PartyAccounting {
   }
 
   static String formatMoney(int value) => value.toString().replaceAllMapped(
-      RegExp(r'\\B(?=(\\d{3})+(?!\\d))'), (_) => ',');
+      RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
 
   static String statusFor(String party) {
     final balance = balanceFor(party);
