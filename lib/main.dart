@@ -1638,7 +1638,15 @@ class _ProductPageState extends State<ProductPage> {
   }
 
   Future<void> _deleteProducts(List<Map<String, String>> items) async {
-    if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
+    if (items.isEmpty) return;
+    final hasHistory = items.any((product) => DemoStore.stockMovements.any((movement) =>
+        (movement['کد کالا'] ?? '') == (product['کد کالا'] ?? '') &&
+        (movement['نام کالا'] ?? '') == (product['نام کالا'] ?? '')));
+    if (hasHistory) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کالای دارای سابقه گردش انبار حذف نمی‌شود؛ برای حفظ کاردکس، موجودی آن را صفر کنید.')));
+      return;
+    }
+    if (!await _confirmDelete(context, items.length)) return;
     await DemoStore.delete('products', items);
     if (!mounted) return;
     setState(() => _selectedProducts.clear());
@@ -2086,6 +2094,13 @@ class _ProductPageState extends State<ProductPage> {
           ))),
           actions: [_horizontalDialogActions([
             TextButton.icon(onPressed: () async {
+              final hasHistory = DemoStore.stockMovements.any((movement) =>
+                  (movement['کد کالا'] ?? '') == (item['کد کالا'] ?? '') &&
+                  (movement['نام کالا'] ?? '') == (item['نام کالا'] ?? ''));
+              if (hasHistory) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('این کالا سابقه گردش انبار دارد و حذف نمی‌شود.')));
+                return;
+              }
               if (!await _confirmDelete(d, 1)) return;
               await DemoStore.delete('products', [item]);
               if (d.mounted) { allowDialogPop = true; Navigator.pop(d, true); }
@@ -3514,10 +3529,12 @@ class _ReportsPageState extends State<ReportsPage> {
         if (product != null) {
           final qty = _qty(product, 'موجودی');
           final cost = _qty(product, 'بهای تمام‌شده هر واحد');
-          await _addMovement(reference: id, type: 'ورود اولیه انبار', product: product,
-              delta: qty, before: 0, after: qty,
-              date: item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
-              note: 'موجودی اولیه هنگام ثبت کالا', unitCost: cost);
+          if (qty > 0) {
+            await _addMovement(reference: id, type: 'ورود اولیه انبار', product: product,
+                delta: qty, before: 0, after: qty,
+                date: item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
+                note: 'موجودی اولیه هنگام ثبت کالا', unitCost: cost);
+          }
           final openingValue = (qty * cost).round();
           if (openingValue > 0) {
             await _postJournal(id + ':opening', item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
