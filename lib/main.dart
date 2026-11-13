@@ -947,7 +947,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> _showCustomerAccount(Map<String, String> customer) async {
     final customerName = (customer['نام مشتری'] ?? '').trim();
     if (customerName.isEmpty) return;
-    final records = await DemoStore.database.query('records', columns: ['category','data','created_at'], where: 'category IN (?, ?)', whereArgs: ['sales','operations']);
+    final records = await DemoStore.database.query('records', columns: ['category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
     if (!mounted) return;
     final rows = <Map<String,Object?>>[];
     for (final record in records) {
@@ -958,14 +958,27 @@ class _SimpleListPageState extends State<SimpleListPage> {
       final date = DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
       double debit = 0, credit = 0; String desc = '', method = '';
       if (record['category'] == 'sales') {
-        debit = _ledgerAmount(data['مبلغ کل']); credit = _ledgerAmount(data['مبلغ دریافتی']);
-        if (debit == 0 && credit == 0) continue;
+        final gross = _ledgerAmount(data['مبلغ کل']);
+        final discount = _ledgerAmount(data['تخفیف']).clamp(0, gross).toDouble();
+        final received = _ledgerAmount(data['مبلغ دریافتی']);
+        if (gross <= 0 && received <= 0) continue;
         desc = 'فاکتور فروش: ' + (data['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمت').toString();
+        if (gross > 0) rows.add({'date':date,'description':desc,'method':'','debit':gross,'credit':0.0});
+        if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
+        if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
+        continue;
+      } else if (record['category'] == 'repairs') {
+        final wage = _ledgerAmount(data['اجرت']);
+        if (wage <= 0) continue;
+        debit = wage;
+        desc = 'اجرت تعمیر: ' + (data['نوع دستگاه'] ?? 'تعمیر دستگاه').toString();
+        final fault = (data['شرح عیب'] ?? '').toString().trim();
+        if (fault.isNotEmpty) desc += ' ـ ' + fault;
       } else {
         final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
         if (value <= 0) continue;
-        if (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(type)) debit = value;
-        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(type)) credit = value;
+        if (['متفرقه شخص بدهکار','پرداخت وجه'].contains(type)) debit = value;
+        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن','تخفیف گرفتن'].contains(type)) credit = value;
         else continue;
         desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
         method = (data['روش'] ?? '').toString();
@@ -1834,7 +1847,7 @@ class OperationsPage extends StatefulWidget {
 }
 
 class _OperationsPageState extends State<OperationsPage> {
-  static const options = ['تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  static const options = ['تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
   Future<void> _deleteSelected() async {
@@ -1942,7 +1955,15 @@ class _OperationsPageState extends State<OperationsPage> {
           child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
             title: Text(op),
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
+              if (['تخفیف دادن','تخفیف گرفتن','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  value: DemoStore.customers.any((c) => c['نام مشتری'] == name.text.trim()) ? name.text.trim() : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'انتخاب مشتری (اختیاری)'),
+                  items: DemoStore.customers.map((c) => c['نام مشتری'] ?? '').where((n) => n.trim().isNotEmpty).toSet().map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                  onChanged: (v) { if (v != null) { name.text = v; set(() {}); } },
+                ),
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
               TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
               if (op == 'پرداخت وجه' || op == 'دریافت وجه')
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
@@ -1964,7 +1985,8 @@ class _OperationsPageState extends State<OperationsPage> {
                   ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام شخص و مبلغ را وارد کنید.')));
                   return;
                 }
-                final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': existing?['تاریخ'] ?? DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
+                final canonicalOp = op == 'تخفیف دادن به مشتری' ? 'تخفیف دادن' : op == 'تخفیف گرفتن از فروشنده' ? 'تخفیف گرفتن' : op;
+                final data = {'نوع عملیات': canonicalOp, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': existing?['تاریخ'] ?? DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
                 try {
                   if (existing == null) await DemoStore.add('operations', data);
                   else await DemoStore.update('operations', existing, data);
