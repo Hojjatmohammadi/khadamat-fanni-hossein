@@ -2770,6 +2770,12 @@ class _OperationsPageState extends State<OperationsPage> {
       final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
       final date = TextEditingController(text: existing?['تاریخ'] ?? Jalali.now().formatCompactDate());
       final description = TextEditingController(text: existing?['شرح'] ?? '');
+      String? originReference = existing?['شناسه مرجع'];
+      final originRecords = returnType == 'برگشت فروش'
+          ? DemoStore.sales
+          : AppSettings.purchaseRecords;
+      String originId(Map<String,String> row, int index) =>
+          row['شناسه سند'] ?? 'legacy-origin-$index';
       final result = await showDialog<bool>(context:context,builder:(d)=>Directionality(
         textDirection:TextDirection.rtl,
         child:AlertDialog(
@@ -2782,6 +2788,36 @@ class _OperationsPageState extends State<OperationsPage> {
               decoration:const InputDecoration(labelText:'کالای مرتبط با انبار (اختیاری)'),
               items:DemoStore.products.map((x)=>DropdownMenuItem<String>(value:x['نام کالا']??'',child:Text(x['نام کالا']??''))).toList(),
               onChanged:(v){if(v!=null)product.text=v;},
+            ),
+            DropdownButtonFormField<String>(
+              value: originRecords.asMap().entries.any((entry) => originId(entry.value,entry.key) == originReference) ? originReference : null,
+              isExpanded:true,
+              decoration: InputDecoration(labelText:returnType=='برگشت فروش'?'فاکتور فروش مرجع (برای بهای تمام‌شده دقیق)':'خرید مرجع از فروشنده (برای بهای خرید دقیق)'),
+              items: originRecords.asMap().entries.map((entry) {
+                final row=entry.value;
+                final id=originId(row,entry.key);
+                final partyName=returnType=='برگشت فروش'?(row['نام مشتری']??''):(row['نام فروشنده']??'');
+                final itemName=returnType=='برگشت فروش'?(row['نام کالا (از انبار)']??row['شرح کالا/خدمت']??''):(row['کالا']??'');
+                return DropdownMenuItem<String>(value:id,child:Text('$partyName • $itemName',overflow:TextOverflow.ellipsis));
+              }).toList(),
+              onChanged:(v){
+                originReference=v;
+                if(v!=null){
+                  for(final entry in originRecords.asMap().entries){
+                    if(originId(entry.value,entry.key)==v){
+                      final row=entry.value;
+                      if(returnType=='برگشت فروش'){
+                        person.text=row['نام مشتری']??person.text;
+                        if((row['نام کالا (از انبار)']??'').isNotEmpty)product.text=row['نام کالا (از انبار)']!;
+                      }else{
+                        person.text=row['نام فروشنده']??person.text;
+                        product.text=row['کالا']??product.text;
+                      }
+                      break;
+                    }
+                  }
+                }
+              },
             ),
             TextField(controller:quantity,keyboardType:TextInputType.number,inputFormatters:[PersianDigitsOnlyFormatter()],decoration:const InputDecoration(labelText:'تعداد برگشتی از انبار (برای برگشت خدمات صفر)')),
             TextField(controller:amount,keyboardType:TextInputType.number,inputFormatters:[PersianDigitsOnlyFormatter()],decoration:const InputDecoration(labelText:'مبلغ برگشت (تومان)')),
@@ -2802,6 +2838,20 @@ class _OperationsPageState extends State<OperationsPage> {
                 'نوع برگشت':returnType,'نام شخص':person.text.trim(),'نام کالا':product.text.trim(),
                 'تعداد':PartyAccounting._digits(quantity.text).replaceAll(RegExp(r'[^0-9.]'),''),
                 'مبلغ':PartyAccounting.amount({'مبلغ':amount.text},'مبلغ').toString(),
+                'شناسه مرجع':originReference??'',
+                'بهای تمام‌شده هر واحد': (() {
+                  if(originReference==null) return '';
+                  for(final entry in originRecords.asMap().entries){
+                    if(originId(entry.value,entry.key)==originReference){
+                      final row=entry.value;
+                      if(returnType=='برگشت فروش') return row['بهای تمام‌شده هر واحد']??'';
+                      final q=PartyAccounting.amount(row,'تعداد خرید');
+                      final v=PartyAccounting.amount(row,'مبلغ خرید');
+                      return q>0?(v/q).toStringAsFixed(0):'';
+                    }
+                  }
+                  return '';
+                })(),
                 'تاریخ':date.text.trim(),'شرح':description.text.trim(),
               };
               try{
