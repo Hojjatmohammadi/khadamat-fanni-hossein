@@ -362,12 +362,14 @@ class DemoStore {
 
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
+    int? newRecordId;
     await _db!.transaction((txn) async {
       final recordId = await txn.insert('records', {
         'category': category,
         'data': jsonEncode(item),
         'created_at': createdAt,
       });
+      newRecordId = recordId;
       await AppDatabaseSchema.insertLegacyRecord(
         txn, category, item, recordId, createdAt,
       );
@@ -389,8 +391,8 @@ class DemoStore {
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
-    if (category == 'sales') {
-      archivedSales.add({...item, 'شماره فاکتور': 'HOS-${(await _db!.query('invoice_archive', columns: ['invoice_number'], orderBy: 'id DESC', limit: 1)).first['invoice_number']}'});
+    if (category == 'sales' && newRecordId != null) {
+      archivedSales.add({...item, 'شماره فاکتور': 'HOS-$newRecordId'});
     }
   }
 }
