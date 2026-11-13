@@ -2124,6 +2124,14 @@ class _ProductPageState extends State<ProductPage> {
               changed['نام فروشنده'] = supplier ?? '';
               changed['گروه اصلی'] = group ?? '';
               changed['زیرگروه'] = subgroup ?? '';
+              final hasHistory = DemoStore.stockMovements.any((movement) =>
+                  (movement['کد کالا'] ?? '') == (item['کد کالا'] ?? '') &&
+                  (movement['نام کالا'] ?? '') == (item['نام کالا'] ?? ''));
+              if (hasHistory &&
+                  (changed['نام کالا'] != item['نام کالا'] || changed['کد کالا'] != item['کد کالا'])) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام یا کد کالایی که کاردکس دارد تغییر نمی‌کند تا سابقه ورود و خروج آن محفوظ بماند.')));
+                return;
+              }
               try {
                 await DemoStore.update('products', item, changed);
                 if (d.mounted) { allowDialogPop = true; Navigator.pop(d, true); }
@@ -3376,6 +3384,10 @@ class _ReportsPageState extends State<ReportsPage> {
       final balance = PartyAccounting.balanceFor(name);
       return <String, String>{'نام مشتری': name, 'مبلغ': balance.toString(), 'ماهیت': 'بدهکار'};
     }).where((row) => PartyAccounting.amount(row, 'مبلغ') > 0).toList();
+    final productProfitRows = DemoStore.sales.where((sale) =>
+      (sale['نام کالا (از انبار)'] ?? '').trim().isNotEmpty &&
+      (sale['سود'] ?? '').trim().isNotEmpty).toList();
+
     final creditorRows = DemoStore.customers.map((customer) {
       final name = customer['نام مشتری'] ?? '';
       final balance = PartyAccounting.balanceFor(name);
@@ -3398,7 +3410,7 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'برگشت فروش', icon: Icons.assignment_return, count: DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت فروش').length, open: () => _showReport('برگشت فروش', Icons.assignment_return, DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت فروش').toList(), 'مبلغ', 'سندی برای برگشت فروش ثبت نشده است.')),
       (title: 'برگشت خرید', icon: Icons.keyboard_return, count: DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').length, open: () => _showReport('برگشت خرید', Icons.keyboard_return, DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').toList(), 'مبلغ', 'سندی برای برگشت خرید ثبت نشده است.')),
       (title: 'فروش کالاها', icon: Icons.point_of_sale, count: DemoStore.sales.length, open: () => _showReport('فروش کالاها', Icons.point_of_sale, DemoStore.sales, 'مبلغ کل', 'اطلاعات فروش کالا موجود نیست.')),
-      (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
+      (title: 'سود کالاها', icon: Icons.trending_up, count: productProfitRows.length, open: () => _showReport('سود کالاها', Icons.trending_up, productProfitRows, 'سود', 'فاکتور کالای انبار با بهای تمام‌شده ثبت نشده است.')),
       (title: 'چک‌ها', icon: Icons.receipt, count: filteredChecks.length, open: () => _showReport('چک‌ها', Icons.receipt, filteredChecks, 'مبلغ', 'چکی با این وضعیت ثبت نشده است.')),
       (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}).toList(), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
       (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه').length, open: () => _showReport('هزینه‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه').toList(), 'مبلغ', 'هزینه مستقلی ثبت نشده است.')),
@@ -3406,7 +3418,7 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
       (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.stockMovements.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.stockMovements, 'ارزش گردش', 'گردش انباری ثبت نشده است.')),
       (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی ثبت نشده است.')),
-      (title: 'ریز فروش و سود', icon: Icons.analytics_outlined, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.analytics_outlined, DemoStore.sales, 'سود', 'اطلاعات کافی برای محاسبه سود ثبت نشده است.')),
+      (title: 'ریز فروش و سود', icon: Icons.analytics_outlined, count: productProfitRows.length, open: () => _showReport('ریز فروش و سود', Icons.analytics_outlined, productProfitRows, 'سود', 'فاکتور کالای انبار با بهای تمام‌شده ثبت نشده است.')),
       (title: 'پذیرش تعمیرات', icon: Icons.build_outlined, count: DemoStore.repairs.length, open: () => _showReport('پذیرش تعمیرات', Icons.build_outlined, DemoStore.repairs, 'اجرت', 'پذیرش تعمیری ثبت نشده است.')),
     ];
 
