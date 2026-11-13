@@ -5834,6 +5834,24 @@ class _ReportsPageState extends State<ReportsPage> {
 
   static Future<void> syncDocument(String category, Map<String,String> item,
       {Map<String,String>? previous}) async {
+    if (category == 'customers') {
+      final opening = PartyAccounting.amount(item, 'مانده اولیه');
+      final side = (item['ماهیت مانده اولیه'] ?? 'بدهکار') == 'بستانکار';
+      final lines = <Map<String,String>>[];
+      if (opening > 0) {
+        if (side) {
+          lines.add(_line('سرمایه / مانده افتتاحیه', opening, 0, code: '300'));
+          lines.add(_line('حساب‌های پرداختنی - مشتریان', 0, opening, code: '210', party: item['نام مشتری'] ?? ''));
+        } else {
+          lines.add(_line('حساب‌های دریافتنی - مشتریان', opening, 0, code: '110', party: item['نام مشتری'] ?? ''));
+          lines.add(_line('سرمایه / مانده افتتاحیه', 0, opening, code: '300'));
+        }
+      }
+      await _postJournal(_reference('customers', item), item['تاریخ مانده اولیه'] ?? Jalali.now().formatCompactDate(),
+          'مانده افتتاحیه مشتری ' + (item['نام مشتری'] ?? ''), lines);
+      return;
+    }
+
     if (category == 'products') {
       final id = _reference(category, item);
       if (previous == null) {
