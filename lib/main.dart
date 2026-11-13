@@ -1182,8 +1182,10 @@ class _ProductPageState extends State<ProductPage> {
           subgroup != (item['زیرگروه']?.isEmpty == true ? null : item['زیرگروه']);
     }
 
+    bool allowDialogPop = false;
+
     Future<void> requestClose(BuildContext dialogContext) async {
-      if (!dirty()) { Navigator.pop(dialogContext, false); return; }
+      if (!dirty()) { allowDialogPop = true; Navigator.pop(dialogContext, false); return; }
       final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
@@ -1192,11 +1194,11 @@ class _ProductPageState extends State<ProductPage> {
           actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره'))])],
         ),
       ));
-      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+      if (discard == true && dialogContext.mounted) { allowDialogPop = true; Navigator.pop(dialogContext, false); }
     }
 
     final result = await showDialog<bool>(context: context, barrierDismissible: false, builder: (d) => PopScope<Object?>(
-      canPop: false,
+      canPop: allowDialogPop,
       onPopInvokedWithResult: (didPop, result) { if (!didPop) requestClose(d); },
       child: Directionality(
         textDirection: TextDirection.rtl,
@@ -1232,7 +1234,7 @@ class _ProductPageState extends State<ProductPage> {
             TextButton.icon(onPressed: () async {
               if (!await _confirmDelete(d, 1)) return;
               await DemoStore.delete('products', [item]);
-              if (d.mounted) Navigator.pop(d, true);
+              if (d.mounted) { allowDialogPop = true; Navigator.pop(d, true); }
             }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
             TextButton(onPressed: () => requestClose(d), child: const Text('انصراف')),
             FilledButton(onPressed: () async {
@@ -1246,7 +1248,7 @@ class _ProductPageState extends State<ProductPage> {
               changed['زیرگروه'] = subgroup ?? '';
               try {
                 await DemoStore.update('products', item, changed);
-                if (d.mounted) Navigator.pop(d, true);
+                if (d.mounted) { allowDialogPop = true; Navigator.pop(d, true); }
               } catch (error) {
                 if (d.mounted) ScaffoldMessenger.of(d).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
               }
