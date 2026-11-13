@@ -3583,15 +3583,15 @@ class _ReportsPageState extends State<ReportsPage> {
   static Future<void> removeDocument(String category, Map<String,String> item) async {
     if (!['sales','repairs','operations','products','returns','checks'].contains(category)) return;
     final reference = _reference(category, item);
-    if (['sales','repairs','returns'].contains(category)) await _reverseMovements(reference);
-    final journal = DemoStore.journalEntries.where((x) => x['مرجع سند'] == reference).toList();
-    if (journal.isNotEmpty) await DemoStore.delete('journalEntries', journal);
     if (category == 'products') {
       final movements = DemoStore.stockMovements.where((x) => (x['کد کالا'] ?? '') == (item['کد کالا'] ?? '')).toList();
       if (movements.isNotEmpty) {
         throw StateError('برای این کالا گردش انبار ثبت شده است؛ ابتدا اسناد مرتبط را اصلاح کنید.');
       }
     }
+    if (['sales','repairs','returns'].contains(category)) await _reverseMovements(reference);
+    final journal = DemoStore.journalEntries.where((x) => x['مرجع سند'] == reference).toList();
+    if (journal.isNotEmpty) await DemoStore.delete('journalEntries', journal);
   }
 
   static List<Map<String,String>> trialBalance() {
@@ -8393,8 +8393,11 @@ class _ReportsPageState extends State<ReportsPage> {
         final before = _qty(product, 'موجودی');
         if (qty > before) throw StateError('تعداد برگشت خرید از موجودی فعلی بیشتر است.');
         final after = before - qty;
-        final unitCost = _qty(product, 'بهای تمام‌شده هر واحد') > 0
-            ? _qty(product, 'بهای تمام‌شده هر واحد') : _qty(product, 'قیمت خرید هر واحد');
+        final unitCost = _qty(item, 'بهای تمام‌شده هر واحد') > 0
+            ? _qty(item, 'بهای تمام‌شده هر واحد')
+            : (_qty(product, 'بهای تمام‌شده هر واحد') > 0
+                ? _qty(product, 'بهای تمام‌شده هر واحد')
+                : _qty(product, 'قیمت خرید هر واحد'));
         await _setProductQuantity(product, after);
         await _addMovement(reference: reference, type: 'خروج بابت برگشت خرید',
           product: product, delta: -qty, before: before, after: after,
