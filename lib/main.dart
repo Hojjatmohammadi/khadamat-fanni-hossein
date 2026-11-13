@@ -2443,8 +2443,8 @@ class _ReportsPageState extends State<ReportsPage> {
       return (start == null || !date.isBefore(start)) && (end == null || !date.isAfter(end));
     }).toList();
   }
-  Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage) async {
-    rows = _applyDateFilter(rows);
+  Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage, {bool dateFilter = true}) async {
+    if (dateFilter) rows = _applyDateFilter(rows);
     final total = rows.fold<int>(0, (sum, item) => sum + _amount(item, amountKey));
     await showDialog<void>(
       context: context,
@@ -2481,7 +2481,20 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final debtorRows = DemoStore.customers.map((customer) {
+      final name = customer['نام مشتری'] ?? '';
+      final balance = PartyAccounting.balanceFor(name);
+      return <String, String>{'نام مشتری': name, 'مبلغ': balance.toString(), 'ماهیت': 'بدهکار'};
+    }).where((row) => PartyAccounting.amount(row, 'مبلغ') > 0).toList();
+    final creditorRows = DemoStore.customers.map((customer) {
+      final name = customer['نام مشتری'] ?? '';
+      final balance = PartyAccounting.balanceFor(name);
+      return <String, String>{'نام مشتری': name, 'مبلغ': (-balance).toString(), 'ماهیت': 'بستانکار'};
+    }).where((row) => PartyAccounting.amount(row, 'مبلغ') > 0).toList();
+
     final reports = <({String title, IconData icon, int count, VoidCallback open})>[
+      (title: 'مشتریان بدهکار', icon: Icons.person_search_outlined, count: debtorRows.length, open: () => _showReport('فهرست مشتریان بدهکار', Icons.person_search_outlined, debtorRows, 'مبلغ', 'مشتری بدهکاری وجود ندارد.', dateFilter: false)),
+      (title: 'مشتریان بستانکار', icon: Icons.account_balance_wallet_outlined, count: creditorRows.length, open: () => _showReport('فهرست مشتریان بستانکار', Icons.account_balance_wallet_outlined, creditorRows, 'مبلغ', 'مشتری بستانکاری وجود ندارد.', dateFilter: false)),
       (title: 'فاکتور فروش', icon: Icons.receipt_long, count: DemoStore.sales.length, open: () => _showReport('فاکتور فروش', Icons.receipt_long, DemoStore.sales, 'مبلغ کل', 'هنوز فاکتور فروشی ثبت نشده است.')),
       (title: 'فاکتور خرید', icon: Icons.shopping_bag_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('سوابق خرید ثبت‌شده', Icons.shopping_bag_outlined, AppSettings.purchaseRecords, 'مبلغ', 'سابقه خریدی در تنظیمات ثبت نشده است.')),
       (title: 'برگشت فروش', icon: Icons.assignment_return, count: 0, open: () => _showReport('برگشت فروش', Icons.assignment_return, const [], 'مبلغ', 'ثبت مستقل برگشت فروش هنوز در اطلاعات برنامه فعال نیست.')),
