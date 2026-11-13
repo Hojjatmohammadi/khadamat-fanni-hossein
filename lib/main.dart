@@ -2069,8 +2069,9 @@ class _SettingsPageState extends State<SettingsPage> {
           actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
             FilledButton(onPressed: () {
-              if (item.text.trim().isEmpty || seller.text.trim().isEmpty || date.text.trim().isEmpty) {
-                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام کالا، تاریخ خرید و نام فروشنده را وارد کنید.')));
+              if (item.text.trim().isEmpty || seller.text.trim().isEmpty || date.text.trim().isEmpty ||
+                  (index == null && purchaseAmount.text.trim().isEmpty)) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام کالا، تاریخ، فروشنده و مبلغ کل خرید را وارد کنید.')));
                 return;
               }
               Navigator.pop(d, true);
@@ -2106,7 +2107,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   final p = AppSettings.purchaseRecords[i];
                   return Card(child: ListTile(
                     title: Text(p['کالا'] ?? ''),
-                    subtitle: Text('تاریخ: ${p['تاریخ خرید'] ?? ''} • فروشنده: ${p['نام فروشنده'] ?? ''}\nمبلغ خرید: ${p['مبلغ خرید'] ?? '0'} • پرداخت: ${p['مبلغ پرداختی'] ?? '0'} • موبایل: ${p['موبایل'] ?? ''}'),
+                    subtitle: Builder(builder: (context) {
+                      final vendor = p['نام فروشنده'] ?? '';
+                      final balance = PartyAccounting.balanceFor(vendor);
+                      final status = balance < 0 ? 'بدهی به فروشنده' : balance > 0 ? 'طلب از فروشنده' : 'تسویه';
+                      return Text('تاریخ: ${p['تاریخ خرید'] ?? ''} • فروشنده: $vendor\nمبلغ خرید: ${p['مبلغ خرید'] ?? '0'} تومان • ${status}: ${balance.abs()} تومان • موبایل: ${p['موبایل'] ?? ''}');
+                    }),
                     isThreeLine: true,
                     trailing: PopupMenuButton<String>(onSelected: (v) async {
                       if (v == 'edit') { await editPurchase(existing: Map<String,String>.from(p), index: i); refresh(() {}); }
@@ -2496,7 +2502,7 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'مشتریان بدهکار', icon: Icons.person_search_outlined, count: debtorRows.length, open: () => _showReport('فهرست مشتریان بدهکار', Icons.person_search_outlined, debtorRows, 'مبلغ', 'مشتری بدهکاری وجود ندارد.', dateFilter: false)),
       (title: 'مشتریان بستانکار', icon: Icons.account_balance_wallet_outlined, count: creditorRows.length, open: () => _showReport('فهرست مشتریان بستانکار', Icons.account_balance_wallet_outlined, creditorRows, 'مبلغ', 'مشتری بستانکاری وجود ندارد.', dateFilter: false)),
       (title: 'فاکتور فروش', icon: Icons.receipt_long, count: DemoStore.sales.length, open: () => _showReport('فاکتور فروش', Icons.receipt_long, DemoStore.sales, 'مبلغ کل', 'هنوز فاکتور فروشی ثبت نشده است.')),
-      (title: 'فاکتور خرید', icon: Icons.shopping_bag_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('سوابق خرید ثبت‌شده', Icons.shopping_bag_outlined, AppSettings.purchaseRecords, 'مبلغ', 'سابقه خریدی در تنظیمات ثبت نشده است.')),
+      (title: 'فاکتور خرید', icon: Icons.shopping_bag_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('سوابق خرید ثبت‌شده', Icons.shopping_bag_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی در تنظیمات ثبت نشده است.')),
       (title: 'برگشت فروش', icon: Icons.assignment_return, count: 0, open: () => _showReport('برگشت فروش', Icons.assignment_return, const [], 'مبلغ', 'ثبت مستقل برگشت فروش هنوز در اطلاعات برنامه فعال نیست.')),
       (title: 'برگشت خرید', icon: Icons.keyboard_return, count: 0, open: () => _showReport('برگشت خرید', Icons.keyboard_return, const [], 'مبلغ', 'ثبت مستقل برگشت خرید هنوز در اطلاعات برنامه فعال نیست.')),
       (title: 'فروش کالاها', icon: Icons.point_of_sale, count: DemoStore.sales.length, open: () => _showReport('فروش کالاها', Icons.point_of_sale, DemoStore.sales, 'مبلغ کل', 'اطلاعات فروش کالا موجود نیست.')),
@@ -2505,7 +2511,7 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
       (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.products.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.products, 'تعداد', 'برای نمایش کاردکس، گردش ورود و خروج کالا باید ثبت شود.')),
-      (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ', 'سابقه خریدی ثبت نشده است.')),
+      (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی ثبت نشده است.')),
       (title: 'ریز فروش و سود', icon: Icons.analytics_outlined, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.analytics_outlined, DemoStore.sales, 'سود', 'اطلاعات کافی برای محاسبه سود ثبت نشده است.')),
       (title: 'پذیرش تعمیرات', icon: Icons.build_outlined, count: DemoStore.repairs.length, open: () => _showReport('پذیرش تعمیرات', Icons.build_outlined, DemoStore.repairs, 'اجرت', 'پذیرش تعمیری ثبت نشده است.')),
     ];
