@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 /// Normalized relational schema and a one-time, non-destructive migration
@@ -127,7 +129,7 @@ class AppDatabaseSchema {
       final id = row['id'] as int;
       final data = _decode(row['data']);
       final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
+      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
       final customerId = await db.insert(
         'customers',
         {
@@ -237,6 +239,98 @@ class AppDatabaseSchema {
           'line_total': total + discount,
         });
       }
+    }
+  }
+
+
+  /// Mirrors newly saved legacy-form records into the normalized tables while
+  /// the existing screens are being migrated incrementally.
+  static Future<void> insertLegacyRecord(
+    DatabaseExecutor db,
+    String category,
+    Map<String, String> item,
+    int sourceId,
+    String createdAt,
+  ) async {
+    final data = Map<String, Object?>.from(item);
+    if (category == 'customers') {
+      final fullName = _text(data, 'نام مشتری');
+      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      await db.insert('customers', {
+        'first_name': parts.isEmpty ? '' : parts.first,
+        'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
+        'phone': _text(data, 'شماره تماس'),
+        'address': _text(data, 'آدرس'),
+        'notes': _text(data, 'توضیحات'),
+        'created_at': createdAt,
+        'legacy_source_id': sourceId,
+      });
+    } else if (category == 'products') {
+      await db.insert('products', {
+        'code': _text(data, 'کد کالا'),
+        'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
+        'category': _text(data, 'گروه اصلی'),
+        'subcategory': _text(data, 'زیرگروه'),
+        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
+        'quantity': _number(data, 'موجودی'),
+        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
+        'sale_price': _number(data, 'قیمت فروش'),
+        'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
+                _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
+        'image_base64': _text(data, 'تصویر کالا'),
+        'shipping_cost': _number(data, 'هزینه پست'),
+        'freight_cost': _number(data, 'هزینه باربری / حمل'),
+        'other_cost': _number(data, 'سایر هزینه‌ها'),
+        'vat_rate': _number(data, 'درصد ارزش افزوده'),
+        'vat_included': _text(data, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
+        'created_at': createdAt,
+        'legacy_source_id': sourceId,
+      });
+    } else if (category == 'repairs') {
+      final customerName = _text(data, 'نام مشتری');
+      final matches = await db.query(
+        'customers',
+        columns: ['id'],
+        where: "TRIM(first_name || ' ' || last_name) = ?",
+        whereArgs: [customerName],
+        limit: 2,
+      );
+      await db.insert('repairs', {
+        'customer_id': matches.length == 1 ? matches.first['id'] : null,
+        'customer_name_snapshot': customerName,
+        'device_type': _text(data, 'نوع دستگاه'),
+        'problem_description': _text(data, 'شرح عیب'),
+        'labor_cost': _number(data, 'اجرت'),
+        'status': _text(data, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(data, 'وضعیت تعمیر'),
+        'received_at': createdAt,
+        'legacy_source_id': sourceId,
+      });
+    } else if (category == 'sales') {
+      final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
+      final total = _number(data, 'مبلغ کل');
+      final discount = _number(data, 'تخفیف');
+      final invoiceId = await db.insert('invoices', {
+        'invoice_number': 'LEGACY-$sourceId',
+        'customer_name_snapshot': _text(data, 'نام مشتری'),
+        'subtotal': total + discount,
+        'discount': discount,
+        'total': total,
+        'received_amount': _number(data, 'مبلغ دریافتی'),
+        'created_at': createdAt,
+        'legacy_source_id': sourceId,
+      });
+      final description = _text(data, 'شرح کالا/خدمت').isEmpty
+          ? 'مورد ثبت‌شده در نسخه قبلی'
+          : _text(data, 'شرح کالا/خدمت');
+      await db.insert('invoice_items', {
+        'invoice_id': invoiceId,
+        'product_name_snapshot': description,
+        'quantity': quantity,
+        'unit_price': (total + discount) / quantity,
+        'line_total': total + discount,
+      });
+    } else {
+      throw ArgumentError('دسته اطلاعات نامعتبر است: $category');
     }
   }
 
