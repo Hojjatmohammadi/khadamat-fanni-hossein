@@ -449,6 +449,9 @@ class PartyAccounting {
         AppSettings.purchaseRecords.any((x) => (x['نام فروشنده'] ?? '').trim() == name);
   }
 
+  static String formatMoney(int value) => value.toString().replaceAllMapped(
+      RegExp(r'\\B(?=(\\d{3})+(?!\\d))'), (_) => ',');
+
   static String statusFor(String party) {
     final balance = balanceFor(party);
     if (balance > 0) return 'بدهکار';
@@ -1152,7 +1155,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
             FilledButton(onPressed: () async {
-              final value = int.tryParse(amount.text.trim()) ?? 0;
+              final value = PartyAccounting.amount({'مبلغ': amount.text}, 'مبلغ');
               if (value <= 0) {
                 ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ معتبر وارد کنید.')));
                 return;
@@ -1193,7 +1196,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
             const Divider(height: 24),
             Card(color: Theme.of(d).colorScheme.secondaryContainer, child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
               const Text('مانده حساب'),
-              Text('${money(balance)} تومان', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              Text('${money(balance.abs())} تومان', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               Text(balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه'),
             ]))),
             Wrap(spacing: 8, runSpacing: 8, children: [
@@ -1239,8 +1242,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           color: Theme.of(context).colorScheme.secondaryContainer,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('جمع بدهکاران: ${PartyAccounting.totalDebtors().toString()} تومان'),
-            Text('جمع بستانکاران: ${PartyAccounting.totalCreditors().toString()} تومان'),
+            Text('جمع بدهکاران مشتریان: ${PartyAccounting.formatMoney(PartyAccounting.totalDebtors())} تومان'),
+            Text('جمع بستانکاران مشتریان: ${PartyAccounting.formatMoney(PartyAccounting.totalCreditors())} تومان'),
           ]),
         )) : null,
         floatingActionButton: FloatingActionButton(
@@ -1278,7 +1281,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                           final details = item.entries.where((e) => e.value.isNotEmpty && !['مانده اولیه', 'ماهیت مانده اولیه'].contains(e.key)).map((e) => '${e.key}: ${e.value}').join(' • ');
                           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             if (details.isNotEmpty) Text(details, maxLines: 2, overflow: TextOverflow.ellipsis),
-                            Text('مانده: ${balance.abs()} تومان • ${status}', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0 ? Colors.red : balance < 0 ? Colors.green : Colors.grey)),
+                            Text('مانده: ${PartyAccounting.formatMoney(balance.abs())} تومان • ${status}', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0 ? Colors.red : balance < 0 ? Colors.green : Colors.grey)),
                           ]);
                         })
                       : Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • ')),
