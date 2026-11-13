@@ -1952,12 +1952,12 @@ class _OperationsPageState extends State<OperationsPage> {
       final debit = op == 'خرید کالا' && isSupplier
           ? paid
           : isSupplier
-              ? (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
+              ? (['متفرقه شخص بدهکار','پرداخت وجه','دریافت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
               : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
       final credit = op == 'خرید کالا' && isSupplier
           ? amount
           : isSupplier
-              ? (['متفرقه شخص بستانکار','دریافت وجه'].contains(op) ? amount : 0.0)
+              ? (['متفرقه شخص بستانکار'].contains(op) ? amount : 0.0)
               : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
       if (debit == 0 && credit == 0) continue;
       rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
