@@ -716,6 +716,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> addItem({Map<String, String>? existing}) async {
     final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
+    final repairCustomerNames = DemoStore.customers
+        .map((customer) => (customer['نام مشتری'] ?? '').trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final previousRepairCustomer = existing?['نام مشتری']?.trim() ?? '';
+    if (previousRepairCustomer.isNotEmpty && !repairCustomerNames.contains(previousRepairCustomer)) {
+      repairCustomerNames.add(previousRepairCustomer);
+    }
 
     Future<void> saveForm(BuildContext dialogContext) async {
       final item = <String, String>{};
@@ -728,6 +738,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
       }
       if ((item[widget.primary] ?? '').trim().isEmpty) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('فیلد «${widget.primary}» اجباری است.')));
+        return;
+      }
+      if (widget.title == 'پذیرش تعمیر' && (item['نام مشتری'] ?? '').trim().isEmpty) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای پذیرش تعمیر، ابتدا یک مشتری از فهرست انتخاب کنید.')));
         return;
       }
       if (widget.title == 'مشتری' && (item['شماره تماس'] ?? '').isNotEmpty &&
@@ -855,20 +869,45 @@ class _SimpleListPageState extends State<SimpleListPage> {
                     for (int i = 0; i < widget.fields.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: TextField(
-                          controller: controllers[i],
-                          focusNode: focusNodes[i],
-                          keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
-                              ? TextInputType.number : TextInputType.text,
-                          inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
-                              ? [FilteringTextInputFormatter.digitsOnly] : const [],
-                          textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
-                          onSubmitted: (_) {
-                            if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
-                            else FocusScope.of(dialogContext).unfocus();
-                          },
-                          decoration: InputDecoration(labelText: widget.fields[i]),
-                        ),
+                        child: widget.title == 'پذیرش تعمیر' && widget.fields[i] == 'نام مشتری'
+                            ? DropdownButtonFormField<String>(
+                                value: repairCustomerNames.contains(controllers[i].text.trim())
+                                    ? controllers[i].text.trim()
+                                    : null,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  labelText: 'انتخاب مشتری',
+                                  hintText: repairCustomerNames.isEmpty
+                                      ? 'ابتدا مشتری را ثبت کنید'
+                                      : 'از فهرست مشتریان انتخاب کنید',
+                                  helperText: repairCustomerNames.isEmpty
+                                      ? 'برای ثبت پذیرش، ابتدا از بخش مشتریان یک مشتری اضافه کنید.'
+                                      : 'مشتریان قبلی؛ نیازی به ثبت دوباره نیست.',
+                                ),
+                                items: repairCustomerNames
+                                    .map((name) => DropdownMenuItem<String>(
+                                          value: name,
+                                          child: Text(name, overflow: TextOverflow.ellipsis),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  if (value != null) controllers[i].text = value;
+                                },
+                              )
+                            : TextField(
+                                controller: controllers[i],
+                                focusNode: focusNodes[i],
+                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                    ? TextInputType.number : TextInputType.text,
+                                inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                    ? [FilteringTextInputFormatter.digitsOnly] : const [],
+                                textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
+                                onSubmitted: (_) {
+                                  if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
+                                  else FocusScope.of(dialogContext).unfocus();
+                                },
+                                decoration: InputDecoration(labelText: widget.fields[i]),
+                              ),
                       ),
                   ],
                 ),
