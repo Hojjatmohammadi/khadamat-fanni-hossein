@@ -536,7 +536,8 @@ class PartyAccounting {
       final type = check['نوع چک'] ?? '';
       final status = check['وضعیت'] ?? 'پاس نشده';
       final effect = (check['اثر در مانده حساب'] ?? 'بله') == 'بله';
-      if (status == 'برگشتی') {
+      final reversedCheck = status == 'برگشتی' || (status == 'باطل شده' && !effect);
+      if (reversedCheck) {
         if (type == 'دریافتی') {
           _add(rows, name, 'بدهکار', amount(check, 'مبلغ'), 'برگشت چک دریافتی',
               check['تاریخ سررسید'] ?? check['تاریخ ثبت'] ?? '', 'برگشت چک؛ بدهی مشتری دوباره برقرار شد');
@@ -8433,25 +8434,37 @@ class _ReportsPageState extends State<ReportsPage> {
     final amount = PartyAccounting.amount(item, 'مبلغ');
     final lines = <Map<String,String>>[];
     final effect = (item['اثر در مانده حساب'] ?? 'بله') == 'بله';
-    if (amount > 0) {
-      if (type == 'دریافتی' && status == 'برگشتی') {
+    final reversedCheck = status == 'برگشتی' || (status == 'باطل شده' && !effect);
+    if (amount > 0 && reversedCheck) {
+      if (type == 'دریافتی') {
         lines.add(_line('حساب‌های دریافتنی - مشتریان', amount, 0, code: '110', party: party));
         lines.add(_line('اسناد دریافتنی', 0, amount, code: '112'));
-      } else if (type == 'پرداختی' && status == 'برگشتی') {
+      } else {
         lines.add(_line('اسناد پرداختنی', amount, 0, code: '212'));
         lines.add(_line('حساب‌های پرداختنی - فروشندگان', 0, amount, code: '210', party: party));
-      } else if (effect && status != 'باطل شده') {
-        if (type == 'دریافتی') {
-          final asset = status == 'پاس شده در بانک' ? 'بانک' :
-              status == 'پاس شده در صندوق' ? 'صندوق' : 'اسناد دریافتنی';
-          lines.add(_line(asset, amount, 0, code: asset == 'بانک' ? '102' : asset == 'صندوق' ? '101' : '112'));
-          lines.add(_line('حساب‌های دریافتنی - مشتریان', 0, amount, code: '110', party: party));
-        } else {
-          final liability = status == 'پاس نشده' ? 'اسناد پرداختنی' : 'بانک';
-          lines.add(_line('حساب‌های پرداختنی - فروشندگان', amount, 0, code: '210', party: party));
-          lines.add(_line(liability, 0, amount, code: liability == 'بانک' ? '102' : '212'));
-        }
       }
+    } else if (amount > 0 && effect && status != 'باطل شده') {
+      if (type == 'دریافتی') {
+        final asset = status == 'پاس شده در بانک' ? 'بانک' :
+            status == 'پاس شده در صندوق' ? 'صندوق' : 'اسناد دریافتنی';
+        lines.add(_line(asset, amount, 0, code: asset == 'بانک' ? '102' : asset == 'صندوق' ? '101' : '112'));
+        lines.add(_line('حساب‌های دریافتنی - مشتریان', 0, amount, code: '110', party: party));
+      } else {
+        final liability = status == 'پاس نشده' ? 'اسناد پرداختنی' : 'بانک';
+        lines.add(_line('حساب‌های پرداختنی - فروشندگان', amount, 0, code: '210', party: party));
+        lines.add(_line(liability, 0, amount, code: liability == 'بانک' ? '102' : '212'));
+      }
+    } else if (amount > 0 && !effect && status == 'پاس شده در بانک') {
+      if (type == 'دریافتی') {
+        lines.add(_line('بانک', amount, 0, code: '102'));
+        lines.add(_line('اسناد دریافتنی', 0, amount, code: '112'));
+      } else {
+        lines.add(_line('اسناد پرداختنی', amount, 0, code: '212'));
+        lines.add(_line('بانک', 0, amount, code: '102'));
+      }
+    } else if (amount > 0 && !effect && status == 'پاس شده در صندوق' && type == 'دریافتی') {
+      lines.add(_line('صندوق', amount, 0, code: '101'));
+      lines.add(_line('اسناد دریافتنی', 0, amount, code: '112'));
     }
     await _postJournal(reference, item['تاریخ ثبت'] ?? Jalali.now().formatCompactDate(),
         'چک ' + type + ' شماره ' + (item['شماره چک'] ?? '') + ' - ' + party, lines);
