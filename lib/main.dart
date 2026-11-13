@@ -27,6 +27,8 @@ class AppSettings {
   static String address = '';
   static String postalCode = '';
   static bool darkMode = false;
+  static String themeMode = 'روشن';
+  static String drawerImage = '';
   static double fontScale = 1.0;
 
   static Future<void> load() async {
@@ -37,6 +39,8 @@ class AppSettings {
     address = _prefs.getString('store_address') ?? '';
     postalCode = _prefs.getString('store_postal_code') ?? '';
     darkMode = _prefs.getBool('dark_mode') ?? false;
+    themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
+    drawerImage = _prefs.getString('drawer_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
   }
 
@@ -47,6 +51,8 @@ class AppSettings {
     required String newAddress,
     required String newPostalCode,
     required bool newDarkMode,
+    required String newThemeMode,
+    required String newDrawerImage,
     required double newFontScale,
   }) async {
     storeName = newStoreName.trim().isEmpty ? 'فروشگاه من' : newStoreName.trim();
@@ -54,7 +60,9 @@ class AppSettings {
     phone = newPhone.trim();
     address = newAddress.trim();
     postalCode = newPostalCode.trim();
-    darkMode = newDarkMode;
+    darkMode = newThemeMode == 'تیره';
+    themeMode = newThemeMode;
+    drawerImage = newDrawerImage;
     fontScale = newFontScale;
     await _prefs.setString('store_name', storeName);
     await _prefs.setString('manager_name', managerName);
@@ -62,6 +70,8 @@ class AppSettings {
     await _prefs.setString('store_address', address);
     await _prefs.setString('store_postal_code', postalCode);
     await _prefs.setBool('dark_mode', darkMode);
+    await _prefs.setString('theme_mode', themeMode);
+    await _prefs.setString('drawer_image', drawerImage);
     await _prefs.setDouble('font_scale', fontScale);
     revision.value++;
   }
@@ -74,19 +84,22 @@ class HoseinApp extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
         valueListenable: AppSettings.revision,
         builder: (context, _, __) {
-          final brightness = AppSettings.darkMode ? Brightness.dark : Brightness.light;
+          final brightness = AppSettings.themeMode == 'تیره' ? Brightness.dark : Brightness.light;
+          final seed = AppSettings.themeMode == 'فیروزه‌ای و سرمه‌ای'
+              ? const Color(0xFF087E8B)
+              : yellow;
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             title: 'خدمات فنی حسین',
             theme: ThemeData(
               useMaterial3: true,
-              colorScheme: ColorScheme.fromSeed(seedColor: yellow, brightness: brightness),
-              scaffoldBackgroundColor: AppSettings.darkMode ? const Color(0xFF121212) : const Color(0xFFF7F7F7),
+              colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
+              scaffoldBackgroundColor: AppSettings.themeMode == 'تیره' ? const Color(0xFF121212) : AppSettings.themeMode == 'فیروزه‌ای و سرمه‌ای' ? const Color(0xFFEAF4F4) : const Color(0xFFF7F7F7),
               appBarTheme: const AppBarTheme(backgroundColor: black, foregroundColor: yellow),
               inputDecorationTheme: InputDecorationTheme(
                 border: const OutlineInputBorder(),
                 filled: true,
-                fillColor: AppSettings.darkMode ? const Color(0xFF252525) : Colors.white,
+                fillColor: AppSettings.themeMode == 'تیره' ? const Color(0xFF252525) : Colors.white,
               ),
               textTheme: ThemeData(brightness: brightness).textTheme.apply(fontSizeFactor: AppSettings.fontScale),
             ),
@@ -102,6 +115,7 @@ class DemoStore {
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
   static final sales = <Map<String, String>>[];
+  static final operations = <Map<String, String>>[];
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
@@ -134,6 +148,7 @@ class DemoStore {
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
+    await _loadCategory('operations', operations);
   }
 
   static Future<void> _loadCategory(String category, List<Map<String, String>> target) async {
@@ -163,6 +178,7 @@ class DemoStore {
       'customers' => customers,
       'repairs' => repairs,
       'sales' => sales,
+      'operations' => operations,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
@@ -179,7 +195,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه'];
+  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه', 'عملیات‌های دیگر'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -244,6 +260,7 @@ class _HomePageState extends State<HomePage> {
       SalesPage(onChanged: () => setState(() {})),
       const ReportsPage(),
       const SettingsPage(),
+      OperationsPage(onChanged: () => setState(() {})),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -271,12 +288,9 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          'assets/logo.jpg',
-                          width: 68,
-                          height: 68,
-                          fit: BoxFit.cover,
-                        ),
+                        child: AppSettings.drawerImage.isNotEmpty
+                            ? Image.memory(base64Decode(AppSettings.drawerImage), width: 68, height: 68, fit: BoxFit.cover)
+                            : Image.asset('assets/logo.jpg', width: 68, height: 68, fit: BoxFit.cover),
                       ),
                       const SizedBox(height: 8),
                       Text(AppSettings.storeName, style: const TextStyle(color: yellow, fontSize: 22, fontWeight: FontWeight.bold)),
@@ -286,7 +300,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings, Icons.account_balance_wallet][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -314,7 +328,11 @@ class Dashboard extends StatelessWidget {
       ('مشتریان', DemoStore.customers.length.toString(), Icons.people, 2),
       ('پذیرش تعمیرات', DemoStore.repairs.length.toString(), Icons.build, 3),
       ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt, 4),
+      ('گزارش‌ها', 'مشاهده گزارش‌ها', Icons.bar_chart, 5),
+      ('عملیات‌های دیگر', '۶ عملیات مالی', Icons.account_balance_wallet, 7),
     ];
+    stats.add(('گزارش‌ها', 'گزارش‌گیری', Icons.bar_chart, 5));
+    stats.add(('عملیات‌های دیگر', 'عملیات مالی', Icons.account_balance_wallet, 7));
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -834,6 +852,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController address;
   late final TextEditingController postalCode;
   late bool darkMode;
+  late String themeMode;
+  late String drawerImage;
   late double fontScale;
 
   @override
@@ -845,6 +865,8 @@ class _SettingsPageState extends State<SettingsPage> {
     address = TextEditingController(text: AppSettings.address);
     postalCode = TextEditingController(text: AppSettings.postalCode);
     darkMode = AppSettings.darkMode;
+    themeMode = AppSettings.themeMode;
+    drawerImage = AppSettings.drawerImage;
     fontScale = AppSettings.fontScale;
   }
 
@@ -859,6 +881,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> saveSettings() async {
+    if (phone.text.length > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('شماره تماس حداکثر ۱۱ رقم باشد.')));
+      return;
+    }
+    if (postalCode.text.isNotEmpty && postalCode.text.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کد پستی باید دقیقاً ۱۰ رقم باشد.')));
+      return;
+    }
     await AppSettings.save(
       newStoreName: storeName.text,
       newManagerName: managerName.text,
@@ -866,6 +896,8 @@ class _SettingsPageState extends State<SettingsPage> {
       newAddress: address.text,
       newPostalCode: postalCode.text,
       newDarkMode: darkMode,
+      newThemeMode: themeMode,
+      newDrawerImage: drawerImage,
       newFontScale: fontScale,
     );
     if (!mounted) return;
@@ -884,28 +916,42 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 10),
           TextField(controller: managerName, decoration: const InputDecoration(labelText: 'نام مدیر / صاحب فروشگاه')),
           const SizedBox(height: 10),
-          TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه')),
+          TextField(controller: phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)], decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه (حداکثر ۱۱ رقم)')),
           const SizedBox(height: 10),
           TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشگاه')),
           const SizedBox(height: 10),
-          TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'کد پستی')),
+          TextField(controller: postalCode, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], decoration: const InputDecoration(labelText: 'کد پستی (دقیقاً ۱۰ رقم)')),
           const Divider(height: 32),
           const Text('تنظیمات ظاهری', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('حالت تیره'),
-            value: darkMode,
-            onChanged: (value) => setState(() => darkMode = value),
+          DropdownButtonFormField<String>(
+            value: themeMode,
+            decoration: const InputDecoration(labelText: 'قالب رنگی برنامه'),
+            items: const ['روشن', 'تیره', 'فیروزه‌ای و سرمه‌ای'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => setState(() { themeMode = v ?? 'روشن'; darkMode = themeMode == 'تیره'; }),
           ),
-          Text('اندازه نوشته‌ها: ${(fontScale * 100).round()}٪'),
-          Slider(
-            value: fontScale,
-            min: 0.85,
-            max: 1.25,
-            divisions: 8,
-            label: '${(fontScale * 100).round()}٪',
-            onChanged: (value) => setState(() => fontScale = value),
+          const SizedBox(height: 14),
+          const Text('اندازه نوشته‌ها'),
+          SegmentedButton<double>(
+            segments: const [
+              ButtonSegment(value: 0.82, label: Text('ریز')),
+              ButtonSegment(value: 0.92, label: Text('کوچک')),
+              ButtonSegment(value: 1.0, label: Text('استاندارد')),
+              ButtonSegment(value: 1.12, label: Text('بزرگ')),
+              ButtonSegment(value: 1.25, label: Text('خیلی بزرگ')),
+            ],
+            selected: {fontScale},
+            onSelectionChanged: (v) => setState(() => fontScale = v.first),
           ),
+          const Divider(height: 28),
+          const Text('عکس بالای منوی کناری', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (drawerImage.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.memory(base64Decode(drawerImage), height: 110, fit: BoxFit.contain)),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(onPressed: () async {
+              final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70, maxWidth: 900, maxHeight: 900);
+              if (x != null) { final bytes = await x.readAsBytes(); setState(() => drawerImage = base64Encode(bytes)); }
+            }, icon: const Icon(Icons.photo_library), label: const Text('انتخاب عکس')),
+            if (drawerImage.isNotEmpty) TextButton.icon(onPressed: () => setState(() => drawerImage = ''), icon: const Icon(Icons.delete), label: const Text('حذف عکس')),
+          ]),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: saveSettings,
@@ -919,6 +965,61 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       );
+}
+
+
+class OperationsPage extends StatelessWidget {
+  final VoidCallback onChanged;
+  OperationsPage({super.key, required this.onChanged});
+  static const options = ['تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    body: ListView(padding: const EdgeInsets.all(12), children: [
+      for (final op in options)
+        Card(child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
+          title: Text(op),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: () => _openOperation(context, op),
+        )),
+      const Divider(),
+      for (final item in DemoStore.operations.reversed)
+        Card(child: ListTile(
+          title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
+          subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
+          onTap: () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item),
+        )),
+    ]),
+  );
+  Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
+    final name = TextEditingController(text: existing?['نام شخص'] ?? '');
+    final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+    final note = TextEditingController(text: existing?['توضیحات'] ?? '');
+    String method = existing?['روش'] ?? 'نقدی';
+    final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
+    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, set) => AlertDialog(
+      title: Text(op),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
+        TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+        if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
+        TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () async {
+          if (name.text.trim().isEmpty || amount.text.trim().isEmpty) return;
+          final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
+          await DemoStore.add('operations', data);
+          if (d.mounted) Navigator.pop(d, true);
+        }, child: const Text('ثبت عملیات')),
+      ],
+    ))));
+    name.dispose(); amount.dispose(); note.dispose();
+    if (result == true) onChanged();
+  }
 }
 
 class ReportsPage extends StatelessWidget {
