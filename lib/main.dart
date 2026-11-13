@@ -734,7 +734,7 @@ class AccountingEngine {
     final received = PartyAccounting.amount(item, 'مبلغ دریافتی');
     if (gross <= 0) throw StateError('مبلغ فاکتور باید بیشتر از صفر باشد.');
     if (discount > gross) throw StateError('تخفیف نمی‌تواند از مبلغ کل فاکتور بیشتر باشد.');
-    if (received > gross - discount) throw StateError('مبلغ دریافتی نمی‌تواند از مبلغ خالص فاکتور بیشتر باشد.');
+    if (received < 0) throw StateError('مبلغ دریافتی نمی‌تواند منفی باشد.');
     final productName = (item['نام کالا (از انبار)'] ?? '').trim();
     if (productName.isEmpty) return;
     final product = _product(productName);
@@ -3562,12 +3562,14 @@ class _ReportsPageState extends State<ReportsPage> {
 
     if (category == 'sales') {
       final net = (PartyAccounting.amount(item, 'مبلغ کل') - PartyAccounting.amount(item, 'تخفیف')).clamp(0, 1 << 62).toInt();
-      final received = PartyAccounting.amount(item, 'مبلغ دریافتی').clamp(0, net).toInt();
-      final receivable = net - received;
+      final received = PartyAccounting.amount(item, 'مبلغ دریافتی');
+      final receivable = (net - received).clamp(0, 1 << 62).toInt();
+      final customerCredit = (received - net).clamp(0, 1 << 62).toInt();
       final lines = <Map<String,String>>[];
       if (received > 0) { final method = item['روش پرداخت'] ?? 'نقدی'; final account = method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد دریافتنی' : 'صندوق'; lines.add(_line(account, received, 0, code: method == 'چک' ? '112' : '101')); }
       if (receivable > 0) lines.add(_line('حساب‌های دریافتنی - مشتریان', receivable, 0, code: '110', party: item['نام مشتری'] ?? ''));
       if (net > 0) lines.add(_line('درآمد فروش کالا و خدمات', 0, net, code: '401'));
+      if (customerCredit > 0) lines.add(_line('اعتبار و پیش‌دریافت مشتریان', 0, customerCredit, code: '215', party: item['نام مشتری'] ?? ''));
       final cost = PartyAccounting.amount(item, 'بهای تمام‌شده کل');
       if (cost > 0) {
         lines.add(_line('بهای تمام‌شده کالای فروش‌رفته', cost, 0, code: '501'));
@@ -3593,12 +3595,14 @@ class _ReportsPageState extends State<ReportsPage> {
 
     if (category == 'repairs') {
       final total = PartyAccounting.amount(item, 'اجرت');
-      final received = PartyAccounting.amount(item, 'مبلغ دریافتی').clamp(0, total);
-      final due = total - received;
+      final received = PartyAccounting.amount(item, 'مبلغ دریافتی');
+      final due = (total - received).clamp(0, 1 << 62).toInt();
+      final customerCredit = (received - total).clamp(0, 1 << 62).toInt();
       final lines = <Map<String,String>>[];
       if (received > 0) lines.add(_line('صندوق', received, 0, code: '101'));
       if (due > 0) lines.add(_line('حساب‌های دریافتنی - مشتریان', due, 0, code: '110', party: item['نام مشتری'] ?? ''));
       if (total > 0) lines.add(_line('درآمد خدمات تعمیر', 0, total, code: '402'));
+      if (customerCredit > 0) lines.add(_line('اعتبار و پیش‌دریافت مشتریان', 0, customerCredit, code: '215', party: item['نام مشتری'] ?? ''));
       final partName = (item['نام قطعه مصرفی از انبار'] ?? '').trim();
       final part = _product(partName);
       final partQty = _qty(item, 'تعداد قطعه مصرفی');
