@@ -32,6 +32,10 @@ jobs:
             flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
 
+      - name: Add contacts permission
+        run: |
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_CONTACTS" />' android/app/src/main/AndroidManifest.xml
+
       - name: Install dependencies
         run: flutter pub get
 
