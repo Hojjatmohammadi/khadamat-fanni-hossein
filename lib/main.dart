@@ -3107,6 +3107,44 @@ class _ReportsPageState extends State<ReportsPage> {
   final toController = TextEditingController();
   String selectedPeriod = 'همه تاریخ‌ها';
   String selectedCheckStatus = 'همه چک‌ها';
+  bool saveFilterPermanently = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReportFilters();
+  }
+
+  Future<void> _loadReportFilters() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final enabled = prefs.getBool('reports_filter_saved') ?? false;
+    setState(() {
+      saveFilterPermanently = enabled;
+      if (enabled) {
+        fromController.text = prefs.getString('reports_filter_from') ?? '';
+        toController.text = prefs.getString('reports_filter_to') ?? '';
+        selectedPeriod = prefs.getString('reports_filter_period') ?? 'همه تاریخ‌ها';
+        selectedCheckStatus = prefs.getString('reports_filter_check_status') ?? 'همه چک‌ها';
+      }
+    });
+  }
+
+  Future<void> _persistReportFilters() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('reports_filter_saved', saveFilterPermanently);
+    if (saveFilterPermanently) {
+      await prefs.setString('reports_filter_from', fromController.text);
+      await prefs.setString('reports_filter_to', toController.text);
+      await prefs.setString('reports_filter_period', selectedPeriod);
+      await prefs.setString('reports_filter_check_status', selectedCheckStatus);
+    } else {
+      await prefs.remove('reports_filter_from');
+      await prefs.remove('reports_filter_to');
+      await prefs.remove('reports_filter_period');
+      await prefs.remove('reports_filter_check_status');
+    }
+  }
 
   @override
   void dispose() {
@@ -3128,7 +3166,10 @@ class _ReportsPageState extends State<ReportsPage> {
       lastDate: Jalali(1500, 12, 29),
       helpText: 'انتخاب تاریخ شمسی',
     );
-    if (picked != null) controller.text = picked.formatCompactDate();
+    if (picked != null) {
+      setState(() => controller.text = picked.formatCompactDate());
+      if (saveFilterPermanently) await _persistReportFilters();
+    }
   }
 
 
@@ -3347,8 +3388,8 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
       (title: 'چک‌ها', icon: Icons.receipt, count: filteredChecks.length, open: () => _showReport('چک‌ها', Icons.receipt, filteredChecks, 'مبلغ', 'چکی با این وضعیت ثبت نشده است.')),
       (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}).toList(), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
-      (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
-      (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
+      (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه').length, open: () => _showReport('هزینه‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه').toList(), 'مبلغ', 'هزینه مستقلی ثبت نشده است.')),
+      (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد').length, open: () => _showReport('درآمدها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد').toList(), 'مبلغ', 'درآمد مستقلی ثبت نشده است.')),
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
       (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.stockMovements.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.stockMovements, 'ارزش گردش', 'گردش انباری ثبت نشده است.')),
       (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی ثبت نشده است.')),
@@ -3371,18 +3412,28 @@ class _ReportsPageState extends State<ReportsPage> {
             ]),
             const SizedBox(height: 8),
             Wrap(spacing: 8, children: [
-              ChoiceChip(label: const Text('همه تاریخ‌ها'), selected: selectedPeriod == 'همه تاریخ‌ها', onSelected: (_) => setState(() { selectedPeriod = 'همه تاریخ‌ها'; fromController.clear(); toController.clear(); })),
-              ChoiceChip(label: const Text('امروز'), selected: selectedPeriod == 'امروز', onSelected: (_) => setState(() { selectedPeriod = 'امروز'; final today = Jalali.now().formatCompactDate(); fromController.text = today; toController.text = today; })),
-              ChoiceChip(label: const Text('این ماه'), selected: selectedPeriod == 'این ماه', onSelected: (_) => setState(() { final now = Jalali.now(); selectedPeriod = 'این ماه'; fromController.text = Jalali(now.year, now.month, 1).formatCompactDate(); toController.text = now.formatCompactDate(); })),
-              ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) => setState(() { final now = Jalali.now(); selectedPeriod = 'امسال'; fromController.text = Jalali(now.year, 1, 1).formatCompactDate(); toController.text = now.formatCompactDate(); })),
+              ChoiceChip(label: const Text('همه تاریخ‌ها'), selected: selectedPeriod == 'همه تاریخ‌ها', onSelected: (_) { setState(() { selectedPeriod = 'همه تاریخ‌ها'; fromController.clear(); toController.clear(); }); if (saveFilterPermanently) _persistReportFilters(); }),
+              ChoiceChip(label: const Text('امروز'), selected: selectedPeriod == 'امروز', onSelected: (_) { setState(() { selectedPeriod = 'امروز'; final today = Jalali.now().formatCompactDate(); fromController.text = today; toController.text = today; }); if (saveFilterPermanently) _persistReportFilters(); }),
+              ChoiceChip(label: const Text('این ماه'), selected: selectedPeriod == 'این ماه', onSelected: (_) { setState(() { final now = Jalali.now(); selectedPeriod = 'این ماه'; fromController.text = Jalali(now.year, now.month, 1).formatCompactDate(); toController.text = now.formatCompactDate(); }); if (saveFilterPermanently) _persistReportFilters(); }),
+              ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) { setState(() { final now = Jalali.now(); selectedPeriod = 'امسال'; fromController.text = Jalali(now.year, 1, 1).formatCompactDate(); toController.text = now.formatCompactDate(); }); if (saveFilterPermanently) _persistReportFilters(); }),
             ]),
-            Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () { fromController.clear(); toController.clear(); setState(() => selectedPeriod = 'همه تاریخ‌ها'); }, icon: const Icon(Icons.clear), label: const Text('پاک کردن فیلتر تاریخ'))),
+            Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () { fromController.clear(); toController.clear(); setState(() => selectedPeriod = 'همه تاریخ‌ها'); if (saveFilterPermanently) _persistReportFilters(); }, icon: const Icon(Icons.clear), label: const Text('پاک کردن فیلتر تاریخ'))),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('ذخیره دائمی فیلترهای گزارش'),
+              subtitle: const Text('بازه تاریخ و وضعیت چک برای ورود بعدی حفظ شود'),
+              value: saveFilterPermanently,
+              onChanged: (value) {
+                setState(() => saveFilterPermanently = value);
+                _persistReportFilters();
+              },
+            ),
             DropdownButtonFormField<String>(
               value: selectedCheckStatus,
               decoration: const InputDecoration(labelText: 'فیلتر وضعیت چک‌ها'),
               items: const ['همه چک‌ها','پاس نشده','پاس شده','پاس شده در بانک','پاس شده در صندوق','خرج شده','برگشتی','باطل شده']
                   .map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-              onChanged: (value) => setState(() => selectedCheckStatus = value ?? 'همه چک‌ها'),
+              onChanged: (value) { setState(() => selectedCheckStatus = value ?? 'همه چک‌ها'); if (saveFilterPermanently) _persistReportFilters(); },
             ),
           ]),
         )),
