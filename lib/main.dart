@@ -424,11 +424,38 @@ class PartyAccounting {
       }
     }
 
+    DateTime? parseDate(String raw) {
+      final value = _digits(raw);
+      final match = RegExp(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})').firstMatch(value);
+      if (match != null) {
+        final year = int.parse(match.group(1)!);
+        final month = int.parse(match.group(2)!);
+        final day = int.parse(match.group(3)!);
+        try {
+          return year >= 1300 ? Jalali(year, month, day).toDateTime() : DateTime(year, month, day);
+        } catch (_) { return null; }
+      }
+      return DateTime.tryParse(value)?.toLocal();
+    }
+
     rows.sort((a, b) {
       final ad = a['تاریخ'] ?? '';
       final bd = b['تاریخ'] ?? '';
+      final aDate = parseDate(ad);
+      final bDate = parseDate(bd);
+      if (aDate != null && bDate != null) return aDate.compareTo(bDate);
+      if (aDate != null) return 1;
+      if (bDate != null) return -1;
       return ad.compareTo(bd);
     });
+
+    var runningBalance = 0;
+    for (final row in rows) {
+      final value = amount(row, 'مبلغ');
+      runningBalance += row['ماهیت'] == 'بدهکار' ? value : -value;
+      row['مانده پس از سند'] = runningBalance.toString();
+      row['وضعیت مانده'] = runningBalance > 0 ? 'بدهکار' : runningBalance < 0 ? 'بستانکار' : 'تسویه';
+    }
     return rows;
   }
 
@@ -1224,6 +1251,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Text('${money(amountOf(entry, 'مبلغ'))} تومان'),
                   Text(entry['ماهیت'] ?? '', style: TextStyle(fontSize: 11, color: entry['ماهیت'] == 'بدهکار' ? Colors.red : Colors.green)),
+                  Text('مانده: ${money(amountOf(entry, 'مانده پس از سند').abs())} • ${entry['وضعیت مانده'] ?? ''}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
                 ]),
               ),
           ],
