@@ -2075,6 +2075,52 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _recordSupplierPayment(String supplierName) async {
+    final amount = TextEditingController();
+    final note = TextEditingController();
+    String paymentMethod = 'نقدی';
+    final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
+        title: const Text('ثبت پرداخت به فروشنده'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('فروشنده: ' + supplierName),
+          TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ پرداخت (تومان)')),
+          DropdownButtonFormField<String>(
+            value: paymentMethod,
+            decoration: const InputDecoration(labelText: 'روش پرداخت'),
+            items: const ['نقدی', 'چک', 'کارتی / حواله'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
+            onChanged: (v) => refresh(() => paymentMethod = v ?? 'نقدی'),
+          ),
+          TextField(controller: note, decoration: const InputDecoration(labelText: 'توضیحات')),
+        ]),
+        actions: [_horizontalDialogActions([
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+          FilledButton(onPressed: () {
+            if (PartyAccounting.amount({'مبلغ': amount.text}, 'مبلغ') <= 0) {
+              ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ معتبر وارد کنید.')));
+              return;
+            }
+            Navigator.pop(d, true);
+          }, child: const Text('ثبت پرداخت')),
+        ])],
+      )),
+    ));
+    if (saved == true) {
+      await DemoStore.add('operations', {
+        'نوع عملیات': 'پرداخت وجه',
+        'نام شخص': supplierName,
+        'مبلغ': PartyAccounting.amount({'مبلغ': amount.text}, 'مبلغ').toString(),
+        'روش': paymentMethod,
+        'تاریخ': Jalali.now().formatCompactDate(),
+        'توضیحات': note.text.trim(),
+      });
+      if (mounted) setState(() {});
+    }
+    amount.dispose();
+    note.dispose();
+  }
+
   Future<void> _managePurchases() async {
     Future<void> editPurchase({Map<String, String>? existing, int? index}) async {
       final item = TextEditingController(text: existing?['کالا'] ?? '');
@@ -2156,6 +2202,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     isThreeLine: true,
                     trailing: PopupMenuButton<String>(onSelected: (v) async {
                       if (v == 'edit') { await editPurchase(existing: Map<String,String>.from(p), index: i); refresh(() {}); }
+                      if (v == 'payment') { await _recordSupplierPayment(p['نام فروشنده'] ?? ''); refresh(() {}); }
                       if (v == 'delete') {
                         final yes = await showDialog<bool>(context: d, builder: (confirm) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
                           title: const Text('حذف خرید'), content: const Text('این سابقه خرید حذف شود؟'),
@@ -2163,7 +2210,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         )));
                         if (yes == true) { AppSettings.purchaseRecords.removeAt(i); await AppSettings.savePurchaseRecords(); refresh(() {}); }
                       }
-                    }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('ویرایش')), PopupMenuItem(value: 'delete', child: Text('حذف'))]),
+                    }, itemBuilder: (_) => const [PopupMenuItem(value: 'payment', child: Text('ثبت پرداخت به فروشنده')), PopupMenuItem(value: 'edit', child: Text('ویرایش')), PopupMenuItem(value: 'delete', child: Text('حذف'))]),
                   ));
                 })),
           ]),
