@@ -127,6 +127,26 @@ class AppSettings {
   }
 }
 
+class PersianDigitsOnlyFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    const persian = '۰۱۲۳۴۵۶۷۸۹';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+    final normalized = newValue.text.replaceAllMapped(RegExp(r'[۰-۹٠-٩]'), (match) {
+      final digit = match.group(0)!;
+      final p = persian.indexOf(digit);
+      if (p >= 0) return '$p';
+      final a = arabic.indexOf(digit);
+      return a >= 0 ? '$a' : '';
+    });
+    final digits = normalized.replaceAll(RegExp(r'[^0-9]'), '');
+    return TextEditingValue(
+      text: digits,
+      selection: TextSelection.collapsed(offset: digits.length),
+    );
+  }
+}
+
 class PersianDateInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
@@ -1116,7 +1136,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                 focusNode: focusNodes[i],
                                 keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i])
                                     ? TextInputType.number : TextInputType.text,
-                                inputFormatters: widget.fields[i].contains('تاریخ') ? [PersianDateInputFormatter()] : const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i]) ? [FilteringTextInputFormatter.digitsOnly] : const [],
+                                inputFormatters: widget.fields[i].contains('تاریخ') ? [PersianDateInputFormatter()] : const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i]) ? [PersianDigitsOnlyFormatter()] : const [],
                                 textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
                                 onSubmitted: (_) {
                                   if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
