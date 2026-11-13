@@ -1139,7 +1139,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
             if ((customer['توضیحات'] ?? '').isNotEmpty) Text('توضیحات: ${customer['توضیحات']}'),
             const Divider(height: 24),
             Card(color: Theme.of(d).colorScheme.secondaryContainer, child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-              const Text('مانده حساب تقریبی'),
+              const Text('مانده حساب'),
               Text('${money(balance)} تومان', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               Text(balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه'),
             ]))),
@@ -1989,6 +1989,8 @@ class _SettingsPageState extends State<SettingsPage> {
       final mobile = TextEditingController(text: existing?['موبایل'] ?? '');
       final sellerAddress = TextEditingController(text: existing?['آدرس'] ?? '');
       final website = TextEditingController(text: existing?['آدرس سایت'] ?? '');
+      final purchaseAmount = TextEditingController(text: existing?['مبلغ خرید'] ?? '');
+      final paidAmount = TextEditingController(text: existing?['مبلغ پرداختی'] ?? '0');
       final date = TextEditingController(text: existing?['تاریخ خرید'] ?? Jalali.now().formatCompactDate());
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
@@ -2003,6 +2005,10 @@ class _SettingsPageState extends State<SettingsPage> {
             }))),
             const SizedBox(height: 8),
             TextField(controller: seller, decoration: const InputDecoration(labelText: 'نام فروشنده / شخصی که خرید از او انجام شد')),
+            const SizedBox(height: 8),
+            TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
+            const SizedBox(height: 8),
+            TextField(controller: paidAmount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
             const SizedBox(height: 8),
@@ -2023,7 +2029,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ));
       if (result == true) {
-        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
+        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'مبلغ خرید': purchaseAmount.text.trim(), 'مبلغ پرداختی': paidAmount.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
         if (index == null) {
           AppSettings.purchaseRecords.add(record);
         } else {
@@ -2032,7 +2038,7 @@ class _SettingsPageState extends State<SettingsPage> {
         await AppSettings.savePurchaseRecords();
         if (mounted) setState(() {});
       }
-      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); date.dispose();
+      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); purchaseAmount.dispose(); paidAmount.dispose(); date.dispose();
     }
 
     await showDialog<void>(context: context, builder: (d) => Directionality(
@@ -2050,7 +2056,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   final p = AppSettings.purchaseRecords[i];
                   return Card(child: ListTile(
                     title: Text(p['کالا'] ?? ''),
-                    subtitle: Text('تاریخ: ${p['تاریخ خرید'] ?? ''} • فروشنده: ${p['نام فروشنده'] ?? ''}\nموبایل: ${p['موبایل'] ?? ''}'),
+                    subtitle: Text('تاریخ: ${p['تاریخ خرید'] ?? ''} • فروشنده: ${p['نام فروشنده'] ?? ''}\nمبلغ خرید: ${p['مبلغ خرید'] ?? '0'} • پرداخت: ${p['مبلغ پرداختی'] ?? '0'} • موبایل: ${p['موبایل'] ?? ''}'),
                     isThreeLine: true,
                     trailing: PopupMenuButton<String>(onSelected: (v) async {
                       if (v == 'edit') { await editPurchase(existing: Map<String,String>.from(p), index: i); refresh(() {}); }
