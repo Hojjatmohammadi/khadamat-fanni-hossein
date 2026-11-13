@@ -544,7 +544,7 @@ class PartyAccounting {
       final type = check['نوع چک'] ?? '';
       final status = check['وضعیت'] ?? 'پاس نشده';
       final effect = (check['اثر در مانده حساب'] ?? 'بله') == 'بله';
-      final reversedCheck = status == 'برگشتی' || (status == 'باطل شده' && !effect);
+      final reversedCheck = status == 'برگشتی' || status == 'باطل شده';
       if (reversedCheck) {
         if (type == 'دریافتی') {
           _add(rows, name, 'بدهکار', amount(check, 'مبلغ'), 'برگشت چک دریافتی',
@@ -666,25 +666,31 @@ class AccountingEngine {
     final productName = (result['نام کالا (از انبار)'] ?? '').trim();
     final product = _product(productName);
     final quantity = _qty(result, 'تعداد');
-    var unitCost = 0.0;
+    final gross = PartyAccounting.amount(result, 'مبلغ کل');
+    final discount = PartyAccounting.amount(result, 'تخفیف');
+    final netSales = (gross - discount).clamp(0, 1 << 62).toInt();
     if (product != null) {
       final sameOriginalProduct = oldItem != null &&
           (oldItem['نام کالا (از انبار)'] ?? '').trim() == productName &&
-          _qty(oldItem, 'بهای تمام‌شده هر واحد') > 0;
-      unitCost = sameOriginalProduct
+          _qty(oldItem!, 'بهای تمام‌شده هر واحد') > 0;
+      final unitCost = sameOriginalProduct
           ? _qty(oldItem!, 'بهای تمام‌شده هر واحد')
           : (_qty(product, 'بهای تمام‌شده هر واحد') > 0
               ? _qty(product, 'بهای تمام‌شده هر واحد')
               : _qty(product, 'قیمت خرید هر واحد'));
+      final costTotal = unitCost * quantity;
       result['شناسه کالا'] = product['کد کالا'] ?? '';
       result['واحد کالا'] = product['واحد شمارش'] ?? 'عدد';
+      result['بهای تمام‌شده هر واحد'] = unitCost.toStringAsFixed(0);
+      result['بهای تمام‌شده کل'] = costTotal.toStringAsFixed(0);
+      result['سود'] = (netSales - costTotal).toStringAsFixed(0);
+    } else {
+      result.remove('شناسه کالا');
+      result.remove('بهای تمام‌شده هر واحد');
+      result.remove('بهای تمام‌شده کل');
+      result.remove('سود');
     }
-    final costTotal = unitCost * quantity;
-    final netSales = (PartyAccounting.amount(result, 'مبلغ کل') - PartyAccounting.amount(result, 'تخفیف')).clamp(0, 1 << 62).toInt();
-    result['بهای تمام‌شده هر واحد'] = unitCost.toStringAsFixed(0);
-    result['بهای تمام‌شده کل'] = costTotal.toStringAsFixed(0);
     result['مبلغ فروش خالص'] = netSales.toString();
-    result['سود'] = (netSales - costTotal).toStringAsFixed(0);
     return result;
   }
 
@@ -723,6 +729,12 @@ class AccountingEngine {
   }
 
   static void validateSale(Map<String,String> item, {Map<String,String>? oldItem}) {
+    final gross = PartyAccounting.amount(item, 'مبلغ کل');
+    final discount = PartyAccounting.amount(item, 'تخفیف');
+    final received = PartyAccounting.amount(item, 'مبلغ دریافتی');
+    if (gross <= 0) throw StateError('مبلغ فاکتور باید بیشتر از صفر باشد.');
+    if (discount > gross) throw StateError('تخفیف نمی‌تواند از مبلغ کل فاکتور بیشتر باشد.');
+    if (received > gross - discount) throw StateError('مبلغ دریافتی نمی‌تواند از مبلغ خالص فاکتور بیشتر باشد.');
     final productName = (item['نام کالا (از انبار)'] ?? '').trim();
     if (productName.isEmpty) return;
     final product = _product(productName);
