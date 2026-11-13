@@ -610,84 +610,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (widget.title == 'مشتری' && existing == null)
-                    Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(
-                      onPressed: () async {
-                        try {
-                          final allowed = await FlutterContacts.requestPermission(readonly: true);
-                          if (!allowed) return;
-                          final contacts = await FlutterContacts.getContacts(withProperties: true);
-                          if (!dialogContext.mounted) return;
-                          final selected = await showDialog<Contact>(context: dialogContext, builder: (pickContext) => Directionality(
-                            textDirection: TextDirection.rtl,
-                            child: AlertDialog(
-                              title: const Text('انتخاب از مخاطبین'),
-                              content: SizedBox(width: 360, height: 420, child: ListView(children: [
-                                for (final c in contacts)
-                                  ListTile(title: Text(c.displayName), subtitle: Text(c.phones.isNotEmpty ? c.phones.first.number : 'بدون شماره'), onTap: () => Navigator.pop(pickContext, c)),
-                              ])),
-                            ),
-                          ));
-                          if (selected != null) {
-                            controllers[0].text = selected.displayName;
-                            if (controllers.length > 1 && selected.phones.isNotEmpty) {
-                              controllers[1].text = selected.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
-                            }
-                          }
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('دسترسی به مخاطبین ناموفق بود: $e')));
-                        }
-                      },
-                      icon: const Icon(Icons.contacts_outlined), label: const Text('انتخاب از مخاطبین گوشی'),
-                    )),
-                  for (int i = 0; i < widget.fields.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: TextField(
-                        controller: controllers[i],
-                        focusNode: focusNodes[i],
-                        keyboardType: const [
-                          'شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'
-                        ].contains(widget.fields[i]) ? TextInputType.number : TextInputType.text,
-                        inputFormatters: const [
-                          'شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'
-                        ].contains(widget.fields[i])
-                            ? [FilteringTextInputFormatter.digitsOnly]
-                            : const [],
-                        textInputAction: i == widget.fields.length - 1
-                            ? TextInputAction.done
-                            : TextInputAction.next,
-                        onSubmitted: (_) {
-                          if (i < focusNodes.length - 1) {
-                            FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
-                          } else {
-                            FocusScope.of(dialogContext).unfocus();
-                          }
-                        },
-                        decoration: InputDecoration(labelText: widget.fields[i]),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            if (existing != null) TextButton.icon(onPressed: () async {
-              if (!await _confirmDelete(dialogContext, 1)) return;
-              final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
-              await DemoStore.delete(category, [existing]);
-              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-            }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
-            FilledButton(
-              onPressed: () {
-                final item = <String, String>{};
-                for (int i = 0; i < widget.fields.length; i++) {
-                  item[widget.fields[i]] = controllers[i].text.trim();
-                }
-                if (widget.title == 'مشتری' &&
+                  if (widget.title == 'مشتری' &&
                     (item['شماره تماس'] ?? '').isNotEmpty &&
-                    !RegExp(r'^\d{11}
+                    !RegExp(r'^\d{11}$').hasMatch(item['شماره تماس'] ?? '')) {
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     const SnackBar(content: Text('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.')),
                   );
