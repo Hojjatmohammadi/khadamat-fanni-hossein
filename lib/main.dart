@@ -2656,9 +2656,142 @@ class _ReportsPageState extends State<ReportsPage> {
     });
   }
 
+  DateTime? _recordDate(Map<String, Object?> record) {
+    // Prefer a date explicitly entered on the record; otherwise use its saved timestamp.
+    try {
+      final rawData = record['data'];
+      if (rawData is String && rawData.isNotEmpty) {
+        final data = jsonDecode(rawData);
+        if (data is Map) {
+          for (final key in ['تاریخ ثبت کالا', 'تاریخ', 'تاریخ فاکتور', 'تاریخ پذیرش']) {
+            var value = (data[key] ?? '').toString().trim();
+            if (value.isEmpty) continue;
+            final isoDate = DateTime.tryParse(value);
+            if (isoDate != null) return isoDate;
+            const persian = '۰۱۲۳۴۵۶۷۸۹';
+            const arabic = '٠١٢٣٤٥٦٧٨٩';
+            for (var i = 0; i < 10; i++) {
+              value = value.replaceAll(persian[i], '$i').replaceAll(arabic[i], '$i');
+            }
+            final match = RegExp(r'^(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})
+    final day = DateTime(date.year, date.month, date.day);
+    if (_fromDate != null) {
+      final from = _fromDate!.toDateTime();
+      if (day.isBefore(DateTime(from.year, from.month, from.day))) return false;
+    }
+    if (_toDate != null) {
+      final to = _toDate!.toDateTime();
+      if (day.isAfter(DateTime(to.year, to.month, to.day))) return false;
+    }
+    return true;
+  }
+
+  String _dateLabel(Jalali? date) => date?.formatCompactDate() ?? 'از ابتدا / بدون محدودیت';
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, Object?>>>(
+    future: _recordsFuture,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.hasError) {
+        return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: ${snapshot.error}'));
+      }
+      final all = snapshot.data ?? const <Map<String, Object?>>[];
+      final filtered = all.where(_inRange).toList();
+      int count(String category) => filtered.where((r) => r['category'] == category).length;
+      return RefreshIndicator(
+        onRefresh: () async {
+          final next = _loadRecords();
+          setState(() => _recordsFuture = next);
+          await next;
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('گزارش‌ها بر اساس بازه تاریخ شمسی', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  const Text('فیلتر زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _chooseDate(isStart: true),
+                    icon: const Icon(Icons.calendar_month),
+                    label: Text('از تاریخ: ${_dateLabel(_fromDate)}'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _chooseDate(isStart: false),
+                    icon: const Icon(Icons.event),
+                    label: Text('تا تاریخ: ${_dateLabel(_toDate)}'),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; }),
+                      icon: const Icon(Icons.filter_alt_off),
+                      label: const Text('حذف فیلتر تاریخ'),
+                    ),
+                  ),
+                  Text(
+                    'بازه انتخاب‌شده: ${_fromDate?.formatCompactDate() ?? 'ابتدا'} تا ${_toDate?.formatCompactDate() ?? 'امروز / انتها'}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final entry in <(String, String, IconData)>[
+              ('کالاهای ثبت‌شده', 'products', Icons.inventory_2_outlined),
+              ('مشتریان ثبت‌شده', 'customers', Icons.people_outline),
+              ('پذیرش‌های تعمیر', 'repairs', Icons.build_outlined),
+              ('فاکتورهای فروش', 'sales', Icons.receipt_long_outlined),
+              ('عملیات مالی', 'operations', Icons.account_balance_wallet_outlined),
+            ])
+              Card(child: ListTile(
+                leading: Icon(entry.$3),
+                title: Text(entry.$1),
+                trailing: Text(count(entry.$2).toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+              )),
+            Text('تعداد کل اسناد در بازه: ${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              'فیلتر بر اساس زمان ثبت هر سند در پایگاه داده انجام می‌شود. تاریخ‌ها در انتخاب‌گر با تقویم هجری شمسی و نام روزهای فارسی نمایش داده می‌شوند.',
+              style: TextStyle(color: Colors.black54, fontSize: 12),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+).firstMatch(value);
+            if (match != null) {
+              try {
+                return Jalali(
+                  int.parse(match.group(1)!),
+                  int.parse(match.group(2)!),
+                  int.parse(match.group(3)!),
+                ).toDateTime();
+              } catch (_) {
+                // Fall back to the actual saved timestamp for malformed manual dates.
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // A malformed optional date must not break the reports screen.
+    }
+    return DateTime.tryParse((record['created_at'] ?? '').toString());
+  }
+
   bool _inRange(Map<String, Object?> record) {
-    final raw = (record['created_at'] ?? '').toString();
-    final date = DateTime.tryParse(raw);
+    final date = _recordDate(record);
     if (date == null) return false;
     final day = DateTime(date.year, date.month, date.day);
     if (_fromDate != null) {
