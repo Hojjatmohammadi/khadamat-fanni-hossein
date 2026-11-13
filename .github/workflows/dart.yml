@@ -7,6 +7,10 @@ on:
       - feature/first-test-apk
   workflow_dispatch:
 
+concurrency:
+  group: khadamat-fanni-android-release
+  cancel-in-progress: true
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
