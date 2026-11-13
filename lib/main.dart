@@ -682,6 +682,16 @@ class ProductPage extends StatefulWidget {
 }
 
 class _ProductPageState extends State<ProductPage> {
+  final Set<String> _selectedProducts = {};
+
+  Future<void> _deleteProducts(List<Map<String, String>> items) async {
+    if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
+    await DemoStore.delete('products', items);
+    if (!mounted) return;
+    setState(() => _selectedProducts.clear());
+    widget.onChanged();
+  }
+
   Future<void> addProduct() async {
     final names = ['نام کالا', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
     final c = List.generate(names.length, (_) => TextEditingController());
@@ -953,6 +963,11 @@ class _ProductPageState extends State<ProductPage> {
         ))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+          TextButton.icon(onPressed: () async {
+            if (!await _confirmDelete(d, 1)) return;
+            await DemoStore.delete('products', [item]);
+            if (d.mounted) Navigator.pop(d, true);
+          }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
           FilledButton(onPressed: () async {
             final changed = Map<String,String>.from(item);
             for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
@@ -973,24 +988,40 @@ class _ProductPageState extends State<ProductPage> {
           heroTag: 'add-product', backgroundColor: yellow, foregroundColor: black,
           onPressed: addProduct, child: const Icon(Icons.add),
         ),
-        body: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-
-            if (DemoStore.products.isEmpty)
-              const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
-            for (final item in DemoStore.products.reversed)
-              Card(child: ListTile(
-                leading: (item['تصویر کالا'] ?? '').isNotEmpty
-                    ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
-                    : const CircleAvatar(child: Icon(Icons.inventory_2)),
-                title: Text(item['نام کالا'] ?? 'بدون نام'),
-                onTap: () => editProduct(item),
-                trailing: const Icon(Icons.edit_outlined),
-                subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
-              )),
-          ],
-        ),
+        body: Column(children: [
+          if (_selectedProducts.isNotEmpty)
+            Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(children: [
+                Text('${_selectedProducts.length} مورد انتخاب شده'),
+                const Spacer(),
+                TextButton(onPressed: () => setState(() => _selectedProducts.clear()), child: const Text('لغو انتخاب')),
+                TextButton.icon(onPressed: () => setState(() => _selectedProducts.addAll(DemoStore.products.map((x) => jsonEncode(x)))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
+                IconButton(onPressed: () => _deleteProducts(DemoStore.products.where((x) => _selectedProducts.contains(jsonEncode(x))).toList()), icon: const Icon(Icons.delete, color: Colors.red)),
+              ]),
+            )),
+          Expanded(child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (DemoStore.products.isEmpty)
+                const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
+              for (final item in DemoStore.products.reversed)
+                Card(child: ListTile(
+                  leading: (item['تصویر کالا'] ?? '').isNotEmpty
+                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
+                      : CircleAvatar(child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2)),
+                  title: Text(item['نام کالا'] ?? 'بدون نام'),
+                  onLongPress: () => setState(() => _selectedProducts.add(jsonEncode(item))),
+                  onTap: () {
+                    if (_selectedProducts.isNotEmpty) setState(() { final k=jsonEncode(item); _selectedProducts.contains(k) ? _selectedProducts.remove(k) : _selectedProducts.add(k); });
+                    else editProduct(item);
+                  },
+                  trailing: _selectedProducts.isNotEmpty ? Checkbox(value: _selectedProducts.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selectedProducts.contains(k) ? _selectedProducts.remove(k) : _selectedProducts.add(k); })) : const Icon(Icons.edit_outlined),
+                  subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
+                )),
+            ],
+          )),
+        ]),
       );
 }
 
