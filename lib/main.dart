@@ -2197,7 +2197,41 @@ class _ReportsPageState extends State<ReportsPage> {
     if (picked != null) controller.text = picked.formatCompactDate();
   }
 
+
+  DateTime? _parseReportDate(String raw) {
+    if (raw.trim().isEmpty) return null;
+    var value = raw.trim();
+    const fa = '۰۱۲۳۴۵۶۷۸۹';
+    for (var i = 0; i < 10; i++) {
+      value = value.replaceAll(fa[i], '$i');
+    }
+    final match = RegExp(r'(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})').firstMatch(value);
+    if (match != null) {
+      final year = int.parse(match.group(1)!);
+      final month = int.parse(match.group(2)!);
+      final day = int.parse(match.group(3)!);
+      try {
+        return year >= 1300 ? Jalali(year, month, day).toDateTime() : DateTime(year, month, day);
+      } catch (_) { return null; }
+    }
+    return DateTime.tryParse(value)?.toLocal();
+  }
+
+  List<Map<String, String>> _applyDateFilter(List<Map<String, String>> source) {
+    final start = _parseReportDate(fromController.text);
+    final rawEnd = _parseReportDate(toController.text);
+    final end = rawEnd == null ? null : DateTime(rawEnd.year, rawEnd.month, rawEnd.day, 23, 59, 59);
+    if (start == null && end == null) return source;
+    return source.where((row) {
+      final raw = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ??
+          row['تاریخ ثبت کالا'] ?? row['تاریخ پذیرش'] ?? '';
+      final date = _parseReportDate(raw);
+      if (date == null) return false;
+      return (start == null || !date.isBefore(start)) && (end == null || !date.isAfter(end));
+    }).toList();
+  }
   Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage) async {
+    rows = _applyDateFilter(rows);
     final total = rows.fold<int>(0, (sum, item) => sum + _amount(item, amountKey));
     await showDialog<void>(
       context: context,
