@@ -810,56 +810,29 @@ class _SimpleListPageState extends State<SimpleListPage> {
                         child: OutlinedButton.icon(
                           onPressed: () async {
                             try {
-                              final allowed = await FlutterContacts.requestPermission(readonly: true);
-                              if (!allowed) {
-                                if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('اجازه دسترسی به مخاطبین داده نشد.')));
-                                return;
-                              }
-                              final contacts = await FlutterContacts.getContacts(withProperties: true);
-                              if (!dialogContext.mounted) return;
-                              if (contacts.isEmpty) {
-                                await showDialog<void>(context: dialogContext, builder: (d) => Directionality(
-                                  textDirection: TextDirection.rtl,
-                                  child: AlertDialog(
-                                    title: const Text('مخاطبی پیدا نشد'),
-                                    content: const Text('در فهرست مخاطبین گوشی، مخاطبی برای نمایش وجود ندارد.'),
-                                    actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d), child: const Text('باشه'))])],
-                                  ),
-                                ));
-                                return;
-                              }
-                              final selected = await showDialog<Contact>(
-                                context: dialogContext,
-                                builder: (pickContext) => Directionality(
-                                  textDirection: TextDirection.rtl,
-                                  child: AlertDialog(
-                                    title: const Text('انتخاب از مخاطبین'),
-                                    content: SizedBox(
-                                      width: 360,
-                                      height: 420,
-                                      child: ListView.builder(
-                                        itemCount: contacts.length,
-                                        itemBuilder: (context, index) {
-                                          final contact = contacts[index];
-                                          return ListTile(
-                                            title: Text(contact.displayName),
-                                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'بدون شماره'),
-                                            onTap: () => Navigator.pop(pickContext, contact),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                              final selected = await FlutterContacts.openExternalPick();
+                              if (selected == null || !dialogContext.mounted) return;
+                              final contact = await FlutterContacts.getContact(
+                                selected.id,
+                                withProperties: true,
                               );
-                              if (selected != null) {
-                                controllers[0].text = selected.displayName;
-                                if (controllers.length > 1 && selected.phones.isNotEmpty) {
-                                  controllers[1].text = selected.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
-                                }
+                              if (contact == null || !dialogContext.mounted) return;
+                              controllers[0].text = contact.displayName;
+                              if (controllers.length > 1 && contact.phones.isNotEmpty) {
+                                controllers[1].text = contact.phones.first.number
+                                    .replaceAll(RegExp(r'[^0-9]'), '');
+                              }
+                              if (contact.phones.isEmpty && dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(content: Text('نام مخاطب وارد شد؛ این مخاطب شماره تلفن ذخیره‌شده ندارد.')),
+                                );
                               }
                             } catch (error) {
-                              if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('باز کردن مخاطبین ناموفق بود: $error')));
+                              if (dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(content: Text('انتخاب مخاطب ناموفق بود: $error')),
+                                );
+                              }
                             }
                           },
                           icon: const Icon(Icons.contacts_outlined),
