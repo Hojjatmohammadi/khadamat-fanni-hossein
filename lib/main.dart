@@ -1144,36 +1144,95 @@ class _ProductPageState extends State<ProductPage> {
   }
 
   Future<void> editProduct(Map<String, String> item) async {
-    final editable = item.keys.where((k) => k != 'تصویر کالا').toList();
+    final groupKey = item['گروه اصلی'] ?? '';
+    if (groupKey.isNotEmpty && !AppSettings.productGroups.containsKey(groupKey)) {
+      AppSettings.productGroups[groupKey] = item['زیرگروه']?.isNotEmpty == true ? [item['زیرگروه']!] : [];
+      await AppSettings.saveProductGroups();
+    }
+    final editable = item.keys.where((k) => k != 'تصویر کالا' && k != 'گروه اصلی' && k != 'زیرگروه').toList();
     final controllers = {for (final key in editable) key: TextEditingController(text: item[key] ?? '')};
-    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('ویرایش کالا'),
-        content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [for (final key in editable)
-            Padding(padding: const EdgeInsets.only(bottom: 9), child: TextField(
-              controller: controllers[key],
-              keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','قیمت خرید هر واحد'].contains(key) ? TextInputType.number : TextInputType.text,
-              decoration: InputDecoration(labelText: key),
-            )),
+    String? group = groupKey.isEmpty ? null : groupKey;
+    String? subgroup = (item['زیرگروه'] ?? '').isEmpty ? null : item['زیرگروه'];
+
+    bool dirty() {
+      for (final key in editable) {
+        if (controllers[key]!.text.trim() != (item[key] ?? '')) return true;
+      }
+      return group != (item['گروه اصلی']?.isEmpty == true ? null : item['گروه اصلی']) ||
+          subgroup != (item['زیرگروه']?.isEmpty == true ? null : item['زیرگروه']);
+    }
+
+    Future<void> requestClose(BuildContext dialogContext) async {
+      if (!dirty()) { Navigator.pop(dialogContext, false); return; }
+      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تغییرات ذخیره نشده‌اند'),
+          content: const Text('ویرایش کالا ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
+          actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره'))],
+        ),
+      ));
+      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+    }
+
+    final result = await showDialog<bool>(context: context, barrierDismissible: false, builder: (d) => PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) { if (!didPop) requestClose(d); },
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
+          title: const Text('ویرایش کالا'),
+          content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final key in editable)
+                Padding(padding: const EdgeInsets.only(bottom: 9), child: TextField(
+                  controller: controllers[key],
+                  keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','کد کالا'].contains(key) ? TextInputType.number : TextInputType.text,
+                  decoration: InputDecoration(labelText: key),
+                )),
+              DropdownButtonFormField<String>(
+                value: group,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'گروه اصلی'),
+                items: AppSettings.productGroups.keys.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                onChanged: (v) => refresh(() { group = v; subgroup = null; }),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: subgroup,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'زیرگروه'),
+                items: (group == null ? <String>[] : AppSettings.productGroups[group] ?? <String>[]).map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                onChanged: (v) => refresh(() => subgroup = v),
+              ),
+            ],
+          ))),
+          actions: [
+            TextButton.icon(onPressed: () async {
+              if (!await _confirmDelete(d, 1)) return;
+              await DemoStore.delete('products', [item]);
+              if (d.mounted) Navigator.pop(d, true);
+            }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
+            TextButton(onPressed: () => requestClose(d), child: const Text('انصراف')),
+            FilledButton(onPressed: () async {
+              if (!dirty()) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+                return;
+              }
+              final changed = Map<String,String>.from(item);
+              for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
+              changed['گروه اصلی'] = group ?? '';
+              changed['زیرگروه'] = subgroup ?? '';
+              try {
+                await DemoStore.update('products', item, changed);
+                if (d.mounted) Navigator.pop(d, true);
+              } catch (error) {
+                if (d.mounted) ScaffoldMessenger.of(d).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
+              }
+            }, child: const Text('ذخیره تغییرات')),
           ],
-        ))),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
-          TextButton.icon(onPressed: () async {
-            if (!await _confirmDelete(d, 1)) return;
-            await DemoStore.delete('products', [item]);
-            if (d.mounted) Navigator.pop(d, true);
-          }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
-          FilledButton(onPressed: () async {
-            final changed = Map<String,String>.from(item);
-            for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
-            await DemoStore.update('products', item, changed);
-            if (d.mounted) Navigator.pop(d, true);
-          }, child: const Text('ذخیره تغییرات')),
-        ],
+        )),
       ),
     ));
     for (final c in controllers.values) { c.dispose(); }
