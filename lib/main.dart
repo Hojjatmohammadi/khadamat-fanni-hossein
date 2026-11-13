@@ -1103,8 +1103,16 @@ class _ProductPageState extends State<ProductPage> {
               TextButton(onPressed: () => requestProductClose(dialogContext), child: const Text('انصراف')),
               FilledButton(
                 onPressed: () {
+                  final hasAnyEntry = c.any((x) => x.text.trim().isNotEmpty) ||
+                      productImageBase64 != null || productGroup != null || productSubgroup != null ||
+                      isUsed || vatIncluded || number(shipping) > 0 || number(freight) > 0 ||
+                      number(other) > 0 || number(vatRate) > 0;
+                  if (!hasAnyEntry) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+                    return;
+                  }
                   if (c[0].text.trim().isEmpty) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام کالا را وارد کنید.')));
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام کالا اجباری است.')));
                     return;
                   }
                   final qty = number(c[2]);
