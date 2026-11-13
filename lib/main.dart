@@ -2397,6 +2397,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final purchaseAmount = TextEditingController(text: existing?['مبلغ خرید'] ?? '');
       final purchaseQuantity = TextEditingController(text: existing?['تعداد خرید'] ?? '1');
       final paidAmount = TextEditingController(text: existing?['مبلغ پرداختی'] ?? '0');
+      String paymentMethod = existing?['روش پرداخت'] ?? 'نقدی';
       final date = TextEditingController(text: existing?['تاریخ خرید'] ?? Jalali.now().formatCompactDate());
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
@@ -2417,6 +2418,13 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: paidAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده (تومان)')),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: paymentMethod,
+              decoration: const InputDecoration(labelText: 'روش پرداخت مبلغ پرداخت‌شده'),
+              items: const ['نقدی','کارتی / حواله','چک'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
+              onChanged: (v) { paymentMethod = v ?? 'نقدی'; },
+            ),
             const SizedBox(height: 8),
             TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
             const SizedBox(height: 8),
@@ -2448,7 +2456,7 @@ class _SettingsPageState extends State<SettingsPage> {
           'مبلغ خرید': PartyAccounting.amount({'مبلغ':purchaseAmount.text},'مبلغ').toString(),
           'تعداد خرید': PartyAccounting.amount({'مبلغ':purchaseQuantity.text},'مبلغ').toString(),
           'مبلغ پرداختی': PartyAccounting.amount({'مبلغ':paidAmount.text},'مبلغ').toString(),
-          'روش پرداخت': 'نقدی',
+          'روش پرداخت': paymentMethod,
           'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()
         };
         try {
@@ -2777,9 +2785,33 @@ class _OperationsPageState extends State<OperationsPage> {
       textDirection:TextDirection.rtl,
       child:StatefulBuilder(builder:(d,refresh){
         final sorted=[...DemoStore.checks]..sort((a,b)=>(a['تاریخ سررسید']??'').compareTo(b['تاریخ سررسید']??''));
+        DateTime? parseDueDate(String raw) {
+          final value = PartyAccounting._digits(raw);
+          final match = RegExp(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})').firstMatch(value);
+          if (match == null) return null;
+          try {
+            return Jalali(int.parse(match.group(1)!),int.parse(match.group(2)!),int.parse(match.group(3)!)).toDateTime();
+          } catch (_) { return null; }
+        }
+        final today = DateTime.now();
+        final dueSoon = sorted.where((check) {
+          if (['پاس شده در بانک','پاس شده در صندوق','خرج شده','برگشتی','باطل شده'].contains(check['وضعیت'])) return false;
+          final dueDate = parseDueDate(check['تاریخ سررسید'] ?? '');
+          if (dueDate == null) return false;
+          return dueDate.isBefore(today.add(const Duration(days: 2)));
+        }).toList();
         return AlertDialog(
           title:const Text('مدیریت چک‌ها'),
           content:SizedBox(width:420,height:440,child:Column(children:[
+            if (dueSoon.isNotEmpty)
+              Card(color: Theme.of(d).colorScheme.errorContainer, child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('یادآوری چک‌های سررسید نزدیک یا گذشته', style: TextStyle(fontWeight: FontWeight.bold)),
+                  for (final check in dueSoon.take(4))
+                    Text('${check['نوع چک'] ?? ''} • ${check['نام شخص'] ?? ''} • ${check['مبلغ'] ?? '0'} تومان • ${check['تاریخ سررسید'] ?? ''}'),
+                ]),
+              )),
             Align(alignment:Alignment.centerRight,child:FilledButton.icon(onPressed:()async{await editCheck();refresh((){});},icon:const Icon(Icons.add),label:const Text('ثبت چک جدید'))),
             const Divider(),
             Expanded(child:sorted.isEmpty?const Center(child:Text('هنوز چکی ثبت نشده است.')):ListView.builder(
