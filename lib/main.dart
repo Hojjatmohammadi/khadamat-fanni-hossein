@@ -301,6 +301,136 @@ class DemoStore {
   }
 }
 
+
+class PartyAccounting {
+  static String _digits(String value) {
+    const fa = '۰۱۲۳۴۵۶۷۸۹';
+    const ar = '٠١٢٣٤٥٦٧٨٩';
+    return value.split('').map((c) {
+      final f = fa.indexOf(c);
+      final a = ar.indexOf(c);
+      if (f >= 0) return '$f';
+      if (a >= 0) return '$a';
+      return c;
+    }).join();
+  }
+
+  static int amount(Map<String, String> item, String key) {
+    final raw = _digits(item[key] ?? '').replaceAll(RegExp(r'[^0-9-]'), '');
+    return int.tryParse(raw) ?? 0;
+  }
+
+  static void _add(List<Map<String, String>> rows, String party, String side,
+      int value, String type, String date, String description) {
+    final name = party.trim();
+    if (name.isEmpty || value <= 0) return;
+    rows.add({
+      'شخص': name,
+      'ماهیت': side,
+      'مبلغ': value.toString(),
+      'نوع': type,
+      'تاریخ': date,
+      'شرح': description,
+    });
+  }
+
+  static List<Map<String, String>> entriesFor(String party) {
+    final name = party.trim();
+    final rows = <Map<String, String>>[];
+
+    final customer = DemoStore.customers.where((x) => (x['نام مشتری'] ?? '').trim() == name);
+    for (final person in customer) {
+      final opening = amount(person, 'مانده اولیه');
+      final side = (person['ماهیت مانده اولیه'] ?? 'بدهکار').trim() == 'بستانکار'
+          ? 'بستانکار'
+          : 'بدهکار';
+      _add(rows, name, side, opening, 'مانده اول دوره',
+          person['تاریخ مانده اولیه'] ?? '', 'مانده اولیه ثبت‌شده برای مشتری');
+    }
+
+    for (final sale in DemoStore.sales.where((x) => (x['نام مشتری'] ?? '').trim() == name)) {
+      final gross = amount(sale, 'مبلغ کل');
+      final discount = amount(sale, 'تخفیف');
+      final net = (gross - discount).clamp(0, 1 << 62);
+      final date = sale['تاریخ فاکتور'] ?? sale['تاریخ'] ?? '';
+      _add(rows, name, 'بدهکار', net, 'فاکتور فروش', date,
+          sale['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمات');
+      _add(rows, name, 'بستانکار', amount(sale, 'مبلغ دریافتی'),
+          'دریافت هنگام فروش', date, 'پرداخت ثبت‌شده در فاکتور فروش');
+    }
+
+    for (final repair in DemoStore.repairs.where((x) => (x['نام مشتری'] ?? '').trim() == name)) {
+      final date = repair['تاریخ پذیرش'] ?? '';
+      _add(rows, name, 'بدهکار', amount(repair, 'اجرت'),
+          'اجرت تعمیر', date, repair['نوع دستگاه'] ?? 'پذیرش تعمیر');
+      _add(rows, name, 'بستانکار', amount(repair, 'مبلغ دریافتی'),
+          'دریافت تعمیر', date, 'مبلغ دریافت‌شده بابت تعمیر');
+    }
+
+    for (final purchase in AppSettings.purchaseRecords.where((x) => (x['نام فروشنده'] ?? '').trim() == name)) {
+      final date = purchase['تاریخ خرید'] ?? '';
+      _add(rows, name, 'بستانکار', amount(purchase, 'مبلغ خرید'),
+          'خرید از فروشنده', date, purchase['کالا'] ?? 'خرید کالا');
+      _add(rows, name, 'بدهکار', amount(purchase, 'مبلغ پرداختی'),
+          'پرداخت خرید', date, 'مبلغ پرداخت‌شده به فروشنده');
+    }
+
+    for (final operation in DemoStore.operations.where((x) => (x['نام شخص'] ?? '').trim() == name)) {
+      final type = operation['نوع عملیات'] ?? '';
+      final date = operation['تاریخ'] ?? '';
+      final value = amount(operation, 'مبلغ');
+      String? side;
+      switch (type) {
+        case 'دریافت وجه':
+        case 'متفرقه شخص بستانکار':
+        case 'تخفیف دادن':
+          side = 'بستانکار';
+          break;
+        case 'پرداخت وجه':
+        case 'متفرقه شخص بدهکار':
+        case 'تخفیف گرفتن':
+          side = 'بدهکار';
+          break;
+      }
+      if (side != null) {
+        _add(rows, name, side, value, type, date,
+            operation['توضیحات'] ?? operation['روش'] ?? type);
+      }
+    }
+
+    rows.sort((a, b) {
+      final ad = a['تاریخ'] ?? '';
+      final bd = b['تاریخ'] ?? '';
+      return ad.compareTo(bd);
+    });
+    return rows;
+  }
+
+  static int balanceFor(String party) {
+    return entriesFor(party).fold<int>(0, (balance, entry) {
+      final value = amount(entry, 'مبلغ');
+      return balance + (entry['ماهیت'] == 'بدهکار' ? value : -value);
+    });
+  }
+
+  static String statusFor(String party) {
+    final balance = balanceFor(party);
+    if (balance > 0) return 'بدهکار';
+    if (balance < 0) return 'بستانکار';
+    return 'تسویه';
+  }
+
+  static int totalDebtors() => DemoStore.customers.fold<int>(0, (sum, x) {
+    final balance = balanceFor(x['نام مشتری'] ?? '');
+    return sum + (balance > 0 ? balance : 0);
+  });
+
+  static int totalCreditors() => DemoStore.customers.fold<int>(0, (sum, x) {
+    final balance = balanceFor(x['نام مشتری'] ?? '');
+    return sum + (balance < 0 ? -balance : 0);
+  });
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
