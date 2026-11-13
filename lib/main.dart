@@ -2533,6 +2533,11 @@ class _OperationsPageState extends State<OperationsPage> {
         IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
       ])),
       Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
+      Card(child: ListTile(leading:const Icon(Icons.receipt_long),title:const Text('مدیریت چک‌ها'),subtitle:Text('\${DemoStore.checks.length} چک ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:_manageChecks)),
+      Card(child: ListTile(leading:const Icon(Icons.assignment_return),title:const Text('برگشت فروش'),subtitle:const Text('ثبت برگشت به مشتری و ورود کالا به انبار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_manageReturns('برگشت فروش'))),
+      Card(child: ListTile(leading:const Icon(Icons.keyboard_return),title:const Text('برگشت خرید'),subtitle:const Text('ثبت برگشت به فروشنده و خروج کالا از انبار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_manageReturns('برگشت خرید'))),
+      Card(child: ListTile(leading:const Icon(Icons.menu_book_outlined),title:const Text('دفتر کل و تراز آزمایشی'),subtitle:const Text('مشاهده اسناد دوطرفه و جمع بدهکار و بستانکار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_showGeneralLedger('دفتر کل',DemoStore.journalEntries))),
+      Card(child: ListTile(leading:const Icon(Icons.inventory_outlined),title:const Text('کاردکس و گردش انبار'),subtitle:Text('\${DemoStore.stockMovements.length} گردش ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:()=>_showGeneralLedger('کاردکس کالا',DemoStore.stockMovements))),
       for (final op in options)
         Card(child: ListTile(
           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
@@ -2552,6 +2557,216 @@ class _OperationsPageState extends State<OperationsPage> {
         )),
     ])),
   ]));
+
+  Future<void> _manageChecks() async {
+    Future<void> editCheck({Map<String,String>? existing}) async {
+      final person = TextEditingController(text: existing?['نام شخص'] ?? '');
+      final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+      final number = TextEditingController(text: existing?['شماره چک'] ?? '');
+      final bank = TextEditingController(text: existing?['بانک'] ?? '');
+      final issued = TextEditingController(text: existing?['تاریخ ثبت'] ?? Jalali.now().formatCompactDate());
+      final due = TextEditingController(text: existing?['تاریخ سررسید'] ?? Jalali.now().formatCompactDate());
+      final note = TextEditingController(text: existing?['توضیحات'] ?? '');
+      String kind = existing?['نوع چک'] ?? 'دریافتی';
+      String status = existing?['وضعیت'] ?? 'پاس نشده';
+      final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
+          title: Text(existing == null ? 'ثبت چک جدید' : 'ویرایش چک'),
+          content: SizedBox(width: 400, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            DropdownButtonFormField<String>(
+              value: kind,
+              decoration: const InputDecoration(labelText: 'نوع چک'),
+              items: const ['دریافتی','پرداختی'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
+              onChanged: (v) => refresh(() => kind = v ?? 'دریافتی'),
+            ),
+            TextField(controller: person, decoration: const InputDecoration(labelText: 'نام مشتری یا فروشنده')),
+            TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ چک (تومان)')),
+            TextField(controller: number, decoration: const InputDecoration(labelText: 'شماره چک')),
+            TextField(controller: bank, decoration: const InputDecoration(labelText: 'بانک')),
+            TextField(controller: issued, readOnly: true, onTap: () async {
+              final picked = await showPersianDatePicker(context: d, initialDate: Jalali.now(), firstDate: Jalali(1300,1,1), lastDate: Jalali(1500,12,29));
+              if (picked != null) issued.text = picked.formatCompactDate();
+            }, decoration: const InputDecoration(labelText: 'تاریخ ثبت', suffixIcon: Icon(Icons.calendar_month))),
+            TextField(controller: due, readOnly: true, onTap: () async {
+              final picked = await showPersianDatePicker(context: d, initialDate: Jalali.now(), firstDate: Jalali(1300,1,1), lastDate: Jalali(1500,12,29));
+              if (picked != null) due.text = picked.formatCompactDate();
+            }, decoration: const InputDecoration(labelText: 'تاریخ سررسید', suffixIcon: Icon(Icons.event))),
+            DropdownButtonFormField<String>(
+              value: status,
+              decoration: const InputDecoration(labelText: 'وضعیت چک'),
+              items: const ['پاس نشده','پاس شده در بانک','پاس شده در صندوق','خرج شده','برگشتی','باطل شده'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
+              onChanged: (v) => refresh(() => status = v ?? 'پاس نشده'),
+            ),
+            TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+          ]))),
+          actions: [_horizontalDialogActions([
+            if (existing != null) TextButton(onPressed: () async {
+              if (!await _confirmDelete(d,1)) return;
+              await DemoStore.delete('checks',[existing]);
+              if (d.mounted) Navigator.pop(d,true);
+            }, child: const Text('حذف')),
+            TextButton(onPressed: () => Navigator.pop(d,false), child: const Text('انصراف')),
+            FilledButton(onPressed: () async {
+              if (person.text.trim().isEmpty || PartyAccounting.amount({'مبلغ':amount.text},'مبلغ') <= 0 || due.text.trim().isEmpty) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام شخص، مبلغ و تاریخ سررسید را وارد کنید.')));
+                return;
+              }
+              final data = <String,String>{
+                'نوع چک':kind, 'نام شخص':person.text.trim(),
+                'مبلغ':PartyAccounting.amount({'مبلغ':amount.text},'مبلغ').toString(),
+                'شماره چک':number.text.trim(), 'بانک':bank.text.trim(),
+                'تاریخ ثبت':issued.text.trim(), 'تاریخ سررسید':due.text.trim(),
+                'وضعیت':status, 'توضیحات':note.text.trim(),
+              };
+              try {
+                if (existing == null) await DemoStore.add('checks',data);
+                else await DemoStore.update('checks',existing,data);
+                if (d.mounted) Navigator.pop(d,true);
+              } catch (error) {
+                if (d.mounted) ScaffoldMessenger.of(d).showSnackBar(SnackBar(content: Text('ثبت چک ناموفق بود: $error')));
+              }
+            }, child: const Text('ذخیره چک')),
+          ])],
+        )),
+      ));
+      person.dispose(); amount.dispose(); number.dispose(); bank.dispose(); issued.dispose(); due.dispose(); note.dispose();
+      if (result == true && mounted) { setState(() {}); widget.onChanged(); }
+    }
+
+    await showDialog<void>(context:context,builder:(d)=>Directionality(
+      textDirection:TextDirection.rtl,
+      child:StatefulBuilder(builder:(d,refresh){
+        final sorted=[...DemoStore.checks]..sort((a,b)=>(a['تاریخ سررسید']??'').compareTo(b['تاریخ سررسید']??''));
+        return AlertDialog(
+          title:const Text('مدیریت چک‌ها'),
+          content:SizedBox(width:420,height:440,child:Column(children:[
+            Align(alignment:Alignment.centerRight,child:FilledButton.icon(onPressed:()async{await editCheck();refresh((){});},icon:const Icon(Icons.add),label:const Text('ثبت چک جدید'))),
+            const Divider(),
+            Expanded(child:sorted.isEmpty?const Center(child:Text('هنوز چکی ثبت نشده است.')):ListView.builder(
+              itemCount:sorted.length,
+              itemBuilder:(context,index){
+                final item=sorted[index];
+                final dueText=item['تاریخ سررسید']??'';
+                final unpaid=(item['وضعیت']??'')=='پاس نشده';
+                return Card(child:ListTile(
+                  title:Text('\${item['نوع چک']??''} • \${item['نام شخص']??''}'),
+                  subtitle:Text('\${item['مبلغ']??'0'} تومان • سررسید: $dueText • \${item['وضعیت']??''}'),
+                  leading:Icon(unpaid?Icons.warning_amber_outlined:Icons.check_circle_outline,color:unpaid?Colors.orange:Colors.green),
+                  onTap:()async{await editCheck(existing:Map<String,String>.from(item));refresh((){});},
+                ));
+              },
+            )),
+          ])),
+          actions:[_horizontalDialogActions([TextButton(onPressed:()=>Navigator.pop(d),child:const Text('بستن'))])],
+        );
+      }),
+    ));
+  }
+
+  Future<void> _manageReturns(String returnType) async {
+    Future<void> editReturn({Map<String,String>? existing}) async {
+      final person = TextEditingController(text: existing?['نام شخص'] ?? '');
+      final product = TextEditingController(text: existing?['نام کالا'] ?? '');
+      final quantity = TextEditingController(text: existing?['تعداد'] ?? '0');
+      final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+      final date = TextEditingController(text: existing?['تاریخ'] ?? Jalali.now().formatCompactDate());
+      final description = TextEditingController(text: existing?['شرح'] ?? '');
+      final result = await showDialog<bool>(context:context,builder:(d)=>Directionality(
+        textDirection:TextDirection.rtl,
+        child:AlertDialog(
+          title:Text(existing==null?returnType:'ویرایش $returnType'),
+          content:SizedBox(width:380,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+            TextField(controller:person,decoration:InputDecoration(labelText:returnType=='برگشت فروش'?'نام مشتری':'نام فروشنده')),
+            DropdownButtonFormField<String>(
+              value: DemoStore.products.any((x)=>(x['نام کالا']??'')==product.text.trim())?product.text.trim():null,
+              isExpanded:true,
+              decoration:const InputDecoration(labelText:'کالای مرتبط با انبار (اختیاری)'),
+              items:DemoStore.products.map((x)=>DropdownMenuItem<String>(value:x['نام کالا']??'',child:Text(x['نام کالا']??''))).toList(),
+              onChanged:(v){if(v!=null)product.text=v;},
+            ),
+            TextField(controller:quantity,keyboardType:TextInputType.number,inputFormatters:[PersianDigitsOnlyFormatter()],decoration:const InputDecoration(labelText:'تعداد برگشتی از انبار (برای برگشت خدمات صفر)')),
+            TextField(controller:amount,keyboardType:TextInputType.number,inputFormatters:[PersianDigitsOnlyFormatter()],decoration:const InputDecoration(labelText:'مبلغ برگشت (تومان)')),
+            TextField(controller:date,readOnly:true,onTap:()async{
+              final picked=await showPersianDatePicker(context:d,initialDate:Jalali.now(),firstDate:Jalali(1300,1,1),lastDate:Jalali(1500,12,29));
+              if(picked!=null)date.text=picked.formatCompactDate();
+            },decoration:const InputDecoration(labelText:'تاریخ برگشت',suffixIcon:Icon(Icons.calendar_month))),
+            TextField(controller:description,maxLines:2,decoration:const InputDecoration(labelText:'شرح / علت برگشت')),
+          ]))),
+          actions:[_horizontalDialogActions([
+            if(existing!=null)TextButton(onPressed:()async{if(!await _confirmDelete(d,1))return;await DemoStore.delete('returns',[existing]);if(d.mounted)Navigator.pop(d,true);},child:const Text('حذف')),
+            TextButton(onPressed:()=>Navigator.pop(d,false),child:const Text('انصراف')),
+            FilledButton(onPressed:()async{
+              if(person.text.trim().isEmpty || PartyAccounting.amount({'مبلغ':amount.text},'مبلغ')<=0){
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content:Text('نام شخص و مبلغ برگشت را وارد کنید.')));return;
+              }
+              final data=<String,String>{
+                'نوع برگشت':returnType,'نام شخص':person.text.trim(),'نام کالا':product.text.trim(),
+                'تعداد':PartyAccounting._digits(quantity.text).replaceAll(RegExp(r'[^0-9.]'),''),
+                'مبلغ':PartyAccounting.amount({'مبلغ':amount.text},'مبلغ').toString(),
+                'تاریخ':date.text.trim(),'شرح':description.text.trim(),
+              };
+              try{
+                if(existing==null)await DemoStore.add('returns',data);else await DemoStore.update('returns',existing,data);
+                if(d.mounted)Navigator.pop(d,true);
+              }catch(error){if(d.mounted)ScaffoldMessenger.of(d).showSnackBar(SnackBar(content:Text('ثبت برگشت ناموفق بود: $error')));}
+            },child:const Text('ثبت برگشت')),
+          ])],
+        ),
+      ));
+      person.dispose();product.dispose();quantity.dispose();amount.dispose();date.dispose();description.dispose();
+      if(result==true&&mounted){setState((){});widget.onChanged();}
+    }
+
+    await showDialog<void>(context:context,builder:(d)=>Directionality(
+      textDirection:TextDirection.rtl,
+      child:StatefulBuilder(builder:(d,refresh){
+        final items=DemoStore.returns.where((x)=>x['نوع برگشت']==returnType).toList().reversed.toList();
+        return AlertDialog(
+          title:Text(returnType),
+          content:SizedBox(width:420,height:420,child:Column(children:[
+            Align(alignment:Alignment.centerRight,child:FilledButton.icon(onPressed:()async{await editReturn();refresh((){});},icon:const Icon(Icons.add),label:const Text('ثبت سند برگشت'))),
+            const Divider(),
+            Expanded(child:items.isEmpty?const Center(child:Text('سندی ثبت نشده است.')):ListView.builder(itemCount:items.length,itemBuilder:(context,index){
+              final item=items[index];
+              return Card(child:ListTile(
+                title:Text('\${item['نام شخص']??''} • \${item['نام کالا']??'خدمت / غیرانبار'}'),
+                subtitle:Text('\${item['مبلغ']??'0'} تومان • تعداد: \${item['تعداد']??'0'} • \${item['تاریخ']??''}'),
+                onTap:()async{await editReturn(existing:Map<String,String>.from(item));refresh((){});},
+              ));
+            })),
+          ])),
+          actions:[_horizontalDialogActions([TextButton(onPressed:()=>Navigator.pop(d),child:const Text('بستن'))])],
+        );
+      }),
+    ));
+  }
+
+  Future<void> _showGeneralLedger(String title, List<Map<String,String>> rows) async {
+    await showDialog<void>(context:context,builder:(d)=>Directionality(
+      textDirection:TextDirection.rtl,
+      child:AlertDialog(
+        title:Text(title),
+        content:SizedBox(width:440,height:440,child:rows.isEmpty?const Center(child:Text('هنوز سندی در دفتر ثبت نشده است.')):ListView.builder(
+          itemCount:rows.length,
+          itemBuilder:(context,index){
+            final row=rows[rows.length-1-index];
+            return ListTile(
+              dense:true,
+              title:Text(row['نام حساب']??row['شرح سند']??row['نوع گردش']??'سند'),
+              subtitle:Text('\${row['تاریخ']??''} • \${row['شرح سند']??row['شرح']??''}'),
+              trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
+                Text('بدهکار \${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بدهکار'))}'),
+                Text('بستانکار \${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بستانکار'))}'),
+              ]),
+            );
+          },
+        )),
+        actions:[_horizontalDialogActions([TextButton(onPressed:()=>Navigator.pop(d),child:const Text('بستن'))])],
+      ),
+    ));
+  }
+
   Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
