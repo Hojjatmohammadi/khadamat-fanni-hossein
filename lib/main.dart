@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -202,12 +203,13 @@ class DemoStore {
   static final repairs = <Map<String, String>>[];
   static final sales = <Map<String, String>>[];
   static final operations = <Map<String, String>>[];
+  static final archivedSales = <Map<String, String>>[];
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -222,6 +224,7 @@ class DemoStore {
         ''');
         await db.execute('CREATE INDEX records_category_idx ON records(category)');
         await AppDatabaseSchema.create(db);
+        await _createInvoiceArchive(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -236,6 +239,7 @@ class DemoStore {
           // but mirrored it as the payable total. Normalize existing mirrored invoices once.
           await db.execute('UPDATE invoices SET subtotal = total, total = MAX(0, total - discount) WHERE legacy_source_id IS NOT NULL');
         }
+        if (oldVersion < 5) await _createInvoiceArchive(db);
       },
     );
     await _loadCategory('products', products);
@@ -243,7 +247,53 @@ class DemoStore {
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
+    await _backfillInvoiceArchive(_db!);
     await AccountingEngine.ensureDefaultAccounts(_db!);
+  }
+
+  static Future<void> _createInvoiceArchive(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        legacy_source_id INTEGER NOT NULL UNIQUE,
+        invoice_number TEXT NOT NULL UNIQUE,
+        snapshot_json TEXT NOT NULL,
+        archived_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS invoice_archive_no_update
+      BEFORE UPDATE ON invoice_archive BEGIN
+        SELECT RAISE(ABORT, 'Archived invoices are immutable');
+      END''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS invoice_archive_no_delete
+      BEFORE DELETE ON invoice_archive BEGIN
+        SELECT RAISE(ABORT, 'Archived invoices cannot be deleted');
+      END''');
+  }
+
+  static Future<void> _backfillInvoiceArchive(DatabaseExecutor db) async {
+    final rows = await db.query('records', where: 'category = ?', whereArgs: ['sales'], orderBy: 'id ASC');
+    for (final row in rows) {
+      final sourceId = row['id'] as int;
+      final existing = await db.query('invoice_archive', columns: ['id'], where: 'legacy_source_id = ?', whereArgs: [sourceId], limit: 1);
+      if (existing.isNotEmpty) continue;
+      final raw = jsonDecode(row['data'] as String) as Map<String, dynamic>;
+      final number = 'HOS-$sourceId';
+      await db.insert('invoice_archive', {
+        'legacy_source_id': sourceId,
+        'invoice_number': number,
+        'snapshot_json': jsonEncode(raw),
+        'archived_at': (row['created_at'] as String?) ?? DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    final archived = await db.query('invoice_archive', orderBy: 'id ASC');
+    archivedSales
+      ..clear()
+      ..addAll(archived.map((row) {
+        final data = (jsonDecode(row['snapshot_json'] as String) as Map<String, dynamic>).map((k,v)=>MapEntry(k,v?.toString() ?? ''));
+        data['شماره فاکتور'] = row['invoice_number'].toString();
+        return data;
+      }));
   }
 
   static Future<void> _loadCategory(String category, List<Map<String, String>> target) async {
@@ -303,6 +353,14 @@ class DemoStore {
       await AppDatabaseSchema.insertLegacyRecord(
         txn, category, item, recordId, createdAt,
       );
+      if (category == 'sales') {
+        await txn.insert('invoice_archive', {
+          'legacy_source_id': recordId,
+          'invoice_number': 'HOS-$recordId',
+          'snapshot_json': jsonEncode(item),
+          'archived_at': createdAt,
+        });
+      }
     });
     final target = switch (category) {
       'products' => products,
@@ -313,6 +371,9 @@ class DemoStore {
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
+    if (category == 'sales') {
+      archivedSales.add({...item, 'شماره فاکتور': 'HOS-${(await _db!.query('invoice_archive', columns: ['invoice_number'], orderBy: 'id DESC', limit: 1)).first['invoice_number']}'});
+    }
   }
 }
 
@@ -2235,7 +2296,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           if (AppSettings.address.isNotEmpty) Text(AppSettings.address, textAlign: TextAlign.center),
           if (AppSettings.phone.isNotEmpty) Text('تلفن: ${AppSettings.phone}', textAlign: TextAlign.center),
           const Divider(color: Colors.black, height: 28),
-          Text('فاکتور فروش شماره ${index + 1}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
           Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
@@ -2347,16 +2408,16 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
         const SizedBox(height: 8),
         const Text('برای هر فاکتور ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
         const SizedBox(height: 8),
-        if (DemoStore.sales.isEmpty)
-          const Text('هنوز فاکتوری ثبت نشده است.')
+        if (DemoStore.archivedSales.isEmpty)
+          const Text('هنوز فاکتور آرشیوشده‌ای ثبت نشده است.')
         else
-          for (int i = 0; i < DemoStore.sales.length; i++)
+          for (int i = 0; i < DemoStore.archivedSales.length; i++)
             Card(child: ListTile(
-              title: Text('فاکتور ${i + 1} ـ ${DemoStore.sales[i]['نام مشتری'] ?? 'بدون نام'}'),
-              subtitle: Text(DemoStore.sales[i]['شرح کالا/خدمت'] ?? ''),
+              title: Text('${DemoStore.archivedSales[i]['شماره فاکتور']} ـ ${DemoStore.archivedSales[i]['نام مشتری'] ?? 'بدون نام'}'),
+              subtitle: Text(DemoStore.archivedSales[i]['شرح کالا/خدمت'] ?? ''),
               trailing: Wrap(spacing: 2, children: [
-                IconButton(tooltip: 'خروجی PDF', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.sales[i], i, pdf: true)), icon: const Icon(Icons.picture_as_pdf)),
-                IconButton(tooltip: 'خروجی عکس', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.sales[i], i, pdf: false)), icon: const Icon(Icons.image)),
+                IconButton(tooltip: 'خروجی PDF', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: true)), icon: const Icon(Icons.picture_as_pdf)),
+                IconButton(tooltip: 'خروجی عکس', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: false)), icon: const Icon(Icons.image)),
               ]),
             )),
       ]))),
