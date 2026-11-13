@@ -2156,10 +2156,25 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
     final dir = await _outputDirectory();
     final file = await source.copy(p.join(dir.path, 'backup_${_stamp()}.db'));
+    final settingsData = <String, Object?>{
+      'store_name': AppSettings.storeName,
+      'manager_name': AppSettings.managerName,
+      'phone': AppSettings.phone,
+      'address': AppSettings.address,
+      'postal_code': AppSettings.postalCode,
+      'theme_mode': AppSettings.themeMode,
+      'dark_mode': AppSettings.darkMode,
+      'drawer_image': AppSettings.drawerImage,
+      'font_scale': AppSettings.fontScale,
+      'product_image_mode': AppSettings.productImageMode,
+      'product_groups': AppSettings.productGroups,
+    };
+    final settingsFile = File(p.join(dir.path, 'backup_settings_${_stamp()}.json'));
+    await settingsFile.writeAsString(jsonEncode(settingsData), encoding: utf8, flush: true);
     if (!mounted) return;
-    setState(() => lastSaved = file.path);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('نسخه پشتیبان پایگاه داده در حافظه برنامه ذخیره شد. برای انتقال به گوشی یا Google Drive، گزینه اشتراک‌گذاری را انتخاب کنید.')));
-    await _shareFile(file, 'نسخه پشتیبان خدمات فنی حسین');
+    setState(() => lastSaved = '${file.path}\n${settingsFile.path}');
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('پایگاه داده و تنظیمات برنامه در حافظه گوشی ذخیره شدند. از پنجره اشتراک‌گذاری می‌توانید هر دو فایل را به Google Drive یا حافظه دیگری منتقل کنید.')));
+    await Share.shareXFiles([XFile(file.path), XFile(settingsFile.path)], text: 'نسخه پشتیبان خدمات فنی حسین؛ فایل DB پایگاه داده و فایل JSON تنظیمات');
   }
 
   Future<void> _exportExcel() async {
@@ -2316,7 +2331,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('پشتیبان‌گیری از پایگاه داده', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('یک نسخه از پایگاه داده SQLite همین گوشی تهیه می‌شود. از پنجره اشتراک‌گذاری می‌توانید آن را در Google Drive یا برنامه فایل‌ها ذخیره کنید.'),
+        const Text('از پایگاه داده SQLite و تنظیمات برنامه دو فایل پشتیبان تهیه می‌شود. از پنجره اشتراک‌گذاری می‌توانید هر دو را در Google Drive یا برنامه فایل‌ها ذخیره کنید.'),
         const SizedBox(height: 10),
         FilledButton.icon(onPressed: busy ? null : () => _run(_createBackup), icon: const Icon(Icons.backup), label: const Text('تهیه نسخه پشتیبان و اشتراک‌گذاری')),
       ]))),
