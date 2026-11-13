@@ -224,6 +224,10 @@ class DemoStore {
   static final repairs = <Map<String, String>>[];
   static final sales = <Map<String, String>>[];
   static final operations = <Map<String, String>>[];
+  static final checks = <Map<String, String>>[];
+  static final returns = <Map<String, String>>[];
+  static final stockMovements = <Map<String, String>>[];
+  static final journalEntries = <Map<String, String>>[];
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
@@ -257,6 +261,10 @@ class DemoStore {
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
+    await _loadCategory('checks', checks);
+    await _loadCategory('returns', returns);
+    await _loadCategory('stockMovements', stockMovements);
+    await _loadCategory('journalEntries', journalEntries);
   }
 
   static Future<void> _loadCategory(String category, List<Map<String, String>> target) async {
@@ -273,6 +281,7 @@ class DemoStore {
     await _db!.update('records', {'data': jsonEncode(newItem)}, where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)]);
     final target = switch (category) {
       'products' => products, 'customers' => customers, 'repairs' => repairs, 'sales' => sales, 'operations' => operations,
+      'checks' => checks, 'returns' => returns, 'stockMovements' => stockMovements, 'journalEntries' => journalEntries,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     final index = target.indexWhere((x) => jsonEncode(x) == jsonEncode(oldItem));
@@ -323,6 +332,7 @@ class DemoStore {
     });
     final target = switch (category) {
       'products' => products, 'customers' => customers, 'repairs' => repairs, 'sales' => sales, 'operations' => operations,
+      'checks' => checks, 'returns' => returns, 'stockMovements' => stockMovements, 'journalEntries' => journalEntries,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     for (final item in items) {
@@ -349,6 +359,7 @@ class DemoStore {
       'repairs' => repairs,
       'sales' => sales,
       'operations' => operations,
+      'checks' => checks, 'returns' => returns, 'stockMovements' => stockMovements, 'journalEntries' => journalEntries,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
