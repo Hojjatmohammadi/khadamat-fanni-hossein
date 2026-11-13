@@ -330,13 +330,21 @@ class DemoStore {
     await renameIn('checks', checks, 'نام شخص');
     await renameIn('returns', returns, 'نام شخص');
     var purchaseChanged = false;
+    final changedPurchases = <({Map<String,String> oldItem, Map<String,String> newItem})>[];
     for (final item in AppSettings.purchaseRecords) {
       if ((item['نام فروشنده'] ?? '').trim() == oldValue) {
+        final oldItem = Map<String,String>.from(item);
         item['نام فروشنده'] = newValue;
+        changedPurchases.add((oldItem: oldItem, newItem: Map<String,String>.from(item)));
         purchaseChanged = true;
       }
     }
-    if (purchaseChanged) await AppSettings.savePurchaseRecords();
+    if (purchaseChanged) {
+      await AppSettings.savePurchaseRecords();
+      for (final change in changedPurchases) {
+        await AccountingEngine.syncSupplierPurchase(change.newItem, previous: change.oldItem);
+      }
+    }
   }
 
   static Future<void> delete(String category, List<Map<String, String>> items) async {
@@ -2451,6 +2459,9 @@ class _SettingsPageState extends State<SettingsPage> {
           }
           await AppSettings.savePurchaseRecords();
           await AccountingEngine.syncSupplierPurchase(record, previous: existing);
+          if (existing != null && (existing['نام فروشنده'] ?? '').trim() != record['نام فروشنده']) {
+            await DemoStore.renamePartyReferences(existing['نام فروشنده'] ?? '', record['نام فروشنده'] ?? '');
+          }
           if (mounted) setState(() {});
         } catch(error) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت خرید یا گردش حساب ناموفق بود: $error')));
