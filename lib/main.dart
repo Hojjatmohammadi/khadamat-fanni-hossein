@@ -463,8 +463,10 @@ class Dashboard extends StatelessWidget {
                       children: [
                         Icon(s.$3, color: Colors.amber.shade800, size: 28),
                         const SizedBox(height: 6),
-                        Text(s.$2, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                        Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        Text(s.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.25)),
+                        Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, height: 1.25)),
                         const SizedBox(height: 4),
                         const Icon(Icons.touch_app_outlined, size: 16, color: Colors.grey),
                       ],
