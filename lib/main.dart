@@ -2150,7 +2150,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
   }
 
   Future<void> _createBackup() async {
-    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(FULL)');
+    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
     final dbPath = p.join(await getDatabasesPath(), 'khadamat_fanni_hosein.db');
     final source = File(dbPath);
     if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
@@ -2179,6 +2179,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
         first = false;
       }
       final sheet = excel[sheetName];
+      sheet.rtl = true;
       final keys = <String>{};
       for (final row in entry.value) { keys.addAll(row.keys); }
       final columns = keys.toList();
@@ -2270,7 +2271,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
                   final data = await image.toByteData(format: ui.ImageByteFormat.png);
                   image.dispose();
                   if (data == null) throw Exception('تبدیل فاکتور به تصویر ناموفق بود.');
-                  if (dialogContext.mounted) Navigator.pop(dialogContext, data.buffer.asUint8List());
+                  final pngBytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, pngBytes);
                 } catch (e) {
                   if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ساخت تصویر ناموفق بود: $e')));
                 }
