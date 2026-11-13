@@ -2590,11 +2590,11 @@ class _OperationsPageState extends State<OperationsPage> {
         IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
       ])),
       Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
-      Card(child: ListTile(leading:const Icon(Icons.receipt_long),title:const Text('مدیریت چک‌ها'),subtitle:Text('\${DemoStore.checks.length} چک ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:_manageChecks)),
+      Card(child: ListTile(leading:const Icon(Icons.receipt_long),title:const Text('مدیریت چک‌ها'),subtitle:Text('${DemoStore.checks.length} چک ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:_manageChecks)),
       Card(child: ListTile(leading:const Icon(Icons.assignment_return),title:const Text('برگشت فروش'),subtitle:const Text('ثبت برگشت به مشتری و ورود کالا به انبار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_manageReturns('برگشت فروش'))),
       Card(child: ListTile(leading:const Icon(Icons.keyboard_return),title:const Text('برگشت خرید'),subtitle:const Text('ثبت برگشت به فروشنده و خروج کالا از انبار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_manageReturns('برگشت خرید'))),
       Card(child: ListTile(leading:const Icon(Icons.menu_book_outlined),title:const Text('دفتر کل و تراز آزمایشی'),subtitle:const Text('مشاهده اسناد دوطرفه و جمع بدهکار و بستانکار'),trailing:const Icon(Icons.chevron_left),onTap:()=>_showGeneralLedger('دفتر کل',DemoStore.journalEntries))),
-      Card(child: ListTile(leading:const Icon(Icons.inventory_outlined),title:const Text('کاردکس و گردش انبار'),subtitle:Text('\${DemoStore.stockMovements.length} گردش ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:()=>_showGeneralLedger('کاردکس کالا',DemoStore.stockMovements))),
+      Card(child: ListTile(leading:const Icon(Icons.inventory_outlined),title:const Text('کاردکس و گردش انبار'),subtitle:Text('${DemoStore.stockMovements.length} گردش ثبت شده'),trailing:const Icon(Icons.chevron_left),onTap:()=>_showGeneralLedger('کاردکس کالا',DemoStore.stockMovements))),
       for (final op in options)
         Card(child: ListTile(
           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
@@ -2707,8 +2707,8 @@ class _OperationsPageState extends State<OperationsPage> {
                 final dueText=item['تاریخ سررسید']??'';
                 final unpaid=(item['وضعیت']??'')=='پاس نشده';
                 return Card(child:ListTile(
-                  title:Text('\${item['نوع چک']??''} • \${item['نام شخص']??''}'),
-                  subtitle:Text('\${item['مبلغ']??'0'} تومان • سررسید: $dueText • \${item['وضعیت']??''}'),
+                  title:Text('${item['نوع چک']??''} • ${item['نام شخص']??''}'),
+                  subtitle:Text('${item['مبلغ']??'0'} تومان • سررسید: $dueText • ${item['وضعیت']??''}'),
                   leading:Icon(unpaid?Icons.warning_amber_outlined:Icons.check_circle_outline,color:unpaid?Colors.orange:Colors.green),
                   onTap:()async{await editCheck(existing:Map<String,String>.from(item));refresh((){});},
                 ));
@@ -2787,8 +2787,8 @@ class _OperationsPageState extends State<OperationsPage> {
             Expanded(child:items.isEmpty?const Center(child:Text('سندی ثبت نشده است.')):ListView.builder(itemCount:items.length,itemBuilder:(context,index){
               final item=items[index];
               return Card(child:ListTile(
-                title:Text('\${item['نام شخص']??''} • \${item['نام کالا']??'خدمت / غیرانبار'}'),
-                subtitle:Text('\${item['مبلغ']??'0'} تومان • تعداد: \${item['تعداد']??'0'} • \${item['تاریخ']??''}'),
+                title:Text('${item['نام شخص']??''} • ${item['نام کالا']??'خدمت / غیرانبار'}'),
+                subtitle:Text('${item['مبلغ']??'0'} تومان • تعداد: ${item['تعداد']??'0'} • ${item['تاریخ']??''}'),
                 onTap:()async{await editReturn(existing:Map<String,String>.from(item));refresh((){});},
               ));
             })),
@@ -2811,10 +2811,10 @@ class _OperationsPageState extends State<OperationsPage> {
             return ListTile(
               dense:true,
               title:Text(row['نام حساب']??row['شرح سند']??row['نوع گردش']??'سند'),
-              subtitle:Text('\${row['تاریخ']??''} • \${row['شرح سند']??row['شرح']??''}'),
+              subtitle:Text('${row['تاریخ']??''} • ${row['شرح سند']??row['شرح']??''}'),
               trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                Text('بدهکار \${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بدهکار'))}'),
-                Text('بستانکار \${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بستانکار'))}'),
+                Text('بدهکار ${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بدهکار'))}'),
+                Text('بستانکار ${PartyAccounting.formatMoney(PartyAccounting.amount(row,'بستانکار'))}'),
               ]),
             );
           },
@@ -3136,14 +3136,16 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'مشتریان بستانکار', icon: Icons.account_balance_wallet_outlined, count: creditorRows.length, open: () => _showReport('فهرست مشتریان بستانکار', Icons.account_balance_wallet_outlined, creditorRows, 'مبلغ', 'مشتری بستانکاری وجود ندارد.', dateFilter: false)),
       (title: 'فاکتور فروش', icon: Icons.receipt_long, count: DemoStore.sales.length, open: () => _showReport('فاکتور فروش', Icons.receipt_long, DemoStore.sales, 'مبلغ کل', 'هنوز فاکتور فروشی ثبت نشده است.')),
       (title: 'فاکتور خرید', icon: Icons.shopping_bag_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('سوابق خرید ثبت‌شده', Icons.shopping_bag_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی در تنظیمات ثبت نشده است.')),
-      (title: 'برگشت فروش', icon: Icons.assignment_return, count: 0, open: () => _showReport('برگشت فروش', Icons.assignment_return, const [], 'مبلغ', 'ثبت مستقل برگشت فروش هنوز در اطلاعات برنامه فعال نیست.')),
-      (title: 'برگشت خرید', icon: Icons.keyboard_return, count: 0, open: () => _showReport('برگشت خرید', Icons.keyboard_return, const [], 'مبلغ', 'ثبت مستقل برگشت خرید هنوز در اطلاعات برنامه فعال نیست.')),
+      (title: 'برگشت فروش', icon: Icons.assignment_return, count: DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت فروش').length, open: () => _showReport('برگشت فروش', Icons.assignment_return, DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت فروش').toList(), 'مبلغ', 'سندی برای برگشت فروش ثبت نشده است.')),
+      (title: 'برگشت خرید', icon: Icons.keyboard_return, count: DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').length, open: () => _showReport('برگشت خرید', Icons.keyboard_return, DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').toList(), 'مبلغ', 'سندی برای برگشت خرید ثبت نشده است.')),
       (title: 'فروش کالاها', icon: Icons.point_of_sale, count: DemoStore.sales.length, open: () => _showReport('فروش کالاها', Icons.point_of_sale, DemoStore.sales, 'مبلغ کل', 'اطلاعات فروش کالا موجود نیست.')),
       (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
+      (title: 'چک‌ها', icon: Icons.receipt, count: DemoStore.checks.length, open: () => _showReport('چک‌ها', Icons.receipt, DemoStore.checks, 'مبلغ', 'چکی ثبت نشده است.')),
+      (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
       (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
       (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
-      (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.products.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.products, 'تعداد', 'برای نمایش کاردکس، گردش ورود و خروج کالا باید ثبت شود.')),
+      (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.stockMovements.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.stockMovements, 'ارزش گردش', 'گردش انباری ثبت نشده است.')),
       (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی ثبت نشده است.')),
       (title: 'ریز فروش و سود', icon: Icons.analytics_outlined, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.analytics_outlined, DemoStore.sales, 'سود', 'اطلاعات کافی برای محاسبه سود ثبت نشده است.')),
       (title: 'پذیرش تعمیرات', icon: Icons.build_outlined, count: DemoStore.repairs.length, open: () => _showReport('پذیرش تعمیرات', Icons.build_outlined, DemoStore.repairs, 'اجرت', 'پذیرش تعمیری ثبت نشده است.')),
@@ -8260,8 +8262,8 @@ class _ReportsPageState extends State<ReportsPage> {
           date: date, note: 'برگشت به فروشنده ' + party, unitCost: unitCost);
         final cost = (qty * unitCost).round();
         if (amount > 0 && amount != cost) {
-          if (amount > cost) lines.add(_line('اختلاف برگشت خرید', amount - cost, 0, code: '519'));
-          else lines.add(_line('موجودی کالا', cost - amount, 0, code: '120'));
+          if (amount > cost) lines.add(_line('سود / اختلاف برگشت خرید', 0, amount - cost, code: '519'));
+          else lines.add(_line('زیان برگشت خرید', cost - amount, 0, code: '520'));
         }
         if (cost > 0) lines.add(_line('موجودی کالا', 0, cost, code: '120'));
       }
