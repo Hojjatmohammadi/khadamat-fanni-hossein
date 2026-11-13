@@ -417,6 +417,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   );
                   return;
                 }
+                if (item.values.any((value) => value.isNotEmpty)) {
+                  final category = widget.title == 'مشتری'
+                      ? 'customers'
+                      : widget.title == 'پذیرش تعمیر'
+                          ? 'repairs'
+                          : 'sales';
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((error) {
