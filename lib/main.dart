@@ -917,6 +917,18 @@ class ProductPage extends StatefulWidget {
 class _ProductPageState extends State<ProductPage> {
   final Set<String> _selectedProducts = {};
 
+  List<String> _supplierNames({String? include}) {
+    final names = AppSettings.purchaseRecords
+        .map((record) => (record['نام فروشنده'] ?? '').trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList();
+    final previous = include?.trim() ?? '';
+    if (previous.isNotEmpty && !names.contains(previous)) names.add(previous);
+    names.sort();
+    return names;
+  }
+
   Future<void> _deleteProducts(List<Map<String, String>> items) async {
     if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
     await DemoStore.delete('products', items);
@@ -936,6 +948,8 @@ class _ProductPageState extends State<ProductPage> {
     bool vatIncluded = false;
     String? productGroup;
     String? productSubgroup;
+    String? selectedSupplier;
+    final supplierNames = _supplierNames();
     String unit = 'عدد';
     bool isUsed = false;
     String? productImageBase64;
@@ -984,7 +998,7 @@ class _ProductPageState extends State<ProductPage> {
       final dirty = c.any((x) => x.text.trim().isNotEmpty) ||
           shipping.text.trim() != '0' || freight.text.trim() != '0' || other.text.trim() != '0' ||
           vatRate.text.trim() != '0' || vatIncluded || unit != 'عدد' || isUsed ||
-          productGroup != null || productSubgroup != null || productImageBase64 != null;
+          productGroup != null || productSubgroup != null || selectedSupplier != null || productImageBase64 != null;
       if (!dirty) { Navigator.pop(dialogContext, false); return; }
       final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
@@ -1065,6 +1079,31 @@ class _ProductPageState extends State<ProductPage> {
                           decoration: InputDecoration(labelText: names[i]),
                         ),
                       ),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      value: selectedSupplier,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'خرید از / نام فروشنده',
+                        helperText: supplierNames.isEmpty
+                            ? 'ابتدا فروشنده را در تنظیمات برنامه ثبت کنید.'
+                            : 'فروشنده از فهرست مدیریت خرید انتخاب می‌شود.',
+                        suffixIcon: selectedSupplier == null
+                            ? null
+                            : IconButton(
+                                tooltip: 'پاک کردن انتخاب',
+                                icon: const Icon(Icons.clear),
+                                onPressed: () => refresh(() => selectedSupplier = null),
+                              ),
+                      ),
+                      hint: const Text('انتخاب فروشنده'),
+                      items: supplierNames
+                          .map((name) => DropdownMenuItem<String>(value: name, child: Text(name)))
+                          .toList(),
+                      onChanged: supplierNames.isEmpty
+                          ? null
+                          : (value) => refresh(() => selectedSupplier = value),
+                    ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: saleDate,
@@ -1206,6 +1245,7 @@ class _ProductPageState extends State<ProductPage> {
                   final total = totalCost();
                   final item = <String, String>{};
                   for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
+                  item['نام فروشنده'] = selectedSupplier ?? '';
                   item['تاریخ ثبت کالا'] = saleDate.text.trim();
                   item['گروه اصلی'] = productGroup ?? '';
                   item['زیرگروه'] = productSubgroup ?? '';
@@ -1245,8 +1285,11 @@ class _ProductPageState extends State<ProductPage> {
       AppSettings.productGroups[groupKey] = item['زیرگروه']?.isNotEmpty == true ? [item['زیرگروه']!] : [];
       await AppSettings.saveProductGroups();
     }
-    final editable = item.keys.where((k) => k != 'تصویر کالا' && k != 'گروه اصلی' && k != 'زیرگروه').toList();
+    final editable = item.keys.where((k) => k != 'تصویر کالا' && k != 'گروه اصلی' && k != 'زیرگروه' && k != 'نام فروشنده').toList();
     final controllers = {for (final key in editable) key: TextEditingController(text: item[key] ?? '')};
+    final previousSupplier = (item['نام فروشنده'] ?? '').trim();
+    String? supplier = previousSupplier.isEmpty ? null : previousSupplier;
+    final supplierNames = _supplierNames(include: supplier);
     String? group = groupKey.isEmpty ? null : groupKey;
     String? subgroup = (item['زیرگروه'] ?? '').isEmpty ? null : item['زیرگروه'];
 
@@ -1254,7 +1297,8 @@ class _ProductPageState extends State<ProductPage> {
       for (final key in editable) {
         if (controllers[key]!.text.trim() != (item[key] ?? '')) return true;
       }
-      return group != (item['گروه اصلی']?.isEmpty == true ? null : item['گروه اصلی']) ||
+      return supplier != (previousSupplier.isEmpty ? null : previousSupplier) ||
+          group != (item['گروه اصلی']?.isEmpty == true ? null : item['گروه اصلی']) ||
           subgroup != (item['زیرگروه']?.isEmpty == true ? null : item['زیرگروه']);
     }
 
@@ -1289,6 +1333,32 @@ class _ProductPageState extends State<ProductPage> {
                   keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','کد کالا'].contains(key) ? TextInputType.number : TextInputType.text,
                   decoration: InputDecoration(labelText: key),
                 )),
+              const SizedBox(height: 4),
+              DropdownButtonFormField<String>(
+                value: supplier,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'خرید از / نام فروشنده',
+                  helperText: supplierNames.isEmpty
+                      ? 'ابتدا فروشنده را در تنظیمات برنامه ثبت کنید.'
+                      : 'فروشنده از فهرست مدیریت خرید انتخاب می‌شود.',
+                  suffixIcon: supplier == null
+                      ? null
+                      : IconButton(
+                          tooltip: 'پاک کردن انتخاب',
+                          icon: const Icon(Icons.clear),
+                          onPressed: () => refresh(() => supplier = null),
+                        ),
+                ),
+                hint: const Text('انتخاب فروشنده'),
+                items: supplierNames
+                    .map((name) => DropdownMenuItem<String>(value: name, child: Text(name)))
+                    .toList(),
+                onChanged: supplierNames.isEmpty
+                    ? null
+                    : (value) => refresh(() => supplier = value),
+              ),
+              const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 value: group,
                 isExpanded: true,
@@ -1320,6 +1390,7 @@ class _ProductPageState extends State<ProductPage> {
               }
               final changed = Map<String,String>.from(item);
               for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
+              changed['نام فروشنده'] = supplier ?? '';
               changed['گروه اصلی'] = group ?? '';
               changed['زیرگروه'] = subgroup ?? '';
               try {
@@ -1367,6 +1438,9 @@ class _ProductPageState extends State<ProductPage> {
                       ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
                       : CircleAvatar(child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2)),
                   title: Text(item['نام کالا'] ?? 'بدون نام'),
+                  subtitle: (item['نام فروشنده'] ?? '').trim().isEmpty
+                      ? null
+                      : Text('فروشنده: ${item['نام فروشنده']}'),
                   onLongPress: () => setState(() => _selectedProducts.add(jsonEncode(item))),
                   onTap: () {
                     if (_selectedProducts.isNotEmpty) setState(() { final k=jsonEncode(item); _selectedProducts.contains(k) ? _selectedProducts.remove(k) : _selectedProducts.add(k); });
