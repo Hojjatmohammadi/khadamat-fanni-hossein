@@ -273,8 +273,27 @@ class _HomePageState extends State<HomePage> {
     1 => 'products', 2 => 'customers', 3 => 'repairs', 4 => 'sales', 5 => 'reports', 7 => 'operations', _ => 'all',
   };
 
-  void _selectTab(int nextTab) {
+  Future<bool> _confirmSettingsExit() async {
+    if (tab != 6 || SettingsPage.isDirty?.call() != true) return true;
+    final choice = await showDialog<String>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('تغییرات ذخیره نشده‌اند'),
+        content: const Text('در تنظیمات تغییراتی انجام داده‌اید. قبل از خروج چه کاری انجام شود؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, 'stay'), child: const Text('ادامه ویرایش')),
+          TextButton(onPressed: () => Navigator.pop(d, 'discard'), child: const Text('خروج بدون ذخیره')),
+          FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: const Text('ذخیره و خروج')),
+        ],
+      ),
+    ));
+    if (choice == 'save') return await SettingsPage.savePending?.call() ?? false;
+    return choice == 'discard';
+  }
+
+  void _selectTab(int nextTab) async {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
+    if (!await _confirmSettingsExit()) return;
     setState(() {
       _tabHistory.add(tab);
       tab = nextTab;
@@ -286,6 +305,8 @@ class _HomePageState extends State<HomePage> {
       scaffoldKey.currentState?.closeDrawer();
       return;
     }
+
+    if (!await _confirmSettingsExit()) return;
 
     if (_tabHistory.isNotEmpty) {
       setState(() {
@@ -1246,6 +1267,8 @@ class SalesPage extends StatelessWidget {
 }
 
 class SettingsPage extends StatefulWidget {
+  static bool Function()? isDirty;
+  static Future<bool> Function()? savePending;
   const SettingsPage({super.key});
 
   @override
@@ -1275,7 +1298,17 @@ class _SettingsPageState extends State<SettingsPage> {
     themeMode = AppSettings.themeMode;
     drawerImage = AppSettings.drawerImage;
     fontScale = AppSettings.fontScale;
+    SettingsPage.isDirty = _hasUnsavedChanges;
+    SettingsPage.savePending = _saveSettingsInternal;
   }
+
+  bool _hasUnsavedChanges() =>
+      storeName.text.trim() != AppSettings.storeName ||
+      managerName.text.trim() != AppSettings.managerName ||
+      phone.text.trim() != AppSettings.phone ||
+      address.text.trim() != AppSettings.address ||
+      postalCode.text.trim() != AppSettings.postalCode ||
+      themeMode != AppSettings.themeMode || fontScale != AppSettings.fontScale || drawerImage != AppSettings.drawerImage;
 
   @override
   void dispose() {
@@ -1284,6 +1317,8 @@ class _SettingsPageState extends State<SettingsPage> {
     phone.dispose();
     address.dispose();
     postalCode.dispose();
+    if (SettingsPage.isDirty == _hasUnsavedChanges) SettingsPage.isDirty = null;
+    if (SettingsPage.savePending == _saveSettingsInternal) SettingsPage.savePending = null;
     super.dispose();
   }
 
@@ -1338,37 +1373,42 @@ class _SettingsPageState extends State<SettingsPage> {
     if (yes == true) { await AppSettings.resetAppearance(); if (mounted) setState(() { themeMode = 'روشن'; darkMode = false; fontScale = 1.0; drawerImage = ''; }); }
   }
 
-  Future<void> saveSettings() async {
-    final noTextEntered = [storeName.text, managerName.text, phone.text, address.text, postalCode.text].every((v) => v.trim().isEmpty);
-    final appearanceChanged = themeMode != AppSettings.themeMode || fontScale != AppSettings.fontScale || drawerImage != AppSettings.drawerImage;
-    final detailsChanged = storeName.text.trim() != AppSettings.storeName || managerName.text.trim() != AppSettings.managerName || phone.text.trim() != AppSettings.phone || address.text.trim() != AppSettings.address || postalCode.text.trim() != AppSettings.postalCode;
-    if (noTextEntered && !appearanceChanged || !detailsChanged && !appearanceChanged) {
+  Future<bool> _saveSettingsInternal() async {
+    if (!_hasUnsavedChanges()) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
-      return;
+      return false;
     }
     if (phone.text.length > 11) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('شماره تماس حداکثر ۱۱ رقم باشد.')));
-      return;
+      return false;
     }
     if (postalCode.text.isNotEmpty && postalCode.text.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کد پستی باید دقیقاً ۱۰ رقم باشد.')));
-      return;
+      return false;
     }
-    await AppSettings.save(
-      newStoreName: storeName.text,
-      newManagerName: managerName.text,
-      newPhone: phone.text,
-      newAddress: address.text,
-      newPostalCode: postalCode.text,
-      newDarkMode: darkMode,
-      newThemeMode: themeMode,
-      newDrawerImage: drawerImage,
-      newFontScale: fontScale,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تنظیمات با موفقیت ذخیره شد')),
-    );
+    try {
+      await AppSettings.save(
+        newStoreName: storeName.text,
+        newManagerName: managerName.text,
+        newPhone: phone.text,
+        newAddress: address.text,
+        newPostalCode: postalCode.text,
+        newDarkMode: darkMode,
+        newThemeMode: themeMode,
+        newDrawerImage: drawerImage,
+        newFontScale: fontScale,
+      );
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تنظیمات با موفقیت ذخیره شد')));
+      return true;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره تنظیمات ناموفق بود: $error')));
+      return false;
+    }
+  }
+
+  Future<void> saveSettings() async {
+    await _saveSettingsInternal();
   }
 
   @override
