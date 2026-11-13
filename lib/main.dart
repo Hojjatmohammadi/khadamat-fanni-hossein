@@ -2232,11 +2232,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
 
   Future<void> _createBackup() async {
     await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
-    final dbPath = p.join(await getDatabasesPath(), 'khadamat_fanni_hosein.db');
-    final source = File(dbPath);
+    final source = File(DemoStore.database.path);
     if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
-    final dir = await _outputDirectory();
-    final file = await source.copy(p.join(dir.path, 'backup_${_stamp()}.db'));
     final settingsData = <String, Object?>{
       'store_name': AppSettings.storeName,
       'manager_name': AppSettings.managerName,
@@ -2250,42 +2247,80 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'product_image_mode': AppSettings.productImageMode,
       'product_groups': AppSettings.productGroups,
     };
-    final settingsFile = File(p.join(dir.path, 'backup_settings_${_stamp()}.json'));
-    await settingsFile.writeAsString(jsonEncode(settingsData), encoding: utf8, flush: true);
+    final bundle = <String, Object?>{
+      'format': 'khadamat_fanni_hosein_backup',
+      'format_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'database_base64': base64Encode(await source.readAsBytes()),
+      'settings': settingsData,
+    };
+    final dir = await _outputDirectory();
+    final file = File(p.join(dir.path, 'backup_${_stamp()}.hfbak'));
+    await file.writeAsString(jsonEncode(bundle), encoding: utf8, flush: true);
     if (!mounted) return;
-    setState(() => lastSaved = '${file.path}\n${settingsFile.path}');
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('پایگاه داده و تنظیمات برنامه در حافظه گوشی ذخیره شدند. از پنجره اشتراک‌گذاری می‌توانید هر دو فایل را به Google Drive یا حافظه دیگری منتقل کنید.')));
-    await Share.shareXFiles([XFile(file.path), XFile(settingsFile.path)], text: 'نسخه پشتیبان خدمات فنی حسین؛ فایل DB پایگاه داده و فایل JSON تنظیمات');
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یک فایل پشتیبان کامل در حافظه گوشی ذخیره شد. می‌توانی همان یک فایل را ذخیره یا به گوشی دیگر ارسال کنی.')));
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/octet-stream')],
+      text: 'نسخه پشتیبان کامل خدمات فنی حسین؛ شامل پایگاه داده و تنظیمات',
+    );
   }
 
   Future<void> _restoreBackup() async {
     final selection = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['db', 'sqlite', 'json'],
+      allowedExtensions: ['hfbak', 'db', 'sqlite', 'json'],
       allowMultiple: true,
       withData: false,
     );
     if (selection == null || selection.files.isEmpty) return;
     File? selectedDb;
     File? selectedSettings;
+    File? selectedBundle;
     for (final picked in selection.files) {
       final path = picked.path;
       if (path == null) continue;
       final file = File(path);
       final ext = p.extension(path).toLowerCase();
+      if (ext == '.hfbak') selectedBundle = file;
       if (ext == '.db' || ext == '.sqlite') selectedDb = file;
-      if (ext == '.json') selectedSettings = file;
+      if (ext == '.json') {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map && decoded['format'] == 'khadamat_fanni_hosein_backup') {
+          selectedBundle = file;
+        } else if (decoded is Map<String, dynamic>) {
+          selectedSettings = file;
+        }
+      }
     }
-    if (selectedDb == null) throw Exception('فایل پایگاه داده با پسوند DB یا SQLite انتخاب نشده است.');
+    Uint8List databaseBytes;
     Map<String, dynamic>? settingsData;
-    if (selectedSettings != null) {
-      final decoded = jsonDecode(await selectedSettings.readAsString());
-      if (decoded is! Map<String, dynamic>) throw Exception('فایل تنظیمات پشتیبان معتبر نیست.');
-      settingsData = decoded;
+    if (selectedBundle != null) {
+      final decoded = jsonDecode(await selectedBundle.readAsString());
+      if (decoded is! Map || decoded['format'] != 'khadamat_fanni_hosein_backup' || decoded['format_version'] != 1) {
+        throw Exception('ساختار فایل پشتیبان شناخته‌شده نیست یا نسخه آن پشتیبانی نمی‌شود.');
+      }
+      final encoded = decoded['database_base64'];
+      if (encoded is! String || encoded.isEmpty) throw Exception('اطلاعات پایگاه داده در فایل پشتیبان وجود ندارد.');
+      try {
+        databaseBytes = base64Decode(encoded);
+      } catch (_) {
+        throw Exception('بخش پایگاه داده در فایل پشتیبان خراب است.');
+      }
+      if (decoded['settings'] is Map) settingsData = Map<String, dynamic>.from(decoded['settings'] as Map);
+    } else if (selectedDb != null) {
+      databaseBytes = await selectedDb.readAsBytes();
+      if (selectedSettings != null) {
+        final decoded = jsonDecode(await selectedSettings.readAsString());
+        if (decoded is! Map<String, dynamic>) throw Exception('فایل تنظیمات پشتیبان معتبر نیست.');
+        settingsData = decoded;
+      }
+    } else {
+      throw Exception('فایل پشتیبان خدمات فنی حسین انتخاب نشده است.');
     }
     final appDir = await _outputDirectory();
     final candidate = File(p.join(appDir.path, 'restore_candidate_${_stamp()}.db'));
-    await selectedDb.copy(candidate.path);
+    await candidate.writeAsBytes(databaseBytes, flush: true);
     final checkDb = await openDatabase(candidate.path, readOnly: true, singleInstance: false);
     try {
       final integrity = await checkDb.rawQuery('PRAGMA integrity_check');
@@ -2314,7 +2349,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     );
     if (confirmed != true) return;
 
-    final dbPath = p.join(await getDatabasesPath(), 'khadamat_fanni_hosein.db');
+    final dbPath = DemoStore.database.path;
     final liveFile = File(dbPath);
     final emergency = File(p.join(appDir.path, 'before_restore_${_stamp()}.db'));
     await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -2498,14 +2533,14 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('پشتیبان‌گیری از پایگاه داده', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('از پایگاه داده SQLite و تنظیمات برنامه دو فایل پشتیبان تهیه می‌شود. از پنجره اشتراک‌گذاری می‌توانید هر دو را در Google Drive یا برنامه فایل‌ها ذخیره کنید.'),
+        const Text('یک فایل پشتیبان شامل پایگاه داده و تنظیمات ساخته می‌شود. همان یک فایل را در حافظه گوشی ذخیره کن یا به گوشی دیگر بفرست.'),
         const SizedBox(height: 10),
         FilledButton.icon(onPressed: busy ? null : () => _run(_createBackup), icon: const Icon(Icons.backup), label: const Text('تهیه نسخه پشتیبان و اشتراک‌گذاری')),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('بازیابی نسخه پشتیبان', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('فایل DB را از حافظه گوشی یا Google Drive انتخاب کن. اگر فایل تنظیمات JSON را هم انتخاب کنی، تنظیمات فروشگاه نیز برمی‌گردد. پیش از جایگزینی، از اطلاعات فعلی یک نسخه اضطراری ساخته می‌شود.'),
+        const Text('فقط یک فایل با پسوند HFBak انتخاب کن؛ این فایل پایگاه داده و تنظیمات فروشگاه را با هم دارد. می‌توانی آن را از حافظه گوشی یا فایلی که از گوشی دیگر دریافت کرده‌ای انتخاب کنی. فایل‌های پشتیبان قدیمی DB و JSON نیز همچنان قابل بازیابی‌اند. پیش از جایگزینی، از اطلاعات فعلی نسخه اضطراری ساخته می‌شود.'),
         const SizedBox(height: 10),
         FilledButton.icon(onPressed: busy ? null : () => _run(_restoreBackup), icon: const Icon(Icons.settings_backup_restore), label: const Text('انتخاب فایل و بازیابی')),
       ]))),
