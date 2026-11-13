@@ -1380,9 +1380,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
                             : TextField(
                                 controller: controllers[i],
                                 focusNode: focusNodes[i],
-                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i])
+                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'تعداد قطعه مصرفی', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i])
                                     ? TextInputType.number : TextInputType.text,
-                                inputFormatters: widget.fields[i].contains('تاریخ') ? [PersianDateInputFormatter()] : const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i]) ? [PersianDigitsOnlyFormatter()] : const [],
+                                inputFormatters: widget.fields[i].contains('تاریخ') ? [PersianDateInputFormatter()] : const ['شماره تماس', 'اجرت', 'تعداد', 'تعداد قطعه مصرفی', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i]) ? [PersianDigitsOnlyFormatter()] : const [],
                                 textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
                                 onSubmitted: (_) {
                                   if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
@@ -3047,6 +3047,7 @@ class _ReportsPageState extends State<ReportsPage> {
   final fromController = TextEditingController();
   final toController = TextEditingController();
   String selectedPeriod = 'همه تاریخ‌ها';
+  String selectedCheckStatus = 'همه چک‌ها';
 
   @override
   void dispose() {
@@ -3233,8 +3234,13 @@ class _ReportsPageState extends State<ReportsPage> {
                       itemBuilder: (_, i) {
                         final item = rows[rows.length - 1 - i];
                         final name = item['نام حساب'] ?? item['نام مشتری'] ?? item['نام شخص'] ?? item['نام کالا'] ?? item['شرح کالا/خدمت'] ?? item['نوع عملیات'] ?? item['عنوان'] ?? 'ثبت بدون عنوان';
-                        final date = item['تاریخ'] ?? item['تاریخ ثبت کالا'] ?? '';
-                        return ListTile(dense: true, title: Text(name), subtitle: Text(date), trailing: Text(_money(_amount(item, amountKey))));
+                        final date = item['تاریخ'] ?? item['تاریخ سررسید'] ?? item['تاریخ ثبت کالا'] ?? '';
+                        final detail = item.containsKey('تعداد قبل')
+                            ? 'تاریخ: $date • قبل: ${item['تعداد قبل']} • تغییر: ${item['تغییر تعداد']} • بعد: ${item['تعداد بعد']} • واحد: ${item['واحد'] ?? ''}'
+                            : item.containsKey('بدهکار')
+                                ? 'بدهکار: ${_money(_amount(item, 'بدهکار'))} • بستانکار: ${_money(_amount(item, 'بستانکار'))} • ماهیت مانده: ${item['ماهیت مانده'] ?? ''}'
+                                : date;
+                        return ListTile(dense: true, title: Text(name), subtitle: Text(detail), trailing: Text(_money(_amount(item, amountKey))));
                       },
                     )),
                   ]),
@@ -3263,6 +3269,14 @@ class _ReportsPageState extends State<ReportsPage> {
       return <String, String>{'نام مشتری': name, 'مبلغ': (-balance).toString(), 'ماهیت': 'بستانکار'};
     }).where((row) => PartyAccounting.amount(row, 'مبلغ') > 0).toList();
 
+    final filteredChecks = DemoStore.checks.where((check) {
+      if (selectedCheckStatus == 'همه چک‌ها') return true;
+      if (selectedCheckStatus == 'پاس شده') {
+        return (check['وضعیت'] ?? '').startsWith('پاس شده');
+      }
+      return (check['وضعیت'] ?? 'پاس نشده') == selectedCheckStatus;
+    }).toList();
+
     final reports = <({String title, IconData icon, int count, VoidCallback open})>[
       (title: 'مشتریان بدهکار', icon: Icons.person_search_outlined, count: debtorRows.length, open: () => _showReport('فهرست مشتریان بدهکار', Icons.person_search_outlined, debtorRows, 'مبلغ', 'مشتری بدهکاری وجود ندارد.', dateFilter: false)),
       (title: 'مشتریان بستانکار', icon: Icons.account_balance_wallet_outlined, count: creditorRows.length, open: () => _showReport('فهرست مشتریان بستانکار', Icons.account_balance_wallet_outlined, creditorRows, 'مبلغ', 'مشتری بستانکاری وجود ندارد.', dateFilter: false)),
@@ -3272,8 +3286,8 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'برگشت خرید', icon: Icons.keyboard_return, count: DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').length, open: () => _showReport('برگشت خرید', Icons.keyboard_return, DemoStore.returns.where((x) => x['نوع برگشت'] == 'برگشت خرید').toList(), 'مبلغ', 'سندی برای برگشت خرید ثبت نشده است.')),
       (title: 'فروش کالاها', icon: Icons.point_of_sale, count: DemoStore.sales.length, open: () => _showReport('فروش کالاها', Icons.point_of_sale, DemoStore.sales, 'مبلغ کل', 'اطلاعات فروش کالا موجود نیست.')),
       (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
-      (title: 'چک‌ها', icon: Icons.receipt, count: DemoStore.checks.length, open: () => _showReport('چک‌ها', Icons.receipt, DemoStore.checks, 'مبلغ', 'چکی ثبت نشده است.')),
-      (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
+      (title: 'چک‌ها', icon: Icons.receipt, count: filteredChecks.length, open: () => _showReport('چک‌ها', Icons.receipt, filteredChecks, 'مبلغ', 'چکی با این وضعیت ثبت نشده است.')),
+      (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}).toList(), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
       (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
       (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
@@ -3304,6 +3318,13 @@ class _ReportsPageState extends State<ReportsPage> {
               ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) => setState(() { final now = Jalali.now(); selectedPeriod = 'امسال'; fromController.text = Jalali(now.year, 1, 1).formatCompactDate(); toController.text = now.formatCompactDate(); })),
             ]),
             Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () { fromController.clear(); toController.clear(); setState(() => selectedPeriod = 'همه تاریخ‌ها'); }, icon: const Icon(Icons.clear), label: const Text('پاک کردن فیلتر تاریخ'))),
+            DropdownButtonFormField<String>(
+              value: selectedCheckStatus,
+              decoration: const InputDecoration(labelText: 'فیلتر وضعیت چک‌ها'),
+              items: const ['همه چک‌ها','پاس نشده','پاس شده','پاس شده در بانک','پاس شده در صندوق','خرج شده','برگشتی','باطل شده']
+                  .map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+              onChanged: (value) => setState(() => selectedCheckStatus = value ?? 'همه چک‌ها'),
+            ),
           ]),
         )),
         const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 8), child: Text('گزارش‌ها و صورت‌حساب‌ها', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
