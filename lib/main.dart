@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:persian_datetime_picker/persian_datetime_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -881,6 +882,7 @@ class _ProductPageState extends State<ProductPage> {
 
   Future<void> addProduct() async {
     final names = ['نام کالا', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
+    final saleDate = TextEditingController(text: Jalali.now().formatCompactDate());
     final c = List.generate(names.length, (_) => TextEditingController());
     final shipping = TextEditingController(text: '0');
     final freight = TextEditingController(text: '0');
@@ -1018,6 +1020,33 @@ class _ProductPageState extends State<ProductPage> {
                           decoration: InputDecoration(labelText: names[i]),
                         ),
                       ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: saleDate,
+                      keyboardType: TextInputType.datetime,
+                      textDirection: TextDirection.ltr,
+                      decoration: InputDecoration(
+                        labelText: 'تاریخ ثبت کالا (شمسی)',
+                        hintText: '۱۴۰۵/۰۸/۲۲',
+                        prefixIcon: IconButton(
+                          tooltip: 'انتخاب از تقویم شمسی',
+                          icon: const Icon(Icons.calendar_month),
+                          onPressed: () async {
+                            final initial = Jalali.tryParse(saleDate.text.replaceAll('/', '')) ?? Jalali.now();
+                            final picked = await showPersianDatePicker(
+                              context: context,
+                              initialDate: initial,
+                              firstDate: Jalali(1300, 1, 1),
+                              lastDate: Jalali(1500, 12, 29),
+                            );
+                            if (picked != null) {
+                              saleDate.text = picked.formatCompactDate();
+                              refresh(() {});
+                            }
+                          },
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
