@@ -191,6 +191,15 @@ class HoseinApp extends StatelessWidget {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             title: 'خدمات فنی حسین',
+            locale: const Locale('fa', 'IR'),
+            supportedLocales: const [Locale('fa', 'IR'), Locale('en', 'US')],
+            localizationsDelegates: const [
+              PersianMaterialLocalizations.delegate,
+              PersianCupertinoLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             theme: ThemeData(
               useMaterial3: true,
               colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
@@ -1339,6 +1348,11 @@ class _ProductPageState extends State<ProductPage> {
                               initialDate: initial,
                               firstDate: Jalali(1300, 1, 1),
                               lastDate: Jalali(1500, 12, 29),
+                              locale: const Locale('fa', 'IR'),
+                              textDirection: TextDirection.rtl,
+                              helpText: 'انتخاب تاریخ شمسی',
+                              cancelText: 'انصراف',
+                              confirmText: 'تأیید',
                             );
                             if (picked != null) {
                               saleDate.text = picked.formatCompactDate();
@@ -2585,25 +2599,158 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
   );
 }
 
-class ReportsPage extends StatelessWidget {
+class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('گزارش‌های اولیه', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-          for (final r in [
-            'تعداد کالاهای ثبت‌شده: ${DemoStore.products.length}',
-            'تعداد مشتریان: ${DemoStore.customers.length}',
-            'تعداد پذیرش‌های تعمیر: ${DemoStore.repairs.length}',
-            'تعداد فاکتورهای فروش: ${DemoStore.sales.length}',
-          ])
-            Card(child: ListTile(leading: const Icon(Icons.analytics_outlined), title: Text(r))),
-          const Text(
-            'اطلاعات این نسخه به‌صورت دائمی در SQLite همین گوشی ذخیره می‌شوند. همگام‌سازی چند گوشی و پشتیبان‌گیری ابری در مرحله بعد اضافه می‌شود.',
-            style: TextStyle(color: Colors.black54),
-          ),
-        ],
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> {
+  Jalali? _fromDate;
+  Jalali? _toDate;
+  late Future<List<Map<String, Object?>>> _recordsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = _loadRecords();
+  }
+
+  Future<List<Map<String, Object?>>> _loadRecords() {
+    return DemoStore.database.query(
+      'records',
+      columns: ['category', 'created_at', 'data'],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  Future<void> _chooseDate({required bool isStart}) async {
+    final now = Jalali.now();
+    final initial = isStart ? (_fromDate ?? _toDate ?? now) : (_toDate ?? _fromDate ?? now);
+    final picked = await showPersianDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: Jalali(1300, 1, 1),
+      lastDate: Jalali(1500, 12, 29),
+      locale: const Locale('fa', 'IR'),
+      textDirection: TextDirection.rtl,
+      helpText: isStart ? 'انتخاب تاریخ شروع' : 'انتخاب تاریخ پایان',
+      cancelText: 'انصراف',
+      confirmText: 'تأیید',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _fromDate = picked;
+        if (_toDate != null && _toDate!.toDateTime().isBefore(picked.toDateTime())) {
+          _toDate = picked;
+        }
+      } else {
+        _toDate = picked;
+        if (_fromDate != null && _fromDate!.toDateTime().isAfter(picked.toDateTime())) {
+          _fromDate = picked;
+        }
+      }
+    });
+  }
+
+  bool _inRange(Map<String, Object?> record) {
+    final raw = (record['created_at'] ?? '').toString();
+    final date = DateTime.tryParse(raw);
+    if (date == null) return false;
+    final day = DateTime(date.year, date.month, date.day);
+    if (_fromDate != null) {
+      final from = _fromDate!.toDateTime();
+      if (day.isBefore(DateTime(from.year, from.month, from.day))) return false;
+    }
+    if (_toDate != null) {
+      final to = _toDate!.toDateTime();
+      if (day.isAfter(DateTime(to.year, to.month, to.day))) return false;
+    }
+    return true;
+  }
+
+  String _dateLabel(Jalali? date) => date?.formatCompactDate() ?? 'از ابتدا / بدون محدودیت';
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, Object?>>>(
+    future: _recordsFuture,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.hasError) {
+        return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: ${snapshot.error}'));
+      }
+      final all = snapshot.data ?? const <Map<String, Object?>>[];
+      final filtered = all.where(_inRange).toList();
+      int count(String category) => filtered.where((r) => r['category'] == category).length;
+      return RefreshIndicator(
+        onRefresh: () async {
+          final next = _loadRecords();
+          setState(() => _recordsFuture = next);
+          await next;
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('گزارش‌ها بر اساس بازه تاریخ شمسی', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  const Text('فیلتر زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _chooseDate(isStart: true),
+                    icon: const Icon(Icons.calendar_month),
+                    label: Text('از تاریخ: ${_dateLabel(_fromDate)}'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _chooseDate(isStart: false),
+                    icon: const Icon(Icons.event),
+                    label: Text('تا تاریخ: ${_dateLabel(_toDate)}'),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; }),
+                      icon: const Icon(Icons.filter_alt_off),
+                      label: const Text('حذف فیلتر تاریخ'),
+                    ),
+                  ),
+                  Text(
+                    'بازه انتخاب‌شده: ${_fromDate?.formatCompactDate() ?? 'ابتدا'} تا ${_toDate?.formatCompactDate() ?? 'امروز / انتها'}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final entry in <(String, String, IconData)>[
+              ('کالاهای ثبت‌شده', 'products', Icons.inventory_2_outlined),
+              ('مشتریان ثبت‌شده', 'customers', Icons.people_outline),
+              ('پذیرش‌های تعمیر', 'repairs', Icons.build_outlined),
+              ('فاکتورهای فروش', 'sales', Icons.receipt_long_outlined),
+              ('عملیات مالی', 'operations', Icons.account_balance_wallet_outlined),
+            ])
+              Card(child: ListTile(
+                leading: Icon(entry.$3),
+                title: Text(entry.$1),
+                trailing: Text(count(entry.$2).toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+              )),
+            Text('تعداد کل اسناد در بازه: ${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text(
+              'فیلتر بر اساس زمان ثبت هر سند در پایگاه داده انجام می‌شود. تاریخ‌ها در انتخاب‌گر با تقویم هجری شمسی و نام روزهای فارسی نمایش داده می‌شوند.',
+              style: TextStyle(color: Colors.black54, fontSize: 12),
+            ),
+          ],
+        ),
       );
+    },
+  );
 }
