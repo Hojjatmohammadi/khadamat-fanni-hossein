@@ -825,7 +825,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
   }
 
   Future<void> addItem({Map<String, String>? existing}) async {
-    final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
+    final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? (field.contains('تاریخ') ? Jalali.now().formatCompactDate() : ''))).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> saveForm(BuildContext dialogContext) async {
@@ -1026,16 +1026,15 @@ class _SimpleListPageState extends State<SimpleListPage> {
                             : TextField(
                                 controller: controllers[i],
                                 focusNode: focusNodes[i],
-                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i])
                                     ? TextInputType.number : TextInputType.text,
-                                inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
-                                    ? [FilteringTextInputFormatter.digitsOnly] : const [],
+                                inputFormatters: widget.fields[i].contains('تاریخ') ? [PersianDateInputFormatter()] : const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مانده اولیه'].contains(widget.fields[i]) ? [FilteringTextInputFormatter.digitsOnly] : const [],
                                 textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
                                 onSubmitted: (_) {
                                   if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
                                   else FocusScope.of(dialogContext).unfocus();
                                 },
-                                decoration: InputDecoration(labelText: widget.fields[i]),
+                                decoration: InputDecoration(labelText: widget.fields[i], suffixIcon: widget.fields[i].contains('تاریخ') ? IconButton(tooltip: 'انتخاب تاریخ شمسی', icon: const Icon(Icons.calendar_month), onPressed: () async { final picked = await showPersianDatePicker(context: dialogContext, initialDate: Jalali.now(), firstDate: Jalali(1300, 1, 1), lastDate: Jalali(1500, 12, 29)); if (picked != null) controllers[i].text = picked.formatCompactDate(); }) : null),
                               ),
                       ),
                   ],
@@ -1073,13 +1072,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final customerName = (customer['نام مشتری'] ?? '').trim();
     final linkedSales = DemoStore.sales.where((x) => (x['نام مشتری'] ?? '').trim() == customerName).toList();
     final linkedRepairs = DemoStore.repairs.where((x) => (x['نام مشتری'] ?? '').trim() == customerName).toList();
-    final linkedOperations = DemoStore.operations.where((x) => (x['نام شخص'] ?? '').trim() == customerName).toList();
-    int amountOf(Map<String, String> item, String key) => int.tryParse((item[key] ?? '').replaceAll(',', '')) ?? 0;
-    final salesTotal = linkedSales.fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ کل'));
+    final accountEntries = PartyAccounting.entriesFor(customerName);
+    int amountOf(Map<String, String> item, String key) => PartyAccounting.amount(item, key);
+    final salesTotal = linkedSales.fold<int>(0, (sum, x) => sum + (amountOf(x, 'مبلغ کل') - amountOf(x, 'تخفیف')).clamp(0, 1 << 62));
     final repairTotal = linkedRepairs.fold<int>(0, (sum, x) => sum + amountOf(x, 'اجرت'));
-    final received = linkedOperations.where((x) => x['نوع عملیات'] == 'دریافت وجه').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
-    final paid = linkedOperations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
-    final balance = salesTotal + repairTotal + paid - received;
+    final debitTotal = accountEntries.where((x) => x['ماهیت'] == 'بدهکار').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
+    final creditTotal = accountEntries.where((x) => x['ماهیت'] == 'بستانکار').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
+    final balance = debitTotal - creditTotal;
+    String money(int value) => value.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
     String money(int value) => value.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
 
     Future<void> addMoneyOperation(String operation) async {
@@ -1089,11 +1089,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
       final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
-          title: Text(operation == 'دریافت وجه' ? 'دریافت از مشتری' : 'پرداخت به مشتری'),
+          title: Text(operation == 'دریافت وجه' ? 'دریافت از مشتری' : operation == 'پرداخت وجه' ? 'پرداخت به مشتری' : operation == 'متفرقه شخص بدهکار' ? 'ثبت بدهکاری مشتری' : 'ثبت بستانکاری مشتری'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('مشتری: $customerName'),
             TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
-            DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش پرداخت'), items: const ['نقدی', 'چک', 'کارتی / حواله'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(), onChanged: (v) => refresh(() => method = v ?? 'نقدی')),
+            if (operation == 'دریافت وجه' || operation == 'پرداخت وجه') DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش پرداخت'), items: const ['نقدی', 'چک', 'کارتی / حواله'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(), onChanged: (v) => refresh(() => method = v ?? 'نقدی')),
             TextField(controller: note, decoration: const InputDecoration(labelText: 'توضیحات')),
           ]),
           actions: [_horizontalDialogActions([
@@ -1146,21 +1146,30 @@ class _SimpleListPageState extends State<SimpleListPage> {
             Wrap(spacing: 8, runSpacing: 8, children: [
               OutlinedButton.icon(onPressed: () => addMoneyOperation('دریافت وجه'), icon: const Icon(Icons.call_received), label: const Text('دریافت وجه')),
               OutlinedButton.icon(onPressed: () => addMoneyOperation('پرداخت وجه'), icon: const Icon(Icons.call_made), label: const Text('پرداخت وجه')),
+              OutlinedButton.icon(onPressed: () => addMoneyOperation('متفرقه شخص بدهکار'), icon: const Icon(Icons.add_circle_outline), label: const Text('ثبت بدهکار')),
+              OutlinedButton.icon(onPressed: () => addMoneyOperation('متفرقه شخص بستانکار'), icon: const Icon(Icons.remove_circle_outline), label: const Text('ثبت بستانکار')),
             ]),
             const Divider(height: 24),
+            Text('جمع بدهکار: ${money(debitTotal)} تومان'),
+            Text('جمع بستانکار: ${money(creditTotal)} تومان'),
             Text('فاکتورهای فروش: ${linkedSales.length} مورد • ${money(salesTotal)} تومان'),
             Text('پذیرش‌های تعمیر: ${linkedRepairs.length} مورد • اجرت ${money(repairTotal)} تومان'),
-            Text('دریافت‌ها: ${money(received)} تومان • پرداخت‌ها: ${money(paid)} تومان'),
             const SizedBox(height: 12),
-            const Text('سوابق مالی', style: TextStyle(fontWeight: FontWeight.bold)),
-            if (linkedOperations.isEmpty && linkedSales.isEmpty && linkedRepairs.isEmpty)
-              const Text('هنوز تراکنش یا سابقه‌ای برای این مشتری ثبت نشده است.'),
-            for (final op in linkedOperations.reversed)
-              ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: Icon(op['نوع عملیات'] == 'دریافت وجه' ? Icons.call_received : Icons.account_balance_wallet_outlined), title: Text(op['نوع عملیات'] ?? 'عملیات مالی'), subtitle: Text('${op['تاریخ'] ?? ''} • ${op['روش'] ?? ''}'), trailing: Text('${money(amountOf(op, 'مبلغ'))} تومان')),
-            for (final sale in linkedSales.reversed)
-              ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: const Icon(Icons.receipt_long), title: const Text('فاکتور فروش'), subtitle: Text(sale['شرح کالا/خدمت'] ?? ''), trailing: Text('${money(amountOf(sale, 'مبلغ کل'))} تومان')),
-            for (final repair in linkedRepairs.reversed)
-              ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: const Icon(Icons.build_outlined), title: Text('پذیرش تعمیر • ${repair['نوع دستگاه'] ?? ''}'), subtitle: Text(repair['وضعیت تعمیر'] ?? ''), trailing: Text('${money(amountOf(repair, 'اجرت'))} تومان')),
+            const Text('دفتر گردش حساب', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (accountEntries.isEmpty)
+              const Text('برای این شخص هنوز گردش مالی ثبت نشده است.'),
+            for (final entry in accountEntries.reversed)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(entry['ماهیت'] == 'بدهکار' ? Icons.arrow_circle_up : Icons.arrow_circle_down, color: entry['ماهیت'] == 'بدهکار' ? Colors.red : Colors.green),
+                title: Text(entry['نوع'] ?? 'سند مالی'),
+                subtitle: Text('${entry['تاریخ'] ?? ''} • ${entry['شرح'] ?? ''}'),
+                trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text('${money(amountOf(entry, 'مبلغ'))} تومان'),
+                  Text(entry['ماهیت'] ?? '', style: TextStyle(fontSize: 11, color: entry['ماهیت'] == 'بدهکار' ? Colors.red : Colors.green)),
+                ]),
+              ),
           ],
         ))),
         actions: [_horizontalDialogActions([
@@ -1173,6 +1182,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
+        bottomNavigationBar: widget.title == 'مشتری' ? SafeArea(child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          color: Theme.of(context).colorScheme.secondaryContainer,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('جمع بدهکاران: ${PartyAccounting.totalDebtors().toString()} تومان'),
+            Text('جمع بستانکاران: ${PartyAccounting.totalCreditors().toString()} تومان'),
+          ]),
+        )) : null,
         floatingActionButton: FloatingActionButton(
           heroTag: 'add-${widget.title}',
           backgroundColor: yellow,
@@ -1201,7 +1218,17 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 Card(child: ListTile(
                   leading: CircleAvatar(child: Icon(_selectedKeys.contains(_keyOf(item)) ? Icons.check : Icons.description)),
                   title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
-                  subtitle: Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • ')),
+                  subtitle: widget.title == 'مشتری'
+                      ? Builder(builder: (context) {
+                          final balance = PartyAccounting.balanceFor(item['نام مشتری'] ?? '');
+                          final status = balance > 0 ? 'بدهکار' : balance < 0 ? 'بستانکار' : 'تسویه';
+                          final details = item.entries.where((e) => e.value.isNotEmpty && !['مانده اولیه', 'ماهیت مانده اولیه'].contains(e.key)).map((e) => '${e.key}: ${e.value}').join(' • ');
+                          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            if (details.isNotEmpty) Text(details, maxLines: 2, overflow: TextOverflow.ellipsis),
+                            Text('مانده: ${balance.abs()} تومان • ${status}', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0 ? Colors.red : balance < 0 ? Colors.green : Colors.grey)),
+                          ]);
+                        })
+                      : Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • ')),
                   trailing: _selectedKeys.isNotEmpty ? Checkbox(value: _selectedKeys.contains(_keyOf(item)), onChanged: (_) => setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); })) : widget.title == 'مشتری' ? PopupMenuButton<String>(onSelected: (v) { if (v == 'edit') addItem(existing: item); else _showCustomerAccount(item); }, itemBuilder: (_) => const [PopupMenuItem(value: 'view', child: Text('پرونده و مانده‌حساب')), PopupMenuItem(value: 'edit', child: Text('ویرایش اطلاعات مشتری'))]) : const Icon(Icons.edit_outlined),
                   onLongPress: () => setState(() => _selectedKeys.add(_keyOf(item))),
                   onTap: () {
@@ -1782,7 +1809,7 @@ class CustomerPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'مشتری',
         data: DemoStore.customers,
-        fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات'],
+        fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات', 'مانده اولیه', 'ماهیت مانده اولیه'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -1796,7 +1823,7 @@ class RepairPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'پذیرش تعمیر',
         data: DemoStore.repairs,
-        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
+        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'مبلغ دریافتی', 'تاریخ پذیرش', 'وضعیت تعمیر'],
         primary: 'نوع دستگاه',
         onChanged: onChanged,
       );
@@ -1810,7 +1837,7 @@ class SalesPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
+        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ فاکتور'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
