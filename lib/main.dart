@@ -978,7 +978,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
         if (value <= 0) continue;
         if (['متفرقه شخص بدهکار','پرداخت وجه'].contains(type)) debit = value;
-        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن','تخفیف گرفتن'].contains(type)) credit = value;
+        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(type)) credit = value;
         else continue;
         desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
         method = (data['روش'] ?? '').toString();
@@ -1955,7 +1955,7 @@ class _OperationsPageState extends State<OperationsPage> {
           child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
             title: Text(op),
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (['تخفیف دادن','تخفیف گرفتن','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
+              if (['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
                 DropdownButtonFormField<String>(
                   value: DemoStore.customers.any((c) => c['نام مشتری'] == name.text.trim()) ? name.text.trim() : null,
                   isExpanded: true,
