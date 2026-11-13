@@ -108,7 +108,8 @@ class DemoStore {
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
-  }}
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
