@@ -1204,7 +1204,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('مشتری: $customerName'),
             if (operation == 'دریافت وجه' || operation == 'پرداخت وجه') const Text('اگر همین مبلغ را در فاکتور یا پذیرش ثبت کرده‌اید، دوباره اینجا ثبت نکنید.', style: TextStyle(fontSize: 12, color: Colors.orange)),
-            TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+            TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
             if (operation == 'دریافت وجه' || operation == 'پرداخت وجه') DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش پرداخت'), items: const ['نقدی', 'چک', 'کارتی / حواله'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(), onChanged: (v) => refresh(() => method = v ?? 'نقدی')),
             TextField(controller: note, decoration: const InputDecoration(labelText: 'توضیحات')),
           ]),
@@ -1522,7 +1522,7 @@ class _ProductPageState extends State<ProductPage> {
                           controller: c[i],
                           keyboardType: TextInputType.numberWithOptions(decimal: i == 2 && unit != 'عدد'),
                           inputFormatters: i == 1 || i >= 3 || (i == 2 && unit == 'عدد')
-                              ? [FilteringTextInputFormatter.digitsOnly]
+                              ? [PersianDigitsOnlyFormatter()]
                               : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
                           textInputAction: TextInputAction.next,
                           onChanged: (_) => refresh(() {}),
@@ -1633,11 +1633,11 @@ class _ProductPageState extends State<ProductPage> {
                     const Divider(height: 24),
                     const Align(alignment: Alignment.centerRight, child: Text('هزینه‌های رساندن کالا به مغازه', style: TextStyle(fontWeight: FontWeight.bold))),
                     const SizedBox(height: 10),
-                    TextField(controller: shipping, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه پست')),
+                    TextField(controller: shipping, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه پست')),
                     const SizedBox(height: 10),
-                    TextField(controller: freight, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
+                    TextField(controller: freight, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
                     const SizedBox(height: 10),
-                    TextField(controller: other, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
+                    TextField(controller: other, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
                     const Divider(height: 24),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2105,7 +2105,7 @@ class _SettingsPageState extends State<SettingsPage> {
         title: const Text('ثبت پرداخت به فروشنده'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('فروشنده: ' + supplierName),
-          TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ پرداخت (تومان)')),
+          TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ پرداخت (تومان)')),
           DropdownButtonFormField<String>(
             value: paymentMethod,
             decoration: const InputDecoration(labelText: 'روش پرداخت'),
@@ -2164,7 +2164,7 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 8),
             TextField(controller: seller, decoration: const InputDecoration(labelText: 'نام فروشنده / شخصی که خرید از او انجام شد')),
             const SizedBox(height: 8),
-            TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
+            TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
             const SizedBox(height: 8),
@@ -2297,11 +2297,11 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 10),
           TextField(controller: managerName, decoration: const InputDecoration(labelText: 'نام مدیر / صاحب فروشگاه')),
           const SizedBox(height: 10),
-          TextField(controller: phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)], decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه (حداکثر ۱۱ رقم)')),
+          TextField(controller: phone, keyboardType: TextInputType.phone, inputFormatters: [PersianDigitsOnlyFormatter(), LengthLimitingTextInputFormatter(11)], decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه (حداکثر ۱۱ رقم)')),
           const SizedBox(height: 10),
           TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشگاه')),
           const SizedBox(height: 10),
-          TextField(controller: postalCode, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], decoration: const InputDecoration(labelText: 'کد پستی (دقیقاً ۱۰ رقم)')),
+          TextField(controller: postalCode, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter(), LengthLimitingTextInputFormatter(10)], decoration: const InputDecoration(labelText: 'کد پستی (دقیقاً ۱۰ رقم)')),
           const Divider(height: 32),
           const Text('تنظیمات ظاهری', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           DropdownButtonFormField<String>(
@@ -2448,7 +2448,7 @@ class _OperationsPageState extends State<OperationsPage> {
             title: Text(op),
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
               TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
-              TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+              TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
               if (op == 'پرداخت وجه' || op == 'دریافت وجه')
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
               TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
