@@ -1322,6 +1322,17 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
+  Future<String?> _askGroupRename(String title, String current) async {
+    final controller = TextEditingController(text: current);
+    final value = await showDialog<String>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: Text(title),
+      content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'نام جدید')),
+      actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, controller.text.trim()), child: const Text('ذخیره'))],
+    )));
+    controller.dispose();
+    return value;
+  }
+
   Future<void> _manageProductGroups() async {
     final groupController = TextEditingController();
     final subController = TextEditingController();
@@ -1353,9 +1364,39 @@ class _SettingsPageState extends State<SettingsPage> {
             refresh(() {});
           }, icon: const Icon(Icons.add), label: const Text('افزودن زیرگروه'))),
           for (final sub in (selectedGroup == null ? <String>[] : AppSettings.productGroups[selectedGroup] ?? <String>[]))
-            ListTile(dense: true, title: Text(sub), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { AppSettings.productGroups[selectedGroup]!.remove(sub); await AppSettings.saveProductGroups(); refresh(() {}); })),
+            ListTile(dense: true, title: Text(sub), trailing: Wrap(children: [
+              IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'ویرایش زیرگروه', onPressed: () async {
+                final renamed = await _askGroupRename('ویرایش زیرگروه', sub);
+                if (renamed == null || renamed.trim().isEmpty || renamed == sub || selectedGroup == null) return;
+                final list = AppSettings.productGroups[selectedGroup]!;
+                if (list.contains(renamed)) return;
+                list[list.indexOf(sub)] = renamed;
+                await AppSettings.saveProductGroups(); refresh(() {});
+              }),
+              IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'حذف زیرگروه', onPressed: () async { AppSettings.productGroups[selectedGroup]!.remove(sub); await AppSettings.saveProductGroups(); refresh(() {}); }),
+            ])),
           for (final group in AppSettings.productGroups.keys.toList())
-            if (group != selectedGroup) ListTile(dense: true, title: Text(group), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { AppSettings.productGroups.remove(group); await AppSettings.saveProductGroups(); refresh(() => selectedGroup = AppSettings.productGroups.keys.isEmpty ? null : AppSettings.productGroups.keys.first); })),
+            ListTile(dense: true, title: Text(group), trailing: Wrap(children: [
+              IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'ویرایش گروه', onPressed: () async {
+                final renamed = await _askGroupRename('ویرایش گروه اصلی', group);
+                if (renamed == null || renamed.trim().isEmpty || renamed == group || AppSettings.productGroups.containsKey(renamed)) return;
+                final subs = AppSettings.productGroups.remove(group)!;
+                AppSettings.productGroups[renamed] = subs;
+                if (selectedGroup == group) selectedGroup = renamed;
+                await AppSettings.saveProductGroups(); refresh(() {});
+              }),
+              IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'حذف گروه', onPressed: () async {
+                final yes = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+                  title: const Text('حذف گروه'),
+                  content: Text('گروه «$group» و زیرگروه‌هایش حذف شوند؟ کالاهای قبلی همچنان با نام ثبت‌شده خود باقی می‌مانند.'),
+                  actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))],
+                )));
+                if (yes != true) return;
+                AppSettings.productGroups.remove(group);
+                if (selectedGroup == group) selectedGroup = AppSettings.productGroups.keys.isEmpty ? null : AppSettings.productGroups.keys.first;
+                await AppSettings.saveProductGroups(); refresh(() {});
+              }),
+            ])),
         ]))),
         actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))],
       )),
