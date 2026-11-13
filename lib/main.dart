@@ -2259,7 +2259,17 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     await file.writeAsString(jsonEncode(bundle), encoding: utf8, flush: true);
     if (!mounted) return;
     setState(() => lastSaved = file.path);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('یک فایل پشتیبان کامل در حافظه گوشی ذخیره شد. می‌توانی همان یک فایل را ذخیره یا به گوشی دیگر ارسال کنی.')));
+    final savedLocation = await FilePicker.platform.saveFile(
+      dialogTitle: 'ذخیره فایل پشتیبان در گوشی',
+      fileName: p.basename(file.path),
+      type: FileType.custom,
+      allowedExtensions: ['hfbak'],
+      bytes: await file.readAsBytes(),
+    );
+    if (savedLocation != null && mounted) {
+      setState(() => lastSaved = savedLocation);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فایل پشتیبان در محل انتخاب‌شده ذخیره شد. اکنون می‌توانی آن را به گوشی دیگر هم ارسال کنی.')));
+    }
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/octet-stream')],
       text: 'نسخه پشتیبان کامل خدمات فنی حسین؛ شامل پایگاه داده و تنظیمات',
