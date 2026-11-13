@@ -1228,6 +1228,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (widget.title == 'فاکتور فروش' || widget.title == 'پذیرش تعمیر')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'مبلغ دریافتی در همین سند از مانده حساب کم می‌شود. اگر قبلاً آن را ثبت کرده‌ای، دوباره به‌عنوان دریافت وجه وارد نکن.',
+                          style: TextStyle(fontSize: 12, color: Theme.of(dialogContext).colorScheme.error),
+                        ),
+                      ),
                     if (widget.title == 'مشتری' && existing == null)
                       Align(
                         alignment: Alignment.centerRight,
@@ -2445,7 +2453,10 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: paidAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده (تومان)')),
-            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text('پرداخت ثبت‌شده در همین خرید از بدهی فروشنده کم می‌شود؛ همان پرداخت را دوباره از منوی پرداخت فروشنده ثبت نکن.', style: TextStyle(fontSize: 11, color: Colors.orange)),
+            ),
             DropdownButtonFormField<String>(
               value: paymentMethod,
               decoration: const InputDecoration(labelText: 'روش پرداخت مبلغ پرداخت‌شده'),
@@ -3057,6 +3068,8 @@ class _OperationsPageState extends State<OperationsPage> {
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
               TextField(controller: name, decoration: InputDecoration(labelText: op == 'ثبت هزینه' || op == 'ثبت درآمد' ? 'عنوان هزینه یا درآمد' : 'نام شخص')),
               TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+              if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+                const Padding(padding: EdgeInsets.only(bottom: 8), child: Text('اگر همین مبلغ را در فاکتور، خرید یا پذیرش ثبت کرده‌ای، دوباره آن را ثبت نکن.', style: TextStyle(fontSize: 11, color: Colors.orange))),
               if (['پرداخت وجه','دریافت وجه','ثبت هزینه','ثبت درآمد'].contains(op))
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
               TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
