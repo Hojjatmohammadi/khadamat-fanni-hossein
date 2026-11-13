@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'data/app_database_schema.dart';
+import 'accounting/accounting_engine.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -178,6 +179,7 @@ class HoseinApp extends StatelessWidget {
 
 class DemoStore {
   static Database? _db;
+  static Database get database => _db!;
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
@@ -188,7 +190,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -209,6 +211,9 @@ class DemoStore {
           await AppDatabaseSchema.create(db);
           await AppDatabaseSchema.migrateLegacyRecords(db);
         }
+        if (oldVersion < 3) {
+          await AccountingEngine.createTables(db);
+        }
       },
     );
     await _loadCategory('products', products);
@@ -216,6 +221,7 @@ class DemoStore {
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
+    await AccountingEngine.ensureDefaultAccounts(_db!);
   }
 
   static Future<void> _loadCategory(String category, List<Map<String, String>> target) async {
