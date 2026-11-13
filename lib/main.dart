@@ -1737,7 +1737,31 @@ class _OperationsPageState extends State<OperationsPage> {
         )),
     ])),
   ]));
-  Future<void> addNewOperation() => _openOperation(context, options.first);
+  Future<void> addNewOperation() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('انتخاب نوع عملیات'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final option in options)
+                ListTile(
+                  title: Text(option),
+                  trailing: const Icon(Icons.chevron_left),
+                  onTap: () => Navigator.pop(dialogContext, option),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      await _openOperation(context, selected);
+    }
+  }
 
   Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
