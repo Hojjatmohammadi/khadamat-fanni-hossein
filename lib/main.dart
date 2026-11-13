@@ -1,5 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:excel/excel.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 import 'package:persian_datetime_picker/persian_datetime_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -333,7 +342,7 @@ class _HomePageState extends State<HomePage> {
   int tab = 0;
   final List<int> _tabHistory = [];
   final TextEditingController drawerSearchController = TextEditingController();
-  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه', 'عملیات‌های دیگر'];
+  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه', 'عملیات‌های دیگر', 'خروجی و پشتیبان‌گیری'];
 
   @override
   void dispose() { drawerSearchController.dispose(); super.dispose(); }
@@ -427,6 +436,7 @@ class _HomePageState extends State<HomePage> {
       const ReportsPage(),
       const SettingsPage(),
       OperationsPage(key: _operationsPageKey, onChanged: () => setState(() {})),
+      const ExportBackupPage(),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -498,7 +508,7 @@ class _HomePageState extends State<HomePage> {
                 )),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings, Icons.account_balance_wallet][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings, Icons.account_balance_wallet, Icons.file_download][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -528,6 +538,7 @@ class Dashboard extends StatelessWidget {
       ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt, 4),
       ('گزارش‌ها', 'مشاهده گزارش‌ها', Icons.bar_chart, 5),
       ('عملیات‌های دیگر', '۶ عملیات مالی', Icons.account_balance_wallet, 7),
+      ('خروجی و پشتیبان‌گیری', 'PDF، Excel، عکس و نسخه پشتیبان', Icons.file_download, 8),
     ];
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -2100,6 +2111,244 @@ class _OperationsPageState extends State<OperationsPage> {
     name.dispose(); amount.dispose(); note.dispose();
     if (result == true) widget.onChanged();
   }
+}
+
+
+class ExportBackupPage extends StatefulWidget {
+  const ExportBackupPage({super.key});
+  @override
+  State<ExportBackupPage> createState() => _ExportBackupPageState();
+}
+
+class _ExportBackupPageState extends State<ExportBackupPage> {
+  bool busy = false;
+  String lastSaved = '';
+
+  Future<Directory> _outputDirectory() async {
+    final root = await getApplicationDocumentsDirectory();
+    final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  String _stamp() => DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+
+  Future<void> _shareFile(File file, String message) async {
+    await Share.shareXFiles([XFile(file.path)], text: message);
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('عملیات ناموفق بود: $e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _createBackup() async {
+    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(FULL)');
+    final dbPath = p.join(await getDatabasesPath(), 'khadamat_fanni_hosein.db');
+    final source = File(dbPath);
+    if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
+    final dir = await _outputDirectory();
+    final file = await source.copy(p.join(dir.path, 'backup_${_stamp()}.db'));
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('نسخه پشتیبان پایگاه داده در حافظه برنامه ذخیره شد. برای انتقال به گوشی یا Google Drive، گزینه اشتراک‌گذاری را انتخاب کنید.')));
+    await _shareFile(file, 'نسخه پشتیبان خدمات فنی حسین');
+  }
+
+  Future<void> _exportExcel() async {
+    final excel = Excel.createExcel();
+    final dataSets = <String, List<Map<String, String>>>{
+      'کالاها': DemoStore.products,
+      'مشتریان': DemoStore.customers,
+      'تعمیرات': DemoStore.repairs,
+      'فاکتورها': DemoStore.sales,
+      'عملیات مالی': DemoStore.operations,
+    };
+    var first = true;
+    for (final entry in dataSets.entries) {
+      final sheetName = entry.key;
+      if (first) {
+        excel.rename('Sheet1', sheetName);
+        first = false;
+      }
+      final sheet = excel[sheetName];
+      final keys = <String>{};
+      for (final row in entry.value) { keys.addAll(row.keys); }
+      final columns = keys.toList();
+      if (columns.isEmpty) {
+        sheet.appendRow([TextCellValue('اطلاعاتی ثبت نشده است')]);
+      } else {
+        sheet.appendRow(columns.map((key) => TextCellValue(key)).toList());
+        for (final row in entry.value) {
+          sheet.appendRow(columns.map((key) => TextCellValue(row[key] ?? '')).toList());
+        }
+      }
+    }
+    final bytes = excel.encode();
+    if (bytes == null) throw Exception('ساخت فایل Excel ناموفق بود.');
+    final dir = await _outputDirectory();
+    final file = File(p.join(dir.path, 'گزارش_کامل_${_stamp()}.xlsx'));
+    await file.writeAsBytes(bytes, flush: true);
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فایل Excel در حافظه برنامه ذخیره شد.')));
+    await _shareFile(file, 'خروجی Excel اطلاعات خدمات فنی حسین');
+  }
+
+  Widget _invoicePreview(Map<String, String> item, int index) {
+    final gross = double.tryParse((item['مبلغ کل'] ?? '0').replaceAll(',', '')) ?? 0;
+    final discount = double.tryParse((item['تخفیف'] ?? '0').replaceAll(',', '')) ?? 0;
+    final received = double.tryParse((item['مبلغ دریافتی'] ?? '0').replaceAll(',', '')) ?? 0;
+    final net = (gross - discount).clamp(0, gross);
+    return Container(
+      width: 560,
+      color: Colors.white,
+      padding: const EdgeInsets.all(28),
+      child: DefaultTextStyle(
+        style: const TextStyle(color: Colors.black, fontSize: 15),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
+          const SizedBox(height: 5),
+          if (AppSettings.address.isNotEmpty) Text(AppSettings.address, textAlign: TextAlign.center),
+          if (AppSettings.phone.isNotEmpty) Text('تلفن: ${AppSettings.phone}', textAlign: TextAlign.center),
+          const Divider(color: Colors.black, height: 28),
+          Text('فاکتور فروش شماره ${index + 1}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
+          Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
+          Text('تعداد: ${item['تعداد'] ?? '۱'}'),
+          const Divider(color: Colors.black),
+          _invoiceLine('مبلغ کل قبل از تخفیف', gross),
+          _invoiceLine('تخفیف', discount),
+          _invoiceLine('مبلغ نهایی', net),
+          _invoiceLine('مبلغ دریافتی', received),
+          _invoiceLine('مانده حساب', (net - received).clamp(0, net)),
+          const SizedBox(height: 26),
+          const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
+        ]),
+      ),
+    );
+  }
+
+  Widget _invoiceLine(String title, num value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(title),
+      Text('${value.toStringAsFixed(0)} تومان', style: const TextStyle(fontWeight: FontWeight.bold)),
+    ]),
+  );
+
+  Future<Uint8List?> _captureInvoice(Map<String, String> item, int index) async {
+    final key = GlobalKey();
+    return showDialog<Uint8List>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('پیش‌نمایش فاکتور'),
+          content: SizedBox(
+            width: 600,
+            child: SingleChildScrollView(
+              child: RepaintBoundary(key: key, child: _invoicePreview(item, index)),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+            FilledButton.icon(
+              onPressed: () async {
+                try {
+                  final boundary = key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+                  if (boundary == null) throw Exception('پیش‌نمایش فاکتور آماده نیست.');
+                  final image = await boundary.toImage(pixelRatio: 3);
+                  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+                  image.dispose();
+                  if (data == null) throw Exception('تبدیل فاکتور به تصویر ناموفق بود.');
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, data.buffer.asUint8List());
+                } catch (e) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ساخت تصویر ناموفق بود: $e')));
+                }
+              },
+              icon: const Icon(Icons.image_outlined),
+              label: const Text('ساخت خروجی'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportInvoice(Map<String, String> item, int index, {required bool pdf}) async {
+    final imageBytes = await _captureInvoice(item, index);
+    if (imageBytes == null) return;
+    final dir = await _outputDirectory();
+    final extension = pdf ? 'pdf' : 'png';
+    final file = File(p.join(dir.path, 'factor_${index + 1}_${_stamp()}.$extension'));
+    if (pdf) {
+      final document = pw.Document();
+      document.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(20),
+        build: (_) => pw.Center(child: pw.Image(pw.MemoryImage(imageBytes), fit: pw.BoxFit.contain)),
+      ));
+      await file.writeAsBytes(await document.save(), flush: true);
+    } else {
+      await file.writeAsBytes(imageBytes, flush: true);
+    }
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فاکتور به صورت ${pdf ? 'PDF' : 'عکس'} ذخیره شد.')));
+    await _shareFile(file, 'فاکتور فروش خدمات فنی حسین');
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('پشتیبان‌گیری از پایگاه داده', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('یک نسخه از پایگاه داده SQLite همین گوشی تهیه می‌شود. از پنجره اشتراک‌گذاری می‌توانید آن را در Google Drive یا برنامه فایل‌ها ذخیره کنید.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_createBackup), icon: const Icon(Icons.backup), label: const Text('تهیه نسخه پشتیبان و اشتراک‌گذاری')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('خروجی Excel', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('اطلاعات کالاها، مشتریان، تعمیرات، فاکتورها و عملیات مالی در یک فایل چندبرگی Excel ذخیره و قابل ارسال می‌شود.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_exportExcel), icon: const Icon(Icons.table_view), label: const Text('ساخت Excel و اشتراک‌گذاری')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('فاکتور PDF و عکس', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('برای هر فاکتور ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
+        const SizedBox(height: 8),
+        if (DemoStore.sales.isEmpty)
+          const Text('هنوز فاکتوری ثبت نشده است.')
+        else
+          for (int i = 0; i < DemoStore.sales.length; i++)
+            Card(child: ListTile(
+              title: Text('فاکتور ${i + 1} ـ ${DemoStore.sales[i]['نام مشتری'] ?? 'بدون نام'}'),
+              subtitle: Text(DemoStore.sales[i]['شرح کالا/خدمت'] ?? ''),
+              trailing: Wrap(spacing: 2, children: [
+                IconButton(tooltip: 'خروجی PDF', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.sales[i], i, pdf: true)), icon: const Icon(Icons.picture_as_pdf)),
+                IconButton(tooltip: 'خروجی عکس', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.sales[i], i, pdf: false)), icon: const Icon(Icons.image)),
+              ]),
+            )),
+      ]))),
+      if (busy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
+      if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:
+$lastSaved', style: const TextStyle(fontSize: 11)),
+      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('نکته: اتصال مستقیم و دائمی به حساب Google Drive (ورود حساب، انتخاب پوشه و همگام‌سازی خودکار) هنوز در این نسخه وجود ندارد. برای ذخیره در Drive، از پنجره اشتراک‌گذاری، Google Drive را انتخاب کنید؛ اگر روی گوشی نصب باشد.'))),
+    ],
+  );
 }
 
 class ReportsPage extends StatelessWidget {
