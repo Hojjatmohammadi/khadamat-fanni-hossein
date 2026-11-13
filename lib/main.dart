@@ -955,6 +955,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
       try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
       final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
       if (person != customerName) continue;
+      if (record['category'] == 'operations') {
+        final type = (data['نوع عملیات'] ?? '').toString();
+        final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
+        if (partyType != 'مشتری') continue;
+      }
       final date = DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
       double debit = 0, credit = 0; String desc = '', method = '';
       if (record['category'] == 'sales') {
@@ -1884,11 +1889,47 @@ class _OperationsPageState extends State<OperationsPage> {
           subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
           leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
           onLongPress: () => setState(() => _selected.add(jsonEncode(item))),
-          onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item); },
+          onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _showPartyAccount(item); },
           trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : const Icon(Icons.edit_outlined),
         )),
     ])),
   ]));
+  Future<void> _showPartyAccount(Map<String, String> selected) async {
+    final name = (selected['نام شخص'] ?? '').trim();
+    if (name.isEmpty) return;
+    final type = (selected['نوع طرف حساب'] ?? ((selected['نوع عملیات'] == 'تخفیف گرفتن') ? 'فروشنده' : 'مشتری')).toString();
+    final records = await DemoStore.database.query('records', columns: ['data','created_at'], where: 'category = ?', whereArgs: ['operations']);
+    final rows = <Map<String,Object?>>[];
+    for (final record in records) {
+      Map<String,dynamic> data;
+      try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
+      if ((data['نام شخص'] ?? '').toString().trim() != name) continue;
+      final op = (data['نوع عملیات'] ?? '').toString();
+      final partyType = (data['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
+      if (partyType != type) continue;
+      final amount = double.tryParse((data['مبلغ'] ?? '0').toString().replaceAll(',', '')) ?? 0;
+      if (amount <= 0) continue;
+      final debit = ['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0;
+      final credit = ['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن','تخفیف گرفتن'].contains(op) ? amount : 0.0;
+      if (debit == 0 && credit == 0) continue;
+      rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
+    }
+    rows.sort((a,b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    var balance = 0.0, debits = 0.0, credits = 0.0;
+    for (final row in rows) { debits += row['debit'] as double; credits += row['credit'] as double; balance += (row['debit'] as double) - (row['credit'] as double); row['balance'] = balance; }
+    if (!mounted) return;
+    await showDialog<void>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: Text('دفتر حساب $type: $name'),
+      content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(balance > 0 ? 'مانده: ${balance.toStringAsFixed(0)} تومان بدهکار' : balance < 0 ? 'مانده: ${balance.abs().toStringAsFixed(0)} تومان بستانکار' : 'حساب تسویه است'),
+        Text('جمع بدهکار: ${debits.toStringAsFixed(0)} تومان  |  جمع بستانکار: ${credits.toStringAsFixed(0)} تومان'),
+        if (rows.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('برای این طرف حساب هنوز عملیات مالی ثبت نشده است.'))
+        else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))], rows: rows.map((r) { final b=r['balance'] as double; return DataRow(cells:[DataCell(Text(Jalali.fromDateTime(r['date'] as DateTime).formatCompactDate())),DataCell(Text(r['op'] as String)),DataCell(Text((r['method'] as String).isEmpty?'—':r['method'] as String)),DataCell(Text((r['debit'] as double).toStringAsFixed(0))),DataCell(Text((r['credit'] as double).toStringAsFixed(0))),DataCell(Text('${b.abs().toStringAsFixed(0)} ${b>0?'بدهکار':b<0?'بستانکار':'تسویه'}'))]); }).toList())),
+        const Text('این دفتر فعلاً عملیات مالی ثبت‌شده را نشان می‌دهد؛ فاکتورهای خرید هنوز در برنامه به‌عنوان سند مستقل ثبت نمی‌شوند.', style: TextStyle(fontSize:11,color:Colors.grey)),
+      ]))),
+      actions: [TextButton(onPressed:()=>Navigator.pop(d),child:const Text('بستن')),TextButton.icon(onPressed:()=>Navigator.pop(d),icon:const Icon(Icons.edit_outlined),label:const Text('ویرایش عملیات'))],
+    )));
+  }
   Future<void> addNewOperation() async {
     final selected = await showDialog<String>(
       context: context,
@@ -1921,12 +1962,14 @@ class _OperationsPageState extends State<OperationsPage> {
     final note = TextEditingController(text: existing?['توضیحات'] ?? '');
     final initialName = name.text, initialAmount = amount.text, initialNote = note.text;
     String method = existing?['روش'] ?? 'نقدی';
+    String partyType = existing?['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
     final initialMethod = method;
+    final initialPartyType = partyType;
     final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
 
     bool dirty() => existing == null
         ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی'
-        : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod;
+        : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod || partyType != initialPartyType;
 
     Future<void> requestClose(BuildContext dialogContext) async {
       if (!dirty()) { Navigator.pop(dialogContext, false); return; }
@@ -1955,7 +1998,13 @@ class _OperationsPageState extends State<OperationsPage> {
           child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
             title: Text(op),
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
+              DropdownButtonFormField<String>(
+                value: partyType,
+                decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
+                items: const [DropdownMenuItem(value: 'مشتری', child: Text('مشتری')), DropdownMenuItem(value: 'فروشنده', child: Text('فروشنده')), DropdownMenuItem(value: 'سایر اشخاص', child: Text('سایر اشخاص'))],
+                onChanged: (v) => set(() { partyType = v ?? 'مشتری'; }),
+              ),
+              if (partyType == 'مشتری' && ['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
                 DropdownButtonFormField<String>(
                   value: DemoStore.customers.any((c) => c['نام مشتری'] == name.text.trim()) ? name.text.trim() : null,
                   isExpanded: true,
@@ -1986,7 +2035,7 @@ class _OperationsPageState extends State<OperationsPage> {
                   return;
                 }
                 final canonicalOp = op == 'تخفیف دادن به مشتری' ? 'تخفیف دادن' : op == 'تخفیف گرفتن از فروشنده' ? 'تخفیف گرفتن' : op;
-                final data = {'نوع عملیات': canonicalOp, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': existing?['تاریخ'] ?? DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
+                final data = {'نوع عملیات': canonicalOp, 'نوع طرف حساب': partyType, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': existing?['تاریخ'] ?? DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
                 try {
                   if (existing == null) await DemoStore.add('operations', data);
                   else await DemoStore.update('operations', existing, data);
