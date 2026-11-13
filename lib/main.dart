@@ -251,6 +251,32 @@ class DemoStore {
     if (index >= 0) target[index] = Map<String,String>.from(newItem);
   }
 
+  static Future<void> renamePartyReferences(String oldName, String newName) async {
+    final oldValue = oldName.trim();
+    final newValue = newName.trim();
+    if (oldValue.isEmpty || newValue.isEmpty || oldValue == newValue) return;
+
+    Future<void> renameIn(String category, List<Map<String, String>> target, String field) async {
+      final matches = target.where((item) => (item[field] ?? '').trim() == oldValue).toList();
+      for (final oldItem in matches) {
+        final replacement = Map<String, String>.from(oldItem)..[field] = newValue;
+        await update(category, oldItem, replacement);
+      }
+    }
+
+    await renameIn('sales', sales, 'نام مشتری');
+    await renameIn('repairs', repairs, 'نام مشتری');
+    await renameIn('operations', operations, 'نام شخص');
+    var purchaseChanged = false;
+    for (final item in AppSettings.purchaseRecords) {
+      if ((item['نام فروشنده'] ?? '').trim() == oldValue) {
+        item['نام فروشنده'] = newValue;
+        purchaseChanged = true;
+      }
+    }
+    if (purchaseChanged) await AppSettings.savePurchaseRecords();
+  }
+
   static Future<void> delete(String category, List<Map<String, String>> items) async {
     if (items.isEmpty) return;
     final table = switch (category) {
@@ -411,6 +437,16 @@ class PartyAccounting {
       final value = amount(entry, 'مبلغ');
       return balance + (entry['ماهیت'] == 'بدهکار' ? value : -value);
     });
+  }
+
+  static bool hasHistoryFor(String party) {
+    final name = party.trim();
+    if (name.isEmpty) return false;
+    return entriesFor(name).isNotEmpty ||
+        DemoStore.sales.any((x) => (x['نام مشتری'] ?? '').trim() == name) ||
+        DemoStore.repairs.any((x) => (x['نام مشتری'] ?? '').trim() == name) ||
+        DemoStore.operations.any((x) => (x['نام شخص'] ?? '').trim() == name) ||
+        AppSettings.purchaseRecords.any((x) => (x['نام فروشنده'] ?? '').trim() == name);
   }
 
   static String statusFor(String party) {
@@ -816,6 +852,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> _deleteSelected() async {
     final selected = widget.data.where((item) => _selectedKeys.contains(_keyOf(item))).toList();
     if (selected.isEmpty) return;
+    if (widget.title == 'مشتری' && selected.any((x) => PartyAccounting.hasHistoryFor(x['نام مشتری'] ?? ''))) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مشتری دارای سابقه مالی یا تعمیراتی است و حذف نمی‌شود. برای حفظ سابقه، اطلاعات او را ویرایش کنید.')));
+      return;
+    }
     if (!await _confirmDelete(context, selected.length)) return;
     final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
     await DemoStore.delete(category, selected);
@@ -852,6 +892,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
           await DemoStore.add(category, item);
         } else {
           await DemoStore.update(category, existing, item);
+          if (widget.title == 'مشتری') {
+            await DemoStore.renamePartyReferences(existing['نام مشتری'] ?? '', item['نام مشتری'] ?? '');
+          }
         }
         if (dialogContext.mounted) Navigator.pop(dialogContext, true);
       } catch (error) {
@@ -1051,6 +1094,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
             actions: [_horizontalDialogActions([
               if (existing != null) TextButton.icon(
                 onPressed: () async {
+                  if (widget.title == 'مشتری' && PartyAccounting.hasHistoryFor(existing['نام مشتری'] ?? '')) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('این مشتری سابقه مالی یا تعمیراتی دارد و حذف نمی‌شود.')));
+                    return;
+                  }
                   if (!await _confirmDelete(dialogContext, 1)) return;
                   final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
                   await DemoStore.delete(category, [existing]);
