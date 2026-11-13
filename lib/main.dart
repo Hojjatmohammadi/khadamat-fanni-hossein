@@ -286,7 +286,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -294,16 +294,6 @@ class _HomePageState extends State<HomePage> {
                       Navigator.pop(context);
                     },
                   ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('تنظیمات برنامه'),
-                  selected: tab == 6,
-                  onTap: () {
-                    _selectTab(6);
-                    Navigator.pop(context);
-                  },
-                ),
               ],
             ),
           ),
