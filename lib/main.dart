@@ -2294,6 +2294,8 @@ class _SettingsPageState extends State<SettingsPage> {
       final sellerAddress = TextEditingController(text: existing?['آدرس'] ?? '');
       final website = TextEditingController(text: existing?['آدرس سایت'] ?? '');
       final purchaseAmount = TextEditingController(text: existing?['مبلغ خرید'] ?? '');
+      final purchaseQuantity = TextEditingController(text: existing?['تعداد خرید'] ?? '1');
+      final paidAmount = TextEditingController(text: existing?['مبلغ پرداختی'] ?? '0');
       final date = TextEditingController(text: existing?['تاریخ خرید'] ?? Jalali.now().formatCompactDate());
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
@@ -2309,7 +2311,11 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 8),
             TextField(controller: seller, decoration: const InputDecoration(labelText: 'نام فروشنده / شخصی که خرید از او انجام شد')),
             const SizedBox(height: 8),
+            TextField(controller: purchaseQuantity, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'تعداد خرید از این کالا')),
+            const SizedBox(height: 8),
             TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
+            const SizedBox(height: 8),
+            TextField(controller: paidAmount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
             const SizedBox(height: 8),
@@ -2320,9 +2326,12 @@ class _SettingsPageState extends State<SettingsPage> {
           actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
             FilledButton(onPressed: () {
+              final total = PartyAccounting.amount({'مبلغ': purchaseAmount.text}, 'مبلغ');
+              final quantity = PartyAccounting.amount({'مبلغ': purchaseQuantity.text}, 'مبلغ');
+              final paid = PartyAccounting.amount({'مبلغ': paidAmount.text}, 'مبلغ');
               if (item.text.trim().isEmpty || seller.text.trim().isEmpty || date.text.trim().isEmpty ||
-                  (index == null && purchaseAmount.text.trim().isEmpty)) {
-                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام کالا، تاریخ، فروشنده و مبلغ کل خرید را وارد کنید.')));
+                  total <= 0 || quantity <= 0 || paid > total) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام کالا، تاریخ، فروشنده، تعداد و مبلغ معتبر را وارد کنید. مبلغ پرداختی نباید از کل خرید بیشتر باشد.')));
                 return;
               }
               Navigator.pop(d, true);
@@ -2331,16 +2340,30 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ));
       if (result == true) {
-        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'مبلغ خرید': purchaseAmount.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
-        if (index == null) {
-          AppSettings.purchaseRecords.add(record);
-        } else {
-          AppSettings.purchaseRecords[index] = record;
+        final record = <String,String>{
+          'شناسه سند': existing?['شناسه سند'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
+          'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(),
+          'نام فروشنده': seller.text.trim(),
+          'مبلغ خرید': PartyAccounting.amount({'مبلغ':purchaseAmount.text},'مبلغ').toString(),
+          'تعداد خرید': PartyAccounting.amount({'مبلغ':purchaseQuantity.text},'مبلغ').toString(),
+          'مبلغ پرداختی': PartyAccounting.amount({'مبلغ':paidAmount.text},'مبلغ').toString(),
+          'روش پرداخت': 'نقدی',
+          'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()
+        };
+        try {
+          if (index == null) {
+            AppSettings.purchaseRecords.add(record);
+          } else {
+            AppSettings.purchaseRecords[index] = record;
+          }
+          await AppSettings.savePurchaseRecords();
+          await AccountingEngine.syncSupplierPurchase(record, previous: existing);
+          if (mounted) setState(() {});
+        } catch(error) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت خرید یا گردش حساب ناموفق بود: $error')));
         }
-        await AppSettings.savePurchaseRecords();
-        if (mounted) setState(() {});
       }
-      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); purchaseAmount.dispose(); date.dispose();
+      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); purchaseAmount.dispose(); purchaseQuantity.dispose(); paidAmount.dispose(); date.dispose();
     }
 
     await showDialog<void>(context: context, builder: (d) => Directionality(
@@ -2373,7 +2396,12 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: const Text('حذف خرید'), content: const Text('این سابقه خرید حذف شود؟'),
                           actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(confirm, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(confirm, true), child: const Text('حذف'))])],
                         )));
-                        if (yes == true) { AppSettings.purchaseRecords.removeAt(i); await AppSettings.savePurchaseRecords(); refresh(() {}); }
+                        if (yes == true) {
+                          await AccountingEngine.removeSupplierPurchase(p);
+                          AppSettings.purchaseRecords.removeAt(i);
+                          await AppSettings.savePurchaseRecords();
+                          refresh(() {});
+                        }
                       }
                     }, itemBuilder: (_) => const [PopupMenuItem(value: 'payment', child: Text('ثبت پرداخت به فروشنده')), PopupMenuItem(value: 'edit', child: Text('ویرایش')), PopupMenuItem(value: 'delete', child: Text('حذف'))]),
                   ));
