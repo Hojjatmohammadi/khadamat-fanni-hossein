@@ -138,8 +138,8 @@ class AppDatabaseSchema {
     bool allowDecimal = false,
   }) {
     final pattern = allowDecimal
-        ? RegExp(r'^\\d+(?:\\.\\d{1,3})?$')
-        : RegExp(r'^\\d+$');
+        ? RegExp(r'^\d+(?:\.\d{1,3})?$')
+        : RegExp(r'^\d+$');
     for (final key in keys) {
       final value = _text(data, key);
       if (value.isNotEmpty && !pattern.hasMatch(value)) {
@@ -159,7 +159,7 @@ class AppDatabaseSchema {
       final legacyId = row['id'] as int;
       final data = _decode(row['data']);
       final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
+      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
       final customerId = await db.insert('customers', {
         'first_name': parts.isEmpty ? '' : parts.first,
         'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
@@ -267,7 +267,7 @@ class AppDatabaseSchema {
     final data = Map<String, Object?>.from(item);
     if (category == 'customers') {
       final phone = _text(data, 'شماره تماس');
-      if (!RegExp(r'^\\d{11}$').hasMatch(phone)) {
+      if (!RegExp(r'^\d{11}$').hasMatch(phone)) {
         throw StateError('شماره موبایل باید دقیقاً ۱۱ رقم باشد.');
       }
       final duplicate = await db.query(
@@ -281,7 +281,7 @@ class AppDatabaseSchema {
         throw StateError('این شماره موبایل قبلاً ثبت شده است.');
       }
       final fullName = _text(data, 'نام مشتری');
-      final parts = fullName.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
+      final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
       await db.insert('customers', {
         'first_name': parts.isEmpty ? '' : parts.first,
         'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
