@@ -2481,6 +2481,12 @@ class _ReportsPageState extends State<ReportsPage> {
     }).toList();
   }
   Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage, {bool dateFilter = true}) async {
+    final startDate = _parseReportDate(fromController.text);
+    final endDate = _parseReportDate(toController.text);
+    if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تاریخ شروع نباید بعد از تاریخ پایان باشد.')));
+      return;
+    }
     if (dateFilter) rows = _applyDateFilter(rows);
     final total = rows.fold<int>(0, (sum, item) => sum + _amount(item, amountKey));
     await showDialog<void>(
@@ -2562,10 +2568,10 @@ class _ReportsPageState extends State<ReportsPage> {
             ]),
             const SizedBox(height: 8),
             Wrap(spacing: 8, children: [
-              ChoiceChip(label: const Text('همه تاریخ‌ها'), selected: selectedPeriod == 'همه تاریخ‌ها', onSelected: (_) => setState(() => selectedPeriod = 'همه تاریخ‌ها')),
-              ChoiceChip(label: const Text('امروز'), selected: selectedPeriod == 'امروز', onSelected: (_) => setState(() => selectedPeriod = 'امروز')),
-              ChoiceChip(label: const Text('این ماه'), selected: selectedPeriod == 'این ماه', onSelected: (_) => setState(() => selectedPeriod = 'این ماه')),
-              ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) => setState(() => selectedPeriod = 'امسال')),
+              ChoiceChip(label: const Text('همه تاریخ‌ها'), selected: selectedPeriod == 'همه تاریخ‌ها', onSelected: (_) => setState(() { selectedPeriod = 'همه تاریخ‌ها'; fromController.clear(); toController.clear(); })),
+              ChoiceChip(label: const Text('امروز'), selected: selectedPeriod == 'امروز', onSelected: (_) => setState(() { selectedPeriod = 'امروز'; final today = Jalali.now().formatCompactDate(); fromController.text = today; toController.text = today; })),
+              ChoiceChip(label: const Text('این ماه'), selected: selectedPeriod == 'این ماه', onSelected: (_) => setState(() { final now = Jalali.now(); selectedPeriod = 'این ماه'; fromController.text = Jalali(now.year, now.month, 1).formatCompactDate(); toController.text = now.formatCompactDate(); })),
+              ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) => setState(() { final now = Jalali.now(); selectedPeriod = 'امسال'; fromController.text = Jalali(now.year, 1, 1).formatCompactDate(); toController.text = now.formatCompactDate(); })),
             ]),
             Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () { fromController.clear(); toController.clear(); setState(() => selectedPeriod = 'همه تاریخ‌ها'); }, icon: const Icon(Icons.clear), label: const Text('پاک کردن فیلتر تاریخ'))),
           ]),
