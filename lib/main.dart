@@ -912,6 +912,94 @@ class _SimpleListPageState extends State<SimpleListPage> {
     }
   }
 
+  double _ledgerAmount(Object? raw) {
+    var value = (raw ?? '').toString().trim();
+    const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < 10; i++) { value = value.replaceAll(fa[i], '$i').replaceAll(ar[i], '$i'); }
+    return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+  }
+
+  Future<void> _addCustomerReceipt(String customerName) async {
+    final amount = TextEditingController(), note = TextEditingController();
+    const methods = ['نقدی', 'کارت به کارت', 'حواله بانکی', 'چک'];
+    String method = methods.first;
+    final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
+        title: Text('ثبت دریافت از ' + customerName),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ دریافتی (تومان)')),
+          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
+          TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات / شماره پیگیری / شماره چک')),
+        ]),
+        actions: [_horizontalDialogActions([
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+          FilledButton(onPressed: () { if (_ledgerAmount(amount.text) <= 0) { ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ دریافت باید بیشتر از صفر باشد.'))); return; } Navigator.pop(d, true); }, child: const Text('ثبت دریافت')),
+        ])],
+      )),
+    ));
+    if (saved == true) {
+      await DemoStore.add('operations', {'نوع عملیات':'دریافت وجه','نام شخص':customerName,'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
+      if (mounted) { setState(() {}); widget.onChanged(); }
+    }
+    amount.dispose(); note.dispose();
+  }
+
+  Future<void> _showCustomerAccount(Map<String, String> customer) async {
+    final customerName = (customer['نام مشتری'] ?? '').trim();
+    if (customerName.isEmpty) return;
+    final records = await DemoStore.database.query('records', columns: ['category','data','created_at'], where: 'category IN (?, ?)', whereArgs: ['sales','operations']);
+    if (!mounted) return;
+    final rows = <Map<String,Object?>>[];
+    for (final record in records) {
+      Map<String,dynamic> data;
+      try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
+      final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
+      if (person != customerName) continue;
+      final date = DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
+      double debit = 0, credit = 0; String desc = '', method = '';
+      if (record['category'] == 'sales') {
+        debit = _ledgerAmount(data['مبلغ کل']); credit = _ledgerAmount(data['مبلغ دریافتی']);
+        if (debit == 0 && credit == 0) continue;
+        desc = 'فاکتور فروش: ' + (data['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمت').toString();
+      } else {
+        final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
+        if (value <= 0) continue;
+        if (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(type)) debit = value;
+        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(type)) credit = value;
+        else continue;
+        desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
+        method = (data['روش'] ?? '').toString();
+      }
+      rows.add({'date':date,'description':desc,'method':method,'debit':debit,'credit':credit});
+    }
+    rows.sort((a,b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    double balance = 0, debitTotal = 0, creditTotal = 0;
+    for (final row in rows) { debitTotal += row['debit'] as double; creditTotal += row['credit'] as double; balance += (row['debit'] as double) - (row['credit'] as double); row['balance'] = balance; }
+    final edit = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: Text('دفتر حساب ' + customerName),
+      content: SizedBox(width: 650, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(balance > 0.009 ? 'وضعیت: مشتری بدهکار است' : balance < -0.009 ? 'وضعیت: مشتری بستانکار است' : 'وضعیت: حساب تسویه است', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0.009 ? Colors.red.shade700 : balance < -0.009 ? Colors.green.shade700 : null)),
+          Text('مانده: ' + balance.abs().toStringAsFixed(0) + ' تومان'), Text('جمع بدهکار: ' + debitTotal.toStringAsFixed(0) + ' تومان'), Text('جمع بستانکار: ' + creditTotal.toStringAsFixed(0) + ' تومان'),
+        ]))),
+        if (rows.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('هنوز گردش مالی برای این مشتری ثبت نشده است.'))
+        else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
+          columnSpacing: 10, columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))],
+          rows: rows.map((row) { final date = Jalali.fromDateTime(row['date'] as DateTime).formatCompactDate(); final b = row['balance'] as double; return DataRow(cells: [
+            DataCell(Text(date)), DataCell(SizedBox(width:120,child:Text(row['description'] as String,maxLines:2,overflow:TextOverflow.ellipsis))), DataCell(Text((row['method'] as String).isEmpty ? '—' : row['method'] as String)),
+            DataCell(Text((row['debit'] as double).toStringAsFixed(0))), DataCell(Text((row['credit'] as double).toStringAsFixed(0))), DataCell(Text(b.abs().toStringAsFixed(0) + ' ' + (b > 0.009 ? 'بدهکار' : b < -0.009 ? 'بستانکار' : 'تسویه'))),
+          ]); }).toList(),
+        )),
+        const Text('مانده مثبت یعنی مشتری به فروشگاه بدهکار است؛ مانده منفی یعنی فروشگاه به مشتری بدهکار است.', style: TextStyle(fontSize:11,color:Colors.grey)),
+      ]))),
+      actions: [_horizontalDialogActions([
+        TextButton(onPressed: () => Navigator.pop(d,false), child: const Text('بستن')),
+        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت دریافت از مشتری')),
+        FilledButton.icon(onPressed: () => Navigator.pop(d,true), icon: const Icon(Icons.edit_outlined), label: const Text('ویرایش مشخصات')),
+      ])],
+    )));
+    if (edit == true && mounted) await addItem(existing: customer);
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
@@ -934,13 +1022,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز اطلاعاتی ثبت نشده است'))),
               for (final item in widget.data.reversed)
                 Card(child: ListTile(
-                  leading: CircleAvatar(child: Icon(_selectedKeys.contains(_keyOf(item)) ? Icons.check : Icons.description)),
+                  leading: CircleAvatar(child: Icon(_selectedKeys.contains(_keyOf(item)) ? Icons.check : widget.title == 'مشتری' ? Icons.account_balance_wallet_outlined : Icons.description)),
                   title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
-                  subtitle: Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • ')),
-                  trailing: _selectedKeys.isNotEmpty ? Checkbox(value: _selectedKeys.contains(_keyOf(item)), onChanged: (_) => setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); })) : const Icon(Icons.edit_outlined),
+                  subtitle: Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => e.key + ': ' + e.value).join(' • ')),
+                  trailing: _selectedKeys.isNotEmpty ? Checkbox(value: _selectedKeys.contains(_keyOf(item)), onChanged: (_) => setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); })) : widget.title == 'مشتری' ? IconButton(tooltip:'ویرایش مشخصات مشتری',onPressed:() => addItem(existing:item),icon:const Icon(Icons.edit_outlined)) : const Icon(Icons.edit_outlined),
                   onLongPress: () => setState(() => _selectedKeys.add(_keyOf(item))),
                   onTap: () {
                     if (_selectedKeys.isNotEmpty) setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); });
+                    else if (widget.title == 'مشتری') _showCustomerAccount(item);
                     else addItem(existing: item);
                   },
                 )),
