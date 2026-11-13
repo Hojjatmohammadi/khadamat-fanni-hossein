@@ -1558,16 +1558,20 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 14),
           const Text('اندازه نوشته‌ها'),
-          SegmentedButton<double>(
-            segments: const [
-              ButtonSegment(value: 0.82, label: Text('ریز')),
-              ButtonSegment(value: 0.92, label: Text('کوچک')),
-              ButtonSegment(value: 1.0, label: Text('استاندارد')),
-              ButtonSegment(value: 1.12, label: Text('بزرگ')),
-              ButtonSegment(value: 1.25, label: Text('خیلی بزرگ')),
-            ],
-            selected: {fontScale},
-            onSelectionChanged: (v) => setState(() => fontScale = v.first),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: const [
+              (0.82, 'ریز'),
+              (0.92, 'کوچک'),
+              (1.0, 'استاندارد'),
+              (1.12, 'بزرگ'),
+            ].map((option) => ChoiceChip(
+              label: Text(option.$2, maxLines: 1, softWrap: false),
+              selected: fontScale == option.$1,
+              onSelected: (_) => setState(() => fontScale = option.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )).toList(),
           ),
           const Divider(height: 28),
           OutlinedButton.icon(onPressed: _manageProductGroups, icon: const Icon(Icons.category_outlined), label: const Text('مدیریت گروه‌ها و زیرگروه‌های کالا')),
