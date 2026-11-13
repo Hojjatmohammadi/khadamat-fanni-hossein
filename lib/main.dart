@@ -280,11 +280,11 @@ class _HomePageState extends State<HomePage> {
       child: AlertDialog(
         title: const Text('تغییرات ذخیره نشده‌اند'),
         content: const Text('در تنظیمات تغییراتی انجام داده‌اید. قبل از خروج چه کاری انجام شود؟'),
-        actions: [
+        actions: [_horizontalDialogActions([
           TextButton(onPressed: () => Navigator.pop(d, 'stay'), child: const Text('ادامه ویرایش')),
           TextButton(onPressed: () => Navigator.pop(d, 'discard'), child: const Text('خروج بدون ذخیره')),
           FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: const Text('ذخیره و خروج')),
-        ],
+        ])],
       ),
     ));
     if (choice == 'save') return await SettingsPage.savePending?.call() ?? false;
@@ -327,7 +327,7 @@ class _HomePageState extends State<HomePage> {
         child: AlertDialog(
           title: const Text('خروج از برنامه'),
           content: const Text('آیا می‌خواهید از برنامه خارج شوید؟'),
-          actions: [
+          actions: [_horizontalDialogActions([
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('ادامه کار'),
@@ -336,7 +336,7 @@ class _HomePageState extends State<HomePage> {
               onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('خروج'),
             ),
-          ],
+          ])],
         ),
       ),
     );
@@ -559,7 +559,7 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
                                   children: [for (final entry in result.data.entries.where((e) => e.value.isNotEmpty))
                                     Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Text('${entry.key}: ${entry.value}'))],
                                 ))),
-                                actions: [TextButton(onPressed: () => Navigator.pop(detailContext), child: const Text('بستن'))],
+                                actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(detailContext), child: const Text('بستن'))])],
                               ),
                             ));
                           },
@@ -567,18 +567,28 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
                       },
                     )),
         ])),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))],
+        actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))])],
       );
     }),
   ));
   controller.dispose();
 }
 
+Widget _horizontalDialogActions(List<Widget> children) {
+  return SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    ),
+  );
+}
+
 Future<bool> _confirmDelete(BuildContext context, int count) async {
   return await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
     title: const Text('تأیید حذف'),
     content: Text('آیا از حذف $count مورد انتخاب‌شده مطمئن هستید؟ این عمل قابل بازگشت نیست.'),
-    actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))],
+    actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))])],
   ))) ?? false;
 }
 
@@ -668,10 +678,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
         child: AlertDialog(
           title: const Text('تغییرات ذخیره نشده‌اند'),
           content: const Text('برای ذخیره، دکمه «ذخیره» را بزنید. آیا می‌خواهید بدون ذخیره خارج شوید؟'),
-          actions: [
+          actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
             FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
-          ],
+          ])],
         ),
       ));
       if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
@@ -714,7 +724,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   child: AlertDialog(
                                     title: const Text('مخاطبی پیدا نشد'),
                                     content: const Text('در فهرست مخاطبین گوشی، مخاطبی برای نمایش وجود ندارد.'),
-                                    actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('باشه'))],
+                                    actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d), child: const Text('باشه'))])],
                                   ),
                                 ));
                                 return;
@@ -779,7 +789,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 ),
               ),
             ),
-            actions: [
+            actions: [_horizontalDialogActions([
               if (existing != null) TextButton.icon(
                 onPressed: () async {
                   if (!await _confirmDelete(dialogContext, 1)) return;
@@ -792,7 +802,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
               ),
               TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
               FilledButton(onPressed: () => saveForm(dialogContext), child: const Text('ذخیره')),
-            ],
+            ])],
           ),
         ),
       ),
@@ -934,10 +944,10 @@ class _ProductPageState extends State<ProductPage> {
         child: AlertDialog(
           title: const Text('تغییرات ذخیره نشده‌اند'),
           content: const Text('اطلاعات کالا ذخیره نشده است. می‌خواهید بدون ذخیره خارج شوید؟'),
-          actions: [
+          actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
             FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
-          ],
+          ])],
         ),
       ));
       if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
@@ -1101,7 +1111,7 @@ class _ProductPageState extends State<ProductPage> {
                 ),
               ),
             ),
-            actions: [
+            actions: [_horizontalDialogActions([
               TextButton(onPressed: () => requestProductClose(dialogContext), child: const Text('انصراف')),
               FilledButton(
                 onPressed: () {
@@ -1143,7 +1153,7 @@ class _ProductPageState extends State<ProductPage> {
                 },
                 child: const Text('ذخیره کالا'),
               ),
-            ],
+            ])],
           ),
         ),
         ),
@@ -1179,7 +1189,7 @@ class _ProductPageState extends State<ProductPage> {
         child: AlertDialog(
           title: const Text('تغییرات ذخیره نشده‌اند'),
           content: const Text('ویرایش کالا ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
-          actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره'))],
+          actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره'))])],
         ),
       ));
       if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
@@ -1218,7 +1228,7 @@ class _ProductPageState extends State<ProductPage> {
               ),
             ],
           ))),
-          actions: [
+          actions: [_horizontalDialogActions([
             TextButton.icon(onPressed: () async {
               if (!await _confirmDelete(d, 1)) return;
               await DemoStore.delete('products', [item]);
@@ -1241,7 +1251,7 @@ class _ProductPageState extends State<ProductPage> {
                 if (d.mounted) ScaffoldMessenger.of(d).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
               }
             }, child: const Text('ذخیره تغییرات')),
-          ],
+          ])],
         )),
       ),
     ));
@@ -1396,7 +1406,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final value = await showDialog<String>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
       title: Text(title),
       content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'نام جدید')),
-      actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, controller.text.trim()), child: const Text('ذخیره'))],
+      actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, controller.text.trim()), child: const Text('ذخیره'))])],
     )));
     controller.dispose();
     return value;
@@ -1458,7 +1468,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 final yes = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
                   title: const Text('حذف گروه'),
                   content: Text('گروه «$group» و زیرگروه‌هایش حذف شوند؟ کالاهای قبلی همچنان با نام ثبت‌شده خود باقی می‌مانند.'),
-                  actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))],
+                  actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))])],
                 )));
                 if (yes != true) return;
                 AppSettings.productGroups.remove(group);
@@ -1467,7 +1477,7 @@ class _SettingsPageState extends State<SettingsPage> {
               }),
             ])),
         ]))),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))],
+        actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))])],
       )),
     ));
     groupController.dispose(); subController.dispose();
@@ -1478,7 +1488,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final yes = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
       title: const Text('بازگردانی تنظیمات ظاهری'),
       content: const Text('فقط قالب رنگی، اندازه نوشته‌ها و عکس منوی کناری به حالت پیش‌فرض برمی‌گردند. اطلاعات فروشگاه و داده‌ها حذف نمی‌شوند. ادامه می‌دهید؟'),
-      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('بازگردانی'))],
+      actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('بازگردانی'))])],
     )));
     if (yes == true) { await AppSettings.resetAppearance(); if (mounted) setState(() { themeMode = 'روشن'; darkMode = false; fontScale = 1.0; drawerImage = ''; }); }
   }
@@ -1656,10 +1666,10 @@ class _OperationsPageState extends State<OperationsPage> {
         child: AlertDialog(
           title: const Text('تغییرات ذخیره نشده‌اند'),
           content: const Text('اطلاعات این عملیات ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
-          actions: [
+          actions: [_horizontalDialogActions([
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
             FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
-          ],
+          ])],
         ),
       ));
       if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
@@ -1682,7 +1692,7 @@ class _OperationsPageState extends State<OperationsPage> {
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
               TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
             ])),
-            actions: [
+            actions: [_horizontalDialogActions([
               if (existing != null) TextButton.icon(onPressed: () async {
                 if (!await _confirmDelete(dialogContext, 1)) return;
                 await DemoStore.delete('operations', [existing]);
@@ -1707,7 +1717,7 @@ class _OperationsPageState extends State<OperationsPage> {
                   if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ذخیره عملیات ناموفق بود: $error')));
                 }
               }, child: const Text('ثبت عملیات')),
-            ],
+            ])],
           )),
         ),
       ),
