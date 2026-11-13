@@ -503,7 +503,7 @@ class PartyAccounting {
           returned['تاریخ'] ?? '', returned['شرح'] ?? returned['نام کالا'] ?? type);
     }
 
-    for (final check in DemoStore.checks.where((x) => (x['نام شخص'] ?? '').trim() == name)) {
+    for (final check in DemoStore.checks.where((x) => (x['نام شخص'] ?? '').trim() == name && (x['اثر در مانده حساب'] ?? 'بله') == 'بله')) {
       final type = check['نوع چک'] ?? '';
       final status = check['وضعیت'] ?? 'پاس نشده';
       if (status == 'برگشتی' || status == 'باطل شده') {
@@ -2626,6 +2626,7 @@ class _OperationsPageState extends State<OperationsPage> {
       final note = TextEditingController(text: existing?['توضیحات'] ?? '');
       String kind = existing?['نوع چک'] ?? 'دریافتی';
       String status = existing?['وضعیت'] ?? 'پاس نشده';
+      String affectBalance = existing?['اثر در مانده حساب'] ?? 'بله';
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
@@ -2649,6 +2650,12 @@ class _OperationsPageState extends State<OperationsPage> {
               final picked = await showPersianDatePicker(context: d, initialDate: Jalali.now(), firstDate: Jalali(1300,1,1), lastDate: Jalali(1500,12,29));
               if (picked != null) due.text = picked.formatCompactDate();
             }, decoration: const InputDecoration(labelText: 'تاریخ سررسید', suffixIcon: Icon(Icons.event))),
+            DropdownButtonFormField<String>(
+              value: affectBalance,
+              decoration: const InputDecoration(labelText: 'اثر چک در مانده حساب شخص'),
+              items: const ['بله','خیر - در فاکتور یا عملیات ثبت شده'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
+              onChanged: (v) => refresh(() => affectBalance = v ?? 'بله'),
+            ),
             DropdownButtonFormField<String>(
               value: status,
               decoration: const InputDecoration(labelText: 'وضعیت چک'),
@@ -2674,7 +2681,7 @@ class _OperationsPageState extends State<OperationsPage> {
                 'مبلغ':PartyAccounting.amount({'مبلغ':amount.text},'مبلغ').toString(),
                 'شماره چک':number.text.trim(), 'بانک':bank.text.trim(),
                 'تاریخ ثبت':issued.text.trim(), 'تاریخ سررسید':due.text.trim(),
-                'وضعیت':status, 'توضیحات':note.text.trim(),
+                'وضعیت':status, 'اثر در مانده حساب':affectBalance, 'توضیحات':note.text.trim(),
               };
               try {
                 if (existing == null) await DemoStore.add('checks',data);
@@ -2966,7 +2973,7 @@ class _ReportsPageState extends State<ReportsPage> {
     if (start == null && end == null) return source;
     return source.where((row) {
       final raw = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ??
-          row['تاریخ ثبت کالا'] ?? row['تاریخ پذیرش'] ?? '';
+          row['تاریخ ثبت کالا'] ?? row['تاریخ پذیرش'] ?? row['تاریخ سررسید'] ?? '';
       final date = _parseReportDate(raw);
       if (date == null) return false;
       return (start == null || !date.isBefore(start)) && (end == null || !date.isAfter(end));
@@ -8284,7 +8291,7 @@ class _ReportsPageState extends State<ReportsPage> {
     final party = item['نام شخص'] ?? '';
     final amount = PartyAccounting.amount(item, 'مبلغ');
     final lines = <Map<String,String>>[];
-    if (amount > 0 && status != 'باطل شده') {
+    if (amount > 0 && status != 'باطل شده' && (item['اثر در مانده حساب'] ?? 'بله') == 'بله') {
       if (type == 'دریافتی') {
         if (status == 'برگشتی') {
           lines.add(_line('حساب‌های دریافتنی - مشتریان', amount, 0, code: '110', party: party));
