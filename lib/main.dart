@@ -6,6 +6,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'data/app_database_schema.dart';
 
 Future<void> main() async {
@@ -159,6 +160,16 @@ class DemoStore {
         final decoded = jsonDecode(row['data'] as String) as Map<String, dynamic>;
         return decoded.map((key, value) => MapEntry(key, value?.toString() ?? ''));
       }));
+  }
+
+  static Future<void> update(String category, Map<String, String> oldItem, Map<String, String> newItem) async {
+    await _db!.update('records', {'data': jsonEncode(newItem)}, where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)]);
+    final target = switch (category) {
+      'products' => products, 'customers' => customers, 'repairs' => repairs, 'sales' => sales, 'operations' => operations,
+      _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
+    };
+    final index = target.indexWhere((x) => jsonEncode(x) == jsonEncode(oldItem));
+    if (index >= 0) target[index] = Map<String,String>.from(newItem);
   }
 
   static Future<void> add(String category, Map<String, String> item) async {
@@ -401,21 +412,51 @@ class SimpleListPage extends StatefulWidget {
 }
 
 class _SimpleListPageState extends State<SimpleListPage> {
-  Future<void> addItem() async {
-    final controllers = widget.fields.map((_) => TextEditingController()).toList();
+  Future<void> addItem({Map<String, String>? existing}) async {
+    final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: Text('ثبت ${widget.title} جدید'),
+          title: Text(existing == null ? 'ثبت ${widget.title} جدید' : 'ویرایش ${widget.title}'),
           content: SizedBox(
             width: 360,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (widget.title == 'مشتری' && existing == null)
+                    Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(
+                      onPressed: () async {
+                        try {
+                          final allowed = await FlutterContacts.requestPermission(readonly: true);
+                          if (!allowed) return;
+                          final contacts = await FlutterContacts.getContacts(withProperties: true);
+                          if (!dialogContext.mounted) return;
+                          final selected = await showDialog<Contact>(context: dialogContext, builder: (pickContext) => Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: AlertDialog(
+                              title: const Text('انتخاب از مخاطبین'),
+                              content: SizedBox(width: 360, height: 420, child: ListView(children: [
+                                for (final c in contacts)
+                                  ListTile(title: Text(c.displayName), subtitle: Text(c.phones.isNotEmpty ? c.phones.first.number : 'بدون شماره'), onTap: () => Navigator.pop(pickContext, c)),
+                              ])),
+                            ),
+                          ));
+                          if (selected != null) {
+                            controllers[0].text = selected.displayName;
+                            if (controllers.length > 1 && selected.phones.isNotEmpty) {
+                              controllers[1].text = selected.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
+                            }
+                          }
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('دسترسی به مخاطبین ناموفق بود: $e')));
+                        }
+                      },
+                      icon: const Icon(Icons.contacts_outlined), label: const Text('انتخاب از مخاطبین گوشی'),
+                    )),
                   for (int i = 0; i < widget.fields.length; i++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -468,7 +509,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
                       : widget.title == 'پذیرش تعمیر'
                           ? 'repairs'
                           : 'sales';
-                  DemoStore.add(category, item).then((_) {
+                  final operation = existing == null ? DemoStore.add(category, item) : DemoStore.update(category, existing, item);
+                  operation.then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((error) {
                     if (dialogContext.mounted) {
@@ -523,6 +565,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   subtitle: Text(
                     item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
                   ),
+                  trailing: const Icon(Icons.edit_outlined),
+                  onTap: () => addItem(existing: item),
                 ),
               ),
           ],
