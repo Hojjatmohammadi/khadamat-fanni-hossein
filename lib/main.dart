@@ -1183,6 +1183,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           title: Text(operation == 'دریافت وجه' ? 'دریافت از مشتری' : operation == 'پرداخت وجه' ? 'پرداخت به مشتری' : operation == 'متفرقه شخص بدهکار' ? 'ثبت بدهکاری مشتری' : 'ثبت بستانکاری مشتری'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('مشتری: $customerName'),
+            if (operation == 'دریافت وجه' || operation == 'پرداخت وجه') const Text('اگر همین مبلغ را در فاکتور یا پذیرش ثبت کرده‌اید، دوباره اینجا ثبت نکنید.', style: TextStyle(fontSize: 12, color: Colors.orange)),
             TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
             if (operation == 'دریافت وجه' || operation == 'پرداخت وجه') DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش پرداخت'), items: const ['نقدی', 'چک', 'کارتی / حواله'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(), onChanged: (v) => refresh(() => method = v ?? 'نقدی')),
             TextField(controller: note, decoration: const InputDecoration(labelText: 'توضیحات')),
