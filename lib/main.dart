@@ -286,6 +286,8 @@ class DemoStore {
       savedItem.addAll(AccountingEngine.prepareSale(savedItem));
     } else if (category == 'repairs') {
       AccountingEngine.validateRepair(savedItem, oldItem: oldItem);
+    } else if (category == 'returns') {
+      AccountingEngine.validateReturn(savedItem, oldItem: oldItem);
     }
     await _db!.update('records', {'data': jsonEncode(savedItem)}, where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)]);
     final target = switch (category) {
@@ -376,6 +378,8 @@ class DemoStore {
       savedItem.addAll(AccountingEngine.prepareSale(savedItem));
     } else if (category == 'repairs') {
       AccountingEngine.validateRepair(savedItem);
+    } else if (category == 'returns') {
+      AccountingEngine.validateReturn(savedItem);
     }
     await _db!.transaction((txn) async {
       final recordId = await txn.insert('records', {
@@ -623,22 +627,43 @@ class AccountingEngine {
     final result = Map<String,String>.from(item);
     final productName = (result['نام کالا (از انبار)'] ?? '').trim();
     final product = _product(productName);
+    final quantity = _qty(result, 'تعداد');
+    var unitCost = _qty(result, 'بهای تمام‌شده هر واحد');
     if (product != null) {
-      final unitCost = _qty(product, 'بهای تمام‌شده هر واحد') > 0
+      unitCost = _qty(product, 'بهای تمام‌شده هر واحد') > 0
           ? _qty(product, 'بهای تمام‌شده هر واحد')
           : _qty(product, 'قیمت خرید هر واحد');
-      final quantity = _qty(result, 'تعداد');
       result['شناسه کالا'] = product['کد کالا'] ?? '';
-      final costTotal = unitCost * quantity;
-      final netSales = (PartyAccounting.amount(result, 'مبلغ کل') - PartyAccounting.amount(result, 'تخفیف')).clamp(0, 1 << 62);
-      result['شناسه کالا'] = product['کد کالا'] ?? '';
-      result['بهای تمام‌شده هر واحد'] = unitCost.toStringAsFixed(0);
-      result['بهای تمام‌شده کل'] = costTotal.toStringAsFixed(0);
-      result['مبلغ فروش خالص'] = netSales.toString();
-      result['سود'] = (netSales - costTotal).toStringAsFixed(0);
       result['واحد کالا'] = product['واحد شمارش'] ?? 'عدد';
     }
+    final costTotal = unitCost * quantity;
+    final netSales = (PartyAccounting.amount(result, 'مبلغ کل') - PartyAccounting.amount(result, 'تخفیف')).clamp(0, 1 << 62).toInt();
+    result['بهای تمام‌شده هر واحد'] = unitCost.toStringAsFixed(0);
+    result['بهای تمام‌شده کل'] = costTotal.toStringAsFixed(0);
+    result['مبلغ فروش خالص'] = netSales.toString();
+    result['سود'] = (netSales - costTotal).toStringAsFixed(0);
     return result;
+  }
+
+  static void validateReturn(Map<String,String> item, {Map<String,String>? oldItem}) {
+    final amount = PartyAccounting.amount(item, 'مبلغ');
+    if (amount <= 0) throw StateError('مبلغ برگشت باید بیشتر از صفر باشد.');
+    final productName = (item['نام کالا'] ?? '').trim();
+    final qty = _qty(item, 'تعداد');
+    if (qty < 0) throw StateError('تعداد برگشت نمی‌تواند منفی باشد.');
+    if (productName.isEmpty) return;
+    final product = _product(productName);
+    if (product == null) throw StateError('کالای برگشتی در انبار پیدا نشد.');
+    if ((item['نوع برگشت'] ?? '') == 'برگشت خرید') {
+      final oldQty = oldItem != null && (oldItem['نام کالا'] ?? '') == productName
+          ? _qty(oldItem, 'تعداد') : 0;
+      final available = _qty(product, 'موجودی') + oldQty;
+      if (qty <= 0 || qty > available) {
+        throw StateError('تعداد برگشت خرید باید مثبت و حداکثر به اندازه موجودی قابل دسترس باشد: $available');
+      }
+    } else if (qty <= 0) {
+      throw StateError('برای برگشت کالای فروخته‌شده، تعداد برگشتی باید بیشتر از صفر باشد.');
+    }
   }
 
   static void validateRepair(Map<String,String> item, {Map<String,String>? oldItem}) {
@@ -3012,7 +3037,7 @@ class _ReportsPageState extends State<ReportsPage> {
 
     var y = 305.0;
     for (final row in rows.take(180)) {
-      final name = row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
+      final name = row['نام حساب'] ?? row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
           row['شرح کالا/خدمت'] ?? row['نوع عملیات'] ?? row['عنوان گزارش'] ?? 'بدون عنوان';
       final date = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ?? row['تاریخ ثبت کالا'] ?? '';
       final line = name + '    |    ' + date + '    |    ' + _money(_amount(row, amountKey)) + ' تومان';
@@ -3043,7 +3068,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('مبلغ'),
         ]);
         for (final row in rows) {
-          final name = row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
+          final name = row['نام حساب'] ?? row['نام مشتری'] ?? row['نام شخص'] ?? row['نام کالا'] ?? row['کالا'] ??
               row['شرح کالا/خدمت'] ?? row['نوع عملیات'] ?? row['عنوان گزارش'] ?? '';
           final date = row['تاریخ'] ?? row['تاریخ فاکتور'] ?? row['تاریخ خرید'] ?? '';
           sheet.appendRow([
@@ -3111,7 +3136,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       itemCount: rows.length,
                       itemBuilder: (_, i) {
                         final item = rows[rows.length - 1 - i];
-                        final name = item['نام مشتری'] ?? item['نام شخص'] ?? item['نام کالا'] ?? item['شرح کالا/خدمت'] ?? item['نوع عملیات'] ?? item['عنوان'] ?? 'ثبت بدون عنوان';
+                        final name = item['نام حساب'] ?? item['نام مشتری'] ?? item['نام شخص'] ?? item['نام کالا'] ?? item['شرح کالا/خدمت'] ?? item['نوع عملیات'] ?? item['عنوان'] ?? 'ثبت بدون عنوان';
                         final date = item['تاریخ'] ?? item['تاریخ ثبت کالا'] ?? '';
                         return ListTile(dense: true, title: Text(name), subtitle: Text(date), trailing: Text(_money(_amount(item, amountKey))));
                       },
