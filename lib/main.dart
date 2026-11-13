@@ -119,8 +119,26 @@ class AppSettings {
     drawerImage = '';
     await _prefs.setString('theme_mode', themeMode);
     await _prefs.setBool('dark_mode', false);
-    await _prefs.setDouble('font_scale', 1.0);
+    await _prefs.setDouble('font_scale', fontScale);
     await _prefs.remove('drawer_image');
+    revision.value++;
+  }
+
+  static Future<void> restoreBackup(Map<String, dynamic> data) async {
+    if (data['store_name'] is String) { storeName = data['store_name']; await _prefs.setString('store_name', storeName); }
+    if (data['manager_name'] is String) { managerName = data['manager_name']; await _prefs.setString('manager_name', managerName); }
+    if (data['phone'] is String) { phone = data['phone']; await _prefs.setString('store_phone', phone); }
+    if (data['address'] is String) { address = data['address']; await _prefs.setString('store_address', address); }
+    if (data['postal_code'] is String) { postalCode = data['postal_code']; await _prefs.setString('store_postal_code', postalCode); }
+    if (data['theme_mode'] is String) { themeMode = data['theme_mode']; await _prefs.setString('theme_mode', themeMode); }
+    if (data['dark_mode'] is bool) { darkMode = data['dark_mode']; await _prefs.setBool('dark_mode', darkMode); }
+    if (data['drawer_image'] is String) { drawerImage = data['drawer_image']; await _prefs.setString('drawer_image', drawerImage); }
+    if (data['font_scale'] is num) { fontScale = (data['font_scale'] as num).toDouble(); await _prefs.setDouble('font_scale', fontScale); }
+    if (data['product_image_mode'] is String) { productImageMode = data['product_image_mode']; await _prefs.setString('product_image_mode', productImageMode); }
+    if (data['product_groups'] is Map) {
+      productGroups = (data['product_groups'] as Map).map((k,v)=>MapEntry(k.toString(), (v as List).map((x)=>x.toString()).toList()));
+      await _prefs.setString('product_groups', jsonEncode(productGroups));
+    }
     revision.value++;
   }
 }
@@ -2238,6 +2256,92 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     await Share.shareXFiles([XFile(file.path), XFile(settingsFile.path)], text: 'نسخه پشتیبان خدمات فنی حسین؛ فایل DB پایگاه داده و فایل JSON تنظیمات');
   }
 
+  Future<void> _restoreBackup() async {
+    final selection = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['db', 'sqlite', 'json'],
+      allowMultiple: true,
+      withData: false,
+    );
+    if (selection == null || selection.files.isEmpty) return;
+    File? selectedDb;
+    File? selectedSettings;
+    for (final picked in selection.files) {
+      final path = picked.path;
+      if (path == null) continue;
+      final file = File(path);
+      final ext = p.extension(path).toLowerCase();
+      if (ext == '.db' || ext == '.sqlite') selectedDb = file;
+      if (ext == '.json') selectedSettings = file;
+    }
+    if (selectedDb == null) throw Exception('فایل پایگاه داده با پسوند DB یا SQLite انتخاب نشده است.');
+    Map<String, dynamic>? settingsData;
+    if (selectedSettings != null) {
+      final decoded = jsonDecode(await selectedSettings.readAsString());
+      if (decoded is! Map<String, dynamic>) throw Exception('فایل تنظیمات پشتیبان معتبر نیست.');
+      settingsData = decoded;
+    }
+    final appDir = await _outputDirectory();
+    final candidate = File(p.join(appDir.path, 'restore_candidate_${_stamp()}.db'));
+    await selectedDb.copy(candidate.path);
+    final checkDb = await openDatabase(candidate.path, readOnly: true, singleInstance: false);
+    try {
+      final integrity = await checkDb.rawQuery('PRAGMA integrity_check');
+      if (integrity.isEmpty || integrity.first.values.first.toString().toLowerCase() != 'ok') {
+        throw Exception('سلامت فایل پایگاه داده تأیید نشد. فایل فعلی تغییر نمی‌کند.');
+      }
+      final tables = await checkDb.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'records'");
+      if (tables.isEmpty) throw Exception('این فایل، پایگاه داده معتبر برنامه خدمات فنی حسین نیست.');
+    } finally {
+      await checkDb.close();
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تأیید بازیابی نسخه پشتیبان'),
+          content: const Text('با بازیابی، اطلاعات فعلی برنامه با اطلاعات داخل فایل پشتیبان جایگزین می‌شود. قبل از جایگزینی، از اطلاعات فعلی نیز یک نسخه اضطراری نگهداری می‌شود. ادامه می‌دهید؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('بله، بازیابی شود')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    final dbPath = p.join(await getDatabasesPath(), 'khadamat_fanni_hosein.db');
+    final liveFile = File(dbPath);
+    final emergency = File(p.join(appDir.path, 'before_restore_${_stamp()}.db'));
+    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    await DemoStore.database.close();
+    DemoStore._db = null;
+    if (await liveFile.exists()) await liveFile.copy(emergency.path);
+    for (final suffix in ['-wal', '-shm']) {
+      final sidecar = File('$dbPath$suffix');
+      if (await sidecar.exists()) await sidecar.delete();
+    }
+    try {
+      await candidate.copy(dbPath);
+      await DemoStore.init();
+      if (settingsData != null) await AppSettings.restoreBackup(settingsData);
+      if (!mounted) return;
+      setState(() => lastSaved = 'بازیابی انجام شد؛ نسخه اضطراری اطلاعات قبلی: ${emergency.path}');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('بازیابی پایگاه داده با موفقیت انجام شد.')));
+    } catch (error) {
+      if (await emergency.exists()) {
+        final failed = File('$dbPath.failed');
+        if (await failed.exists()) await failed.delete();
+        if (await liveFile.exists()) await liveFile.delete();
+        await emergency.copy(dbPath);
+        await DemoStore.init();
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _exportExcel() async {
     final excel = Excel.createExcel();
     final dataSets = <String, List<Map<String, String>>>{
@@ -2397,6 +2501,13 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
         FilledButton.icon(onPressed: busy ? null : () => _run(_createBackup), icon: const Icon(Icons.backup), label: const Text('تهیه نسخه پشتیبان و اشتراک‌گذاری')),
       ]))),
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('بازیابی نسخه پشتیبان', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('فایل DB را از حافظه گوشی یا Google Drive انتخاب کن. اگر فایل تنظیمات JSON را هم انتخاب کنی، تنظیمات فروشگاه نیز برمی‌گردد. پیش از جایگزینی، از اطلاعات فعلی یک نسخه اضطراری ساخته می‌شود.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_restoreBackup), icon: const Icon(Icons.settings_backup_restore), label: const Text('انتخاب فایل و بازیابی')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('خروجی Excel', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text('اطلاعات کالاها، مشتریان، تعمیرات، فاکتورها و عملیات مالی در یک فایل چندبرگی Excel ذخیره و قابل ارسال می‌شود.'),
@@ -2424,7 +2535,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       if (busy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
       if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:
 $lastSaved', style: const TextStyle(fontSize: 11)),
-      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('نکته: اتصال مستقیم و دائمی به حساب Google Drive (ورود حساب، انتخاب پوشه و همگام‌سازی خودکار) هنوز در این نسخه وجود ندارد. برای ذخیره در Drive، از پنجره اشتراک‌گذاری، Google Drive را انتخاب کنید؛ اگر روی گوشی نصب باشد.'))),
+      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Google Drive از مسیر انتخاب‌گر فایل اندروید برای بازیابی قابل استفاده است و هنگام تهیه خروجی نیز می‌توانی Drive را از پنجره اشتراک‌گذاری انتخاب کنی. همگام‌سازی خودکار و پس‌زمینه هنوز فعال نیست.'))),
     ],
   );
 }
