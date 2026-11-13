@@ -1032,7 +1032,7 @@ class _ProductPageState extends State<ProductPage> {
                           tooltip: 'انتخاب از تقویم شمسی',
                           icon: const Icon(Icons.calendar_month),
                           onPressed: () async {
-                            final initial = Jalali.tryParse(saleDate.text.replaceAll('/', '')) ?? Jalali.now();
+                            final initial = Jalali.now();
                             final picked = await showPersianDatePicker(
                               context: context,
                               initialDate: initial,
@@ -1160,6 +1160,7 @@ class _ProductPageState extends State<ProductPage> {
                   final total = totalCost();
                   final item = <String, String>{};
                   for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
+                  item['تاریخ ثبت کالا'] = saleDate.text.trim();
                   item['گروه اصلی'] = productGroup ?? '';
                   item['زیرگروه'] = productSubgroup ?? '';
                   item['تصویر کالا'] = productImageBase64 ?? '';
@@ -1188,7 +1189,7 @@ class _ProductPageState extends State<ProductPage> {
         ),
       ),
     );
-    for (final x in [...c, shipping, freight, other, vatRate]) { x.dispose(); }
+    for (final x in [...c, shipping, freight, other, vatRate, saleDate]) { x.dispose(); }
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
