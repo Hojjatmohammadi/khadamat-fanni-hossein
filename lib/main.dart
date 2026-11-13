@@ -644,13 +644,15 @@ class ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<ProductPage> {
   Future<void> addProduct() async {
-    final names = ['نام کالا', 'گروه اصلی', 'زیرگروه', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
+    final names = ['نام کالا', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
     final c = List.generate(names.length, (_) => TextEditingController());
     final shipping = TextEditingController(text: '0');
     final freight = TextEditingController(text: '0');
     final other = TextEditingController(text: '0');
     final vatRate = TextEditingController(text: '0');
     bool vatIncluded = false;
+    String? productGroup;
+    String? productSubgroup;
     String unit = 'عدد';
     bool isUsed = false;
     String? productImageBase64;
@@ -688,8 +690,8 @@ class _ProductPageState extends State<ProductPage> {
 
     double number(TextEditingController x) => double.tryParse(x.text.replaceAll(',', '').trim()) ?? 0;
     double totalCost() {
-      final qty = number(c[4]);
-      final purchase = number(c[5]) * qty;
+      final qty = number(c[2]);
+      final purchase = number(c[3]) * qty;
       final extra = number(shipping) + number(freight) + number(other);
       final vat = vatIncluded ? purchase * number(vatRate) / 100 : 0;
       return purchase + extra + vat;
@@ -709,6 +711,8 @@ class _ProductPageState extends State<ProductPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    TextField(controller: c[0], decoration: const InputDecoration(labelText: 'نام کالا')),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: unit,
                       decoration: const InputDecoration(labelText: 'واحد شمارش کالا'),
@@ -725,19 +729,31 @@ class _ProductPageState extends State<ProductPage> {
                       onChanged: (value) => refresh(() => isUsed = value ?? false),
                     ),
                     const SizedBox(height: 8),
-                    for (int i = 0; i < names.length; i++)
+                    DropdownButtonFormField<String>(
+                      value: productGroup,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'گروه اصلی'),
+                      items: AppSettings.productGroups.keys.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                      onChanged: (v) => refresh(() { productGroup = v; productSubgroup = null; }),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: productSubgroup,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'زیرگروه'),
+                      items: (productGroup == null ? <String>[] : AppSettings.productGroups[productGroup] ?? <String>[]).map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                      onChanged: (v) => refresh(() => productSubgroup = v),
+                    ),
+                    const SizedBox(height: 10),
+                    for (int i = 1; i < names.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: TextField(
                           controller: c[i],
-                          keyboardType: i >= 3
-                              ? TextInputType.numberWithOptions(decimal: i == 4 && unit != 'عدد')
-                              : TextInputType.text,
-                          inputFormatters: i == 3 || i >= 5 || (i == 4 && unit == 'عدد')
+                          keyboardType: TextInputType.numberWithOptions(decimal: i == 2 && unit != 'عدد'),
+                          inputFormatters: i == 1 || i >= 3 || (i == 2 && unit == 'عدد')
                               ? [FilteringTextInputFormatter.digitsOnly]
-                              : i == 4
-                                  ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))]
-                                  : const [],
+                              : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
                           textInputAction: TextInputAction.next,
                           onChanged: (_) => refresh(() {}),
                           decoration: InputDecoration(labelText: names[i]),
@@ -825,9 +841,9 @@ class _ProductPageState extends State<ProductPage> {
                         children: [
                           const Text('محاسبه خودکار بهای تمام‌شده', style: TextStyle(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 6),
-                          Text('مبلغ ارزش افزوده: ${(vatIncluded ? number(c[5]) * number(c[4]) * number(vatRate) / 100 : 0).toStringAsFixed(0)} تومان'),
+                          Text('مبلغ ارزش افزوده: ${(vatIncluded ? number(c[3]) * number(c[2]) * number(vatRate) / 100 : 0).toStringAsFixed(0)} تومان'),
                           Text('جمع کل خرید و هزینه‌ها: ${totalCost().toStringAsFixed(0)} تومان'),
-                          Text('بهای تمام‌شده هر واحد: ${((number(c[4]) > 0) ? totalCost() / number(c[4]) : 0).toStringAsFixed(0)} تومان'),
+                          Text('بهای تمام‌شده هر واحد: ${((number(c[2]) > 0) ? totalCost() / number(c[2]) : 0).toStringAsFixed(0)} تومان'),
                           const Text('هزینه‌ها به نسبت تعداد، بین کالاها سرشکن می‌شوند.', style: TextStyle(fontSize: 11, color: Colors.black54)),
                         ],
                       ),
@@ -844,10 +860,12 @@ class _ProductPageState extends State<ProductPage> {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام کالا را وارد کنید.')));
                     return;
                   }
-                  final qty = number(c[4]);
+                  final qty = number(c[2]);
                   final total = totalCost();
                   final item = <String, String>{};
                   for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
+                  item['گروه اصلی'] = productGroup ?? '';
+                  item['زیرگروه'] = productSubgroup ?? '';
                   item['تصویر کالا'] = productImageBase64 ?? '';
                   item['واحد شمارش'] = unit;
                   item['وضعیت کالا'] = isUsed ? 'دست دوم' : 'نو';
@@ -1021,6 +1039,57 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
+  Future<void> _manageProductGroups() async {
+    final groupController = TextEditingController();
+    final subController = TextEditingController();
+    String? selectedGroup = AppSettings.productGroups.keys.isEmpty ? null : AppSettings.productGroups.keys.first;
+    await showDialog<void>(context: context, builder: (dialogContext) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(builder: (dialogContext, refresh) => AlertDialog(
+        title: const Text('مدیریت گروه‌ها و زیرگروه‌ها'),
+        content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: groupController, decoration: const InputDecoration(labelText: 'نام گروه اصلی جدید')),
+          Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () async {
+            final name = groupController.text.trim();
+            if (name.isEmpty || AppSettings.productGroups.containsKey(name)) return;
+            AppSettings.productGroups[name] = [];
+            await AppSettings.saveProductGroups();
+            groupController.clear();
+            refresh(() => selectedGroup = name);
+          }, icon: const Icon(Icons.add), label: const Text('افزودن گروه'))),
+          const Divider(),
+          DropdownButtonFormField<String>(value: selectedGroup, isExpanded: true, decoration: const InputDecoration(labelText: 'انتخاب گروه'), items: AppSettings.productGroups.keys.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(), onChanged: (v) => refresh(() => selectedGroup = v)),
+          const SizedBox(height: 8),
+          TextField(controller: subController, decoration: const InputDecoration(labelText: 'نام زیرگروه جدید')),
+          Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () async {
+            final name = subController.text.trim();
+            if (selectedGroup == null || name.isEmpty || (AppSettings.productGroups[selectedGroup] ?? []).contains(name)) return;
+            AppSettings.productGroups[selectedGroup]!.add(name);
+            await AppSettings.saveProductGroups();
+            subController.clear();
+            refresh(() {});
+          }, icon: const Icon(Icons.add), label: const Text('افزودن زیرگروه'))),
+          for (final sub in (selectedGroup == null ? <String>[] : AppSettings.productGroups[selectedGroup] ?? <String>[]))
+            ListTile(dense: true, title: Text(sub), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { AppSettings.productGroups[selectedGroup]!.remove(sub); await AppSettings.saveProductGroups(); refresh(() {}); })),
+          for (final group in AppSettings.productGroups.keys.toList())
+            if (group != selectedGroup) ListTile(dense: true, title: Text(group), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { AppSettings.productGroups.remove(group); await AppSettings.saveProductGroups(); refresh(() => selectedGroup = AppSettings.productGroups.keys.isEmpty ? null : AppSettings.productGroups.keys.first); })),
+        ]))),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))],
+      )),
+    ));
+    groupController.dispose(); subController.dispose();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _resetAppearance() async {
+    final yes = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: const Text('بازگردانی تنظیمات ظاهری'),
+      content: const Text('فقط قالب رنگی، اندازه نوشته‌ها و عکس منوی کناری به حالت پیش‌فرض برمی‌گردند. اطلاعات فروشگاه و داده‌ها حذف نمی‌شوند. ادامه می‌دهید؟'),
+      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('بازگردانی'))],
+    )));
+    if (yes == true) { await AppSettings.resetAppearance(); if (mounted) setState(() { themeMode = 'روشن'; darkMode = false; fontScale = 1.0; drawerImage = ''; }); }
+  }
+
   Future<void> saveSettings() async {
     if (phone.text.length > 11) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('شماره تماس حداکثر ۱۱ رقم باشد.')));
@@ -1083,6 +1152,9 @@ class _SettingsPageState extends State<SettingsPage> {
             selected: {fontScale},
             onSelectionChanged: (v) => setState(() => fontScale = v.first),
           ),
+          const Divider(height: 28),
+          OutlinedButton.icon(onPressed: _manageProductGroups, icon: const Icon(Icons.category_outlined), label: const Text('مدیریت گروه‌ها و زیرگروه‌های کالا')),
+          OutlinedButton.icon(onPressed: _resetAppearance, icon: const Icon(Icons.restart_alt), label: const Text('بازگردانی تنظیمات ظاهری به پیش‌فرض')),
           const Divider(height: 28),
           const Text('عکس بالای منوی کناری', style: TextStyle(fontWeight: FontWeight.bold)),
           if (drawerImage.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.memory(base64Decode(drawerImage), height: 110, fit: BoxFit.contain)),
