@@ -2673,7 +2673,7 @@ class _ReportsPageState extends State<ReportsPage> {
             for (var i = 0; i < 10; i++) {
               value = value.replaceAll(persian[i], '$i').replaceAll(arabic[i], '$i');
             }
-            final match = RegExp(r'^(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})
+            final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(value);
     final day = DateTime(date.year, date.month, date.day);
     if (_fromDate != null) {
       final from = _fromDate!.toDateTime();
