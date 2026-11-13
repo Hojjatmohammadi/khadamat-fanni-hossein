@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'data/app_database_schema.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +49,10 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 1,
+      version: 2,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE records (
@@ -59,6 +63,13 @@ class DemoStore {
           )
         ''');
         await db.execute('CREATE INDEX records_category_idx ON records(category)');
+        await AppDatabaseSchema.create(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await AppDatabaseSchema.create(db);
+          await AppDatabaseSchema.migrateLegacyRecords(db);
+        }
       },
     );
     await _loadCategory('products', products);
@@ -78,10 +89,16 @@ class DemoStore {
   }
 
   static Future<void> add(String category, Map<String, String> item) async {
-    await _db!.insert('records', {
-      'category': category,
-      'data': jsonEncode(item),
-      'created_at': DateTime.now().toIso8601String(),
+    final createdAt = DateTime.now().toIso8601String();
+    await _db!.transaction((txn) async {
+      final recordId = await txn.insert('records', {
+        'category': category,
+        'data': jsonEncode(item),
+        'created_at': createdAt,
+      });
+      await AppDatabaseSchema.insertLegacyRecord(
+        txn, category, item, recordId, createdAt,
+      );
     });
     final target = switch (category) {
       'products' => products,
@@ -91,8 +108,7 @@ class DemoStore {
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
     target.add(Map<String, String>.from(item));
-  }
-}
+  }}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
