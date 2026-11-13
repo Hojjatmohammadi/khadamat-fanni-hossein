@@ -2655,7 +2655,7 @@ class _OperationsPageState extends State<OperationsPage> {
       final note = TextEditingController(text: existing?['توضیحات'] ?? '');
       String kind = existing?['نوع چک'] ?? 'دریافتی';
       String status = existing?['وضعیت'] ?? 'پاس نشده';
-      String affectBalance = existing?['اثر در مانده حساب'] ?? 'بله';
+      String affectBalance = existing?['اثر در مانده حساب'] ?? 'خیر - در فاکتور یا عملیات ثبت شده';
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
@@ -2682,7 +2682,7 @@ class _OperationsPageState extends State<OperationsPage> {
             DropdownButtonFormField<String>(
               value: affectBalance,
               decoration: const InputDecoration(labelText: 'اثر چک در مانده حساب شخص'),
-              items: const ['بله','خیر - در فاکتور یا عملیات ثبت شده'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
+              items: const ['خیر - در فاکتور یا عملیات ثبت شده','بله'].map((v) => DropdownMenuItem(value:v,child:Text(v))).toList(),
               onChanged: (v) => refresh(() => affectBalance = v ?? 'بله'),
             ),
             DropdownButtonFormField<String>(
@@ -3485,9 +3485,9 @@ class _ReportsPageState extends State<ReportsPage> {
           _line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد پرداختنی' : 'صندوق', 0, amount, code: method == 'چک' ? '212' : '101')];
       } else if (type == 'ثبت هزینه') {
         lines = [_line('هزینه: ' + (item['نام شخص'] ?? 'عمومی'), amount, 0, code: '520'),
-          _line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', 0, amount, code: method == 'کارتی / حواله' ? '102' : '101')];
+          _line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد پرداختنی' : 'صندوق', 0, amount, code: method == 'کارتی / حواله' ? '102' : method == 'چک' ? '212' : '101')];
       } else if (type == 'ثبت درآمد') {
-        lines = [_line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', amount, 0, code: method == 'کارتی / حواله' ? '102' : '101'),
+        lines = [_line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد دریافتنی' : 'صندوق', amount, 0, code: method == 'کارتی / حواله' ? '102' : method == 'چک' ? '112' : '101'),
           _line('درآمد: ' + (item['نام شخص'] ?? 'متفرقه'), 0, amount, code: '409')];
       } else if (type == 'متفرقه شخص بدهکار' || type == 'تخفیف گرفتن') {
         lines = [_line('حساب‌های دریافتنی - اشخاص', amount, 0, code: '110', party: party),
@@ -5941,7 +5941,7 @@ class _ReportsPageState extends State<ReportsPage> {
           _line('حساب‌های اشخاص', 0, amount, code: '110', party: party)];
       } else if (type == 'پرداخت وجه') {
         lines = [_line('حساب‌های اشخاص', amount, 0, code: '210', party: party),
-          _line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', 0, amount, code: '101')];
+          _line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' || method == 'خرج چک' ? 'اسناد پرداختنی' : 'صندوق', 0, amount, code: method == 'چک' || method == 'خرج چک' ? '212' : '101')];
       } else if (type == 'متفرقه شخص بدهکار' || type == 'تخفیف گرفتن') {
         lines = [_line('حساب‌های دریافتنی - اشخاص', amount, 0, code: '110', party: party),
           _line('تعدیلات و مانده افتتاحیه', 0, amount, code: '300')];
