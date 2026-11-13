@@ -1890,7 +1890,7 @@ class _OperationsPageState extends State<OperationsPage> {
           leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
           onLongPress: () => setState(() => _selected.add(jsonEncode(item))),
           onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _showPartyAccount(item); },
-          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : const Icon(Icons.edit_outlined),
+          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'ویرایش عملیات', onPressed: () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item)),
         )),
     ])),
   ]));
@@ -1907,10 +1907,18 @@ class _OperationsPageState extends State<OperationsPage> {
       final op = (data['نوع عملیات'] ?? '').toString();
       final partyType = (data['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
       if (partyType != type) continue;
-      final amount = double.tryParse((data['مبلغ'] ?? '0').toString().replaceAll(',', '')) ?? 0;
+      var amountText = (data['مبلغ'] ?? '0').toString().trim();
+      const faDigits = '۰۱۲۳۴۵۶۷۸۹', arDigits = '٠١٢٣٤٥٦٧٨٩';
+      for (var i = 0; i < 10; i++) { amountText = amountText.replaceAll(faDigits[i], '$i').replaceAll(arDigits[i], '$i'); }
+      final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
       if (amount <= 0) continue;
-      final debit = ['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0;
-      final credit = ['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن','تخفیف گرفتن'].contains(op) ? amount : 0.0;
+      final isSupplier = type == 'فروشنده';
+      final debit = isSupplier
+          ? (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
+          : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
+      final credit = isSupplier
+          ? (['متفرقه شخص بستانکار','دریافت وجه'].contains(op) ? amount : 0.0)
+          : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
       if (debit == 0 && credit == 0) continue;
       rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
     }
@@ -1968,7 +1976,7 @@ class _OperationsPageState extends State<OperationsPage> {
     final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
 
     bool dirty() => existing == null
-        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی'
+        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی' || partyType != initialPartyType
         : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod || partyType != initialPartyType;
 
     Future<void> requestClose(BuildContext dialogContext) async {
