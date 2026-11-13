@@ -351,7 +351,7 @@ class PartyAccounting {
     for (final sale in DemoStore.sales.where((x) => (x['نام مشتری'] ?? '').trim() == name)) {
       final gross = amount(sale, 'مبلغ کل');
       final discount = amount(sale, 'تخفیف');
-      final net = (gross - discount).clamp(0, 1 << 62);
+      final net = (gross - discount).clamp(0, 1 << 62).toInt();
       final date = sale['تاریخ فاکتور'] ?? sale['تاریخ'] ?? '';
       _add(rows, name, 'بدهکار', net, 'فاکتور فروش', date,
           sale['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمات');
@@ -1023,6 +1023,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   if (value != null) controllers[i].text = value;
                                 },
                               )
+                            : widget.title == 'مشتری' && widget.fields[i] == 'ماهیت مانده اولیه'
+                                ? DropdownButtonFormField<String>(
+                                    value: controllers[i].text.trim().isEmpty ? 'بدهکار' : controllers[i].text.trim(),
+                                    decoration: const InputDecoration(labelText: 'ماهیت مانده اولیه'),
+                                    items: const ['بدهکار', 'بستانکار'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                                    onChanged: (value) { if (value != null) controllers[i].text = value; },
+                                  )
                             : TextField(
                                 controller: controllers[i],
                                 focusNode: focusNodes[i],
@@ -1074,12 +1081,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final linkedRepairs = DemoStore.repairs.where((x) => (x['نام مشتری'] ?? '').trim() == customerName).toList();
     final accountEntries = PartyAccounting.entriesFor(customerName);
     int amountOf(Map<String, String> item, String key) => PartyAccounting.amount(item, key);
-    final salesTotal = linkedSales.fold<int>(0, (sum, x) => sum + (amountOf(x, 'مبلغ کل') - amountOf(x, 'تخفیف')).clamp(0, 1 << 62));
+    final salesTotal = linkedSales.fold<int>(0, (sum, x) => sum + (amountOf(x, 'مبلغ کل') - amountOf(x, 'تخفیف')).clamp(0, 1 << 62).toInt());
     final repairTotal = linkedRepairs.fold<int>(0, (sum, x) => sum + amountOf(x, 'اجرت'));
     final debitTotal = accountEntries.where((x) => x['ماهیت'] == 'بدهکار').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
     final creditTotal = accountEntries.where((x) => x['ماهیت'] == 'بستانکار').fold<int>(0, (sum, x) => sum + amountOf(x, 'مبلغ'));
     final balance = debitTotal - creditTotal;
-    String money(int value) => value.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
     String money(int value) => value.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
 
     Future<void> addMoneyOperation(String operation) async {
@@ -1809,7 +1815,7 @@ class CustomerPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'مشتری',
         data: DemoStore.customers,
-        fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات', 'مانده اولیه', 'ماهیت مانده اولیه'],
+        fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات', 'مانده اولیه', 'ماهیت مانده اولیه', 'تاریخ مانده اولیه'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -1990,7 +1996,6 @@ class _SettingsPageState extends State<SettingsPage> {
       final sellerAddress = TextEditingController(text: existing?['آدرس'] ?? '');
       final website = TextEditingController(text: existing?['آدرس سایت'] ?? '');
       final purchaseAmount = TextEditingController(text: existing?['مبلغ خرید'] ?? '');
-      final paidAmount = TextEditingController(text: existing?['مبلغ پرداختی'] ?? '0');
       final date = TextEditingController(text: existing?['تاریخ خرید'] ?? Jalali.now().formatCompactDate());
       final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
@@ -2007,8 +2012,6 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(controller: seller, decoration: const InputDecoration(labelText: 'نام فروشنده / شخصی که خرید از او انجام شد')),
             const SizedBox(height: 8),
             TextField(controller: purchaseAmount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ کل خرید (تومان)')),
-            const SizedBox(height: 8),
-            TextField(controller: paidAmount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده (تومان)')),
             const SizedBox(height: 8),
             TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
             const SizedBox(height: 8),
@@ -2029,7 +2032,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ));
       if (result == true) {
-        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'مبلغ خرید': purchaseAmount.text.trim(), 'مبلغ پرداختی': paidAmount.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
+        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'مبلغ خرید': purchaseAmount.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
         if (index == null) {
           AppSettings.purchaseRecords.add(record);
         } else {
@@ -2038,7 +2041,7 @@ class _SettingsPageState extends State<SettingsPage> {
         await AppSettings.savePurchaseRecords();
         if (mounted) setState(() {});
       }
-      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); purchaseAmount.dispose(); paidAmount.dispose(); date.dispose();
+      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); purchaseAmount.dispose(); date.dispose();
     }
 
     await showDialog<void>(context: context, builder: (d) => Directionality(
