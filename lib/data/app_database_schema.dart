@@ -267,7 +267,21 @@ class AppDatabaseSchema {
     final data = Map<String, Object?>.from(item);
     if (category == 'customers') {
       final phone = _text(data, 'شماره تماس');
-      if (phone.isNotEmpty && !RegExp(r'^\d{11}
+      if (phone.isNotEmpty && !RegExp(r'^\d{11}$').hasMatch(phone)) {
+        throw StateError('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.');
+      }
+      if (phone.isNotEmpty) {
+        final duplicate = await db.query(
+          'customers',
+          columns: ['id'],
+          where: 'phone = ?',
+          whereArgs: [phone],
+          limit: 1,
+        );
+        if (duplicate.isNotEmpty) {
+          throw StateError('این شماره موبایل قبلاً ثبت شده است.');
+        }
+      }
       final fullName = _text(data, 'نام مشتری');
       final parts = fullName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
       await db.insert('customers', {
