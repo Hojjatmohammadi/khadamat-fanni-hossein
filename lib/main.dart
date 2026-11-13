@@ -860,20 +860,53 @@ class _SimpleListPageState extends State<SimpleListPage> {
                     for (int i = 0; i < widget.fields.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: TextField(
-                          controller: controllers[i],
-                          focusNode: focusNodes[i],
-                          keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
-                              ? TextInputType.number : TextInputType.text,
-                          inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
-                              ? [FilteringTextInputFormatter.digitsOnly] : const [],
-                          textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
-                          onSubmitted: (_) {
-                            if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
-                            else FocusScope.of(dialogContext).unfocus();
-                          },
-                          decoration: InputDecoration(labelText: widget.fields[i]),
-                        ),
+                        child: widget.title == 'پذیرش تعمیر' &&
+                                existing == null &&
+                                widget.fields[i] == 'نام مشتری'
+                            ? DropdownButtonFormField<String>(
+                                value: DemoStore.customers
+                                        .map((customer) => (customer['نام مشتری'] ?? '').trim())
+                                        .where((name) => name.isNotEmpty)
+                                        .toSet()
+                                        .contains(controllers[i].text.trim())
+                                    ? controllers[i].text.trim()
+                                    : null,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'انتخاب مشتری ثبت‌شده',
+                                  border: OutlineInputBorder(),
+                                  prefixIcon: Icon(Icons.person_search_outlined),
+                                ),
+                                hint: Text(DemoStore.customers.isEmpty
+                                    ? 'ابتدا مشتری را در بخش مشتریان ثبت کنید'
+                                    : 'نام مشتری را انتخاب کنید'),
+                                items: DemoStore.customers
+                                    .map((customer) => (customer['نام مشتری'] ?? '').trim())
+                                    .where((name) => name.isNotEmpty)
+                                    .toSet()
+                                    .map((name) => DropdownMenuItem<String>(
+                                          value: name,
+                                          child: Text(name, overflow: TextOverflow.ellipsis),
+                                        ))
+                                    .toList(),
+                                onChanged: (value) {
+                                  if (value != null) controllers[i].text = value;
+                                },
+                              )
+                            : TextField(
+                                controller: controllers[i],
+                                focusNode: focusNodes[i],
+                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                    ? TextInputType.number : TextInputType.text,
+                                inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                    ? [FilteringTextInputFormatter.digitsOnly] : const [],
+                                textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
+                                onSubmitted: (_) {
+                                  if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
+                                  else FocusScope.of(dialogContext).unfocus();
+                                },
+                                decoration: InputDecoration(labelText: widget.fields[i]),
+                              ),
                       ),
                   ],
                 ),
