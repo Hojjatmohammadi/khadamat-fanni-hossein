@@ -861,7 +861,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: widget.title == 'پذیرش تعمیر' &&
-                                existing == null &&
                                 widget.fields[i] == 'نام مشتری'
                             ? DropdownButtonFormField<String>(
                                 value: DemoStore.customers
@@ -880,15 +879,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                 hint: Text(DemoStore.customers.isEmpty
                                     ? 'ابتدا مشتری را در بخش مشتریان ثبت کنید'
                                     : 'نام مشتری را انتخاب کنید'),
-                                items: DemoStore.customers
-                                    .map((customer) => (customer['نام مشتری'] ?? '').trim())
-                                    .where((name) => name.isNotEmpty)
-                                    .toSet()
-                                    .map((name) => DropdownMenuItem<String>(
-                                          value: name,
-                                          child: Text(name, overflow: TextOverflow.ellipsis),
-                                        ))
-                                    .toList(),
+                                items: {
+                                  ...DemoStore.customers
+                                      .map((customer) => (customer['نام مشتری'] ?? '').trim())
+                                      .where((name) => name.isNotEmpty),
+                                  if (controllers[i].text.trim().isNotEmpty)
+                                    controllers[i].text.trim(),
+                                }.map((name) => DropdownMenuItem<String>(
+                                      value: name,
+                                      child: Text(name, overflow: TextOverflow.ellipsis),
+                                    )).toList(),
                                 onChanged: (value) {
                                   if (value != null) controllers[i].text = value;
                                 },
