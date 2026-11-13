@@ -701,17 +701,61 @@ class AccountingEngine {
     final qty = _qty(item, 'تعداد');
     if (qty < 0) throw StateError('تعداد برگشت نمی‌تواند منفی باشد.');
     if (productName.isEmpty) return;
+
+    final returnType = item['نوع برگشت'] ?? '';
+    final reference = (item['شناسه مرجع'] ?? '').trim();
+    if (reference.isEmpty) {
+      throw StateError('برای برگشت کالای انبار، فاکتور اصلی را انتخاب کنید.');
+    }
+    final sourceRows = returnType == 'برگشت فروش'
+        ? DemoStore.sales
+        : AppSettings.purchaseRecords;
+    String sourceId(Map<String,String> row, int index) =>
+        row['شناسه سند'] ?? 'legacy-origin-$index';
+    Map<String,String>? source;
+    for (final entry in sourceRows.asMap().entries) {
+      if (sourceId(entry.value, entry.key) == reference) {
+        source = entry.value;
+        break;
+      }
+    }
+    if (source == null) throw StateError('سند مرجع برگشت پیدا نشد.');
+    final sourceProduct = returnType == 'برگشت فروش'
+        ? (source['نام کالا (از انبار)'] ?? '').trim()
+        : (source['کالا'] ?? '').trim();
+    if (sourceProduct != productName) {
+      throw StateError('کالای انتخاب‌شده با کالای فاکتور مرجع یکسان نیست.');
+    }
+    final expectedParty = returnType == 'برگشت فروش'
+        ? (source['نام مشتری'] ?? '').trim()
+        : (source['نام فروشنده'] ?? '').trim();
+    if (expectedParty.isNotEmpty && (item['نام شخص'] ?? '').trim() != expectedParty) {
+      throw StateError('نام مشتری یا فروشنده باید با فاکتور مرجع یکسان باشد.');
+    }
+
     final product = _product(productName);
     if (product == null) throw StateError('کالای برگشتی در انبار پیدا نشد.');
-    if ((item['نوع برگشت'] ?? '') == 'برگشت خرید') {
-      final oldQty = oldItem != null && (oldItem['نام کالا'] ?? '') == productName
-          ? _qty(oldItem, 'تعداد') : 0;
-      final available = _qty(product, 'موجودی') + oldQty;
-      if (qty <= 0 || qty > available) {
-        throw StateError('تعداد برگشت خرید باید مثبت و حداکثر به اندازه موجودی قابل دسترس باشد: $available');
-      }
-    } else if (qty <= 0) {
-      throw StateError('برای برگشت کالای فروخته‌شده، تعداد برگشتی باید بیشتر از صفر باشد.');
+    final originalQty = returnType == 'برگشت فروش'
+        ? _qty(source, 'تعداد')
+        : _qty(source, 'تعداد خرید');
+    final previousReturns = DemoStore.returns.where((row) =>
+        row['شناسه مرجع'] == reference &&
+        row['شناسه سند'] != (oldItem?['شناسه سند'] ?? '')).toList();
+    final alreadyReturnedQty = previousReturns.fold<double>(
+        0, (sum, row) => sum + _qty(row, 'تعداد'));
+    final remainingQty = (originalQty - alreadyReturnedQty).clamp(0, 1e15).toDouble();
+    if (qty <= 0 || qty > remainingQty) {
+      throw StateError('تعداد برگشتی از مقدار باقی‌مانده فاکتور مرجع بیشتر است: $remainingQty');
+    }
+
+    final originalAmount = returnType == 'برگشت فروش'
+        ? (PartyAccounting.amount(source, 'مبلغ کل') - PartyAccounting.amount(source, 'تخفیف')).clamp(0, 1 << 62).toInt()
+        : PartyAccounting.amount(source, 'مبلغ خرید');
+    final alreadyReturnedAmount = previousReturns.fold<int>(
+        0, (sum, row) => sum + PartyAccounting.amount(row, 'مبلغ'));
+    final remainingAmount = (originalAmount - alreadyReturnedAmount).clamp(0, 1 << 62).toInt();
+    if (amount > remainingAmount) {
+      throw StateError('مبلغ برگشت از مانده مبلغ فاکتور مرجع بیشتر است: $remainingAmount تومان');
     }
   }
 
