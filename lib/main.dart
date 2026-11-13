@@ -825,7 +825,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
   }
 
   Future<void> addItem({Map<String, String>? existing}) async {
-    final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? (field.contains('تاریخ') ? Jalali.now().formatCompactDate() : ''))).toList();
+    final controllers = widget.fields.map((field) => TextEditingController(text: existing != null ? (existing[field] ?? '') : (field.contains('تاریخ') ? Jalali.now().formatCompactDate() : ''))).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> saveForm(BuildContext dialogContext) async {
@@ -2371,7 +2371,7 @@ class _ReportsPageState extends State<ReportsPage> {
     for (var i = 0; i < 10; i++) {
       value = value.replaceAll(fa[i], '$i');
     }
-    final match = RegExp(r'(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})').firstMatch(value);
+    final match = RegExp(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})').firstMatch(value);
     if (match != null) {
       final year = int.parse(match.group(1)!);
       final month = int.parse(match.group(2)!);
