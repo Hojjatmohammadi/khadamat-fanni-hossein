@@ -198,7 +198,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -221,6 +221,11 @@ class DemoStore {
         }
         if (oldVersion < 3) {
           await AccountingEngine.createTables(db);
+        }
+        if (oldVersion >= 2 && oldVersion < 4) {
+          // Version 3 stored legacy invoice total as pre-discount amount in the JSON record,
+          // but mirrored it as the payable total. Normalize existing mirrored invoices once.
+          await db.execute('UPDATE invoices SET subtotal = total, total = MAX(0, total - discount) WHERE legacy_source_id IS NOT NULL');
         }
       },
     );
@@ -879,7 +884,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
                                   else FocusScope.of(dialogContext).unfocus();
                                 },
-                                decoration: InputDecoration(labelText: widget.fields[i]),
+                                decoration: InputDecoration(
+                                  labelText: widget.fields[i],
+                                  helperText: widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ کل' ? 'مبلغ قبل از تخفیف؛ مبلغ نهایی پس از کسر تخفیف محاسبه می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'تخفیف' ? 'این مبلغ از مبلغ کل کسر می‌شود.' : null,
+                                ),
                               ),
                       ),
                   ],
