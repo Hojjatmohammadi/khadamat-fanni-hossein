@@ -900,10 +900,33 @@ class _ProductPageState extends State<ProductPage> {
       return purchase + extra + vat;
     }
 
+    Future<void> requestProductClose(BuildContext dialogContext) async {
+      final dirty = c.any((x) => x.text.trim().isNotEmpty) ||
+          shipping.text.trim() != '0' || freight.text.trim() != '0' || other.text.trim() != '0' ||
+          vatRate.text.trim() != '0' || vatIncluded || unit != 'عدد' || isUsed ||
+          productGroup != null || productSubgroup != null || productImageBase64 != null;
+      if (!dirty) { Navigator.pop(dialogContext, false); return; }
+      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تغییرات ذخیره نشده‌اند'),
+          content: const Text('اطلاعات کالا ذخیره نشده است. می‌خواهید بدون ذخیره خارج شوید؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
+          ],
+        ),
+      ));
+      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+    }
+
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => Directionality(
+      builder: (dialogContext) => PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) { if (!didPop) requestProductClose(dialogContext); },
+        child: Directionality(
         textDirection: TextDirection.rtl,
         child: StatefulBuilder(
           builder: (context, refresh) => AlertDialog(
@@ -1056,7 +1079,7 @@ class _ProductPageState extends State<ProductPage> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+              TextButton(onPressed: () => requestProductClose(dialogContext), child: const Text('انصراف')),
               FilledButton(
                 onPressed: () {
                   if (c[0].text.trim().isEmpty) {
@@ -1091,6 +1114,7 @@ class _ProductPageState extends State<ProductPage> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
