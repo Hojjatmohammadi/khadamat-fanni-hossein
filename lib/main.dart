@@ -757,56 +757,80 @@ class _SimpleListPageState extends State<SimpleListPage> {
                         child: OutlinedButton.icon(
                           onPressed: () async {
                             try {
-                              final allowed = await FlutterContacts.requestPermission(readonly: true);
-                              if (!allowed) {
-                                if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('اجازه دسترسی به مخاطبین داده نشد.')));
-                                return;
+                              // Open Android's native contact picker instead of listing contacts inside the app.
+                              final selected = await FlutterContacts.openExternalPick();
+                              if (!dialogContext.mounted || selected == null) return;
+
+                              final contactName = selected.displayName.trim();
+                              if (contactName.isNotEmpty && controllers.isNotEmpty) {
+                                controllers[0].text = contactName;
                               }
-                              final contacts = await FlutterContacts.getContacts(withProperties: true);
-                              if (!dialogContext.mounted) return;
-                              if (contacts.isEmpty) {
-                                await showDialog<void>(context: dialogContext, builder: (d) => Directionality(
-                                  textDirection: TextDirection.rtl,
-                                  child: AlertDialog(
-                                    title: const Text('مخاطبی پیدا نشد'),
-                                    content: const Text('در فهرست مخاطبین گوشی، مخاطبی برای نمایش وجود ندارد.'),
-                                    actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d), child: const Text('باشه'))])],
-                                  ),
-                                ));
-                                return;
+
+                              String normalizePhone(String value) {
+                                final mapped = value.replaceAllMapped(
+                                  RegExp(r'[۰-۹٠-٩]'),
+                                  (match) {
+                                    const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+                                    const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+                                    final digit = match.group(0)!;
+                                    final pIndex = persianDigits.indexOf(digit);
+                                    if (pIndex >= 0) return '$pIndex';
+                                    final aIndex = arabicDigits.indexOf(digit);
+                                    return aIndex >= 0 ? '$aIndex' : '';
+                                  },
+                                );
+                                var digits = mapped.replaceAll(RegExp(r'[^0-9]'), '');
+                                if (digits.startsWith('0098') && digits.length == 14) {
+                                  digits = '0${digits.substring(4)}';
+                                } else if (digits.startsWith('98') && digits.length == 12) {
+                                  digits = '0${digits.substring(2)}';
+                                } else if (digits.startsWith('9') && digits.length == 10) {
+                                  digits = '0$digits';
+                                }
+                                return digits;
                               }
-                              final selected = await showDialog<Contact>(
-                                context: dialogContext,
-                                builder: (pickContext) => Directionality(
-                                  textDirection: TextDirection.rtl,
-                                  child: AlertDialog(
-                                    title: const Text('انتخاب از مخاطبین'),
-                                    content: SizedBox(
-                                      width: 360,
-                                      height: 420,
-                                      child: ListView.builder(
-                                        itemCount: contacts.length,
-                                        itemBuilder: (context, index) {
-                                          final contact = contacts[index];
-                                          return ListTile(
-                                            title: Text(contact.displayName),
-                                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'بدون شماره'),
-                                            onTap: () => Navigator.pop(pickContext, contact),
-                                          );
-                                        },
+
+                              final phoneNumbers = selected.phones
+                                  .map((phone) => normalizePhone(phone.number))
+                                  .where((phone) => phone.isNotEmpty)
+                                  .toSet()
+                                  .toList();
+
+                              if (controllers.length > 1 && phoneNumbers.isNotEmpty) {
+                                String? chosenPhone = phoneNumbers.first;
+                                if (phoneNumbers.length > 1) {
+                                  chosenPhone = await showDialog<String>(
+                                    context: dialogContext,
+                                    builder: (pickerContext) => Directionality(
+                                      textDirection: TextDirection.rtl,
+                                      child: AlertDialog(
+                                        title: const Text('انتخاب شماره تماس'),
+                                        content: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: phoneNumbers.map((number) => ListTile(
+                                            leading: const Icon(Icons.phone_outlined),
+                                            title: Text(number),
+                                            onTap: () => Navigator.pop(pickerContext, number),
+                                          )).toList(),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                              );
-                              if (selected != null) {
-                                controllers[0].text = selected.displayName;
-                                if (controllers.length > 1 && selected.phones.isNotEmpty) {
-                                  controllers[1].text = selected.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
+                                  );
                                 }
+                                if (chosenPhone != null && dialogContext.mounted) {
+                                  controllers[1].text = chosenPhone;
+                                }
+                              } else if (controllers.length > 1 && dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(content: Text('برای این مخاطب شماره تلفنی ثبت نشده است؛ نام او در فرم قرار گرفت.')),
+                                );
                               }
                             } catch (error) {
-                              if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('باز کردن مخاطبین ناموفق بود: $error')));
+                              if (dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(content: Text('انتخاب مخاطب ناموفق بود: $error')),
+                                );
+                              }
                             }
                           },
                           icon: const Icon(Icons.contacts_outlined),
