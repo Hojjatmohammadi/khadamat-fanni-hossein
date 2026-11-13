@@ -1251,14 +1251,37 @@ class _SettingsPageState extends State<SettingsPage> {
 }
 
 
-class OperationsPage extends StatelessWidget {
+class OperationsPage extends StatefulWidget {
   final VoidCallback onChanged;
-  OperationsPage({super.key, required this.onChanged});
+  const OperationsPage({super.key, required this.onChanged});
+  @override
+  State<OperationsPage> createState() => _OperationsPageState();
+}
+
+class _OperationsPageState extends State<OperationsPage> {
   static const options = ['تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  final Set<String> _selected = {};
+
+  Future<void> _deleteSelected() async {
+    final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x))).toList();
+    if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
+    await DemoStore.delete('operations', items);
+    if (mounted) setState(() => _selected.clear());
+    widget.onChanged();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.transparent,
-    body: ListView(padding: const EdgeInsets.all(12), children: [
+    body: Column(children: [
+      if (_selected.isNotEmpty) Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Row(children: [
+        Padding(padding: const EdgeInsets.all(12), child: Text('${_selected.length} مورد انتخاب شده')),
+        const Spacer(),
+        TextButton(onPressed: () => setState(() => _selected.clear()), child: const Text('لغو انتخاب')),
+        TextButton.icon(onPressed: () => setState(() => _selected.addAll(DemoStore.operations.map((x) => jsonEncode(x)))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
+        IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
+      ])),
+      Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
       for (final op in options)
         Card(child: ListTile(
           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
@@ -1271,10 +1294,13 @@ class OperationsPage extends StatelessWidget {
         Card(child: ListTile(
           title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
           subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
-          onTap: () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item),
+          leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
+          onLongPress: () => setState(() => _selected.add(jsonEncode(item))),
+          onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item); },
+          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : const Icon(Icons.edit_outlined),
         )),
-    ]),
-  );
+    ])),
+  ]));
   Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
@@ -1291,6 +1317,11 @@ class OperationsPage extends StatelessWidget {
         TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
       ])),
       actions: [
+        if (existing != null) TextButton.icon(onPressed: () async {
+          if (!await _confirmDelete(d, 1)) return;
+          await DemoStore.delete('operations', [existing]);
+          if (d.mounted) Navigator.pop(d, true);
+        }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
         TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
         FilledButton(onPressed: () async {
           if (name.text.trim().isEmpty || amount.text.trim().isEmpty) return;
@@ -1305,7 +1336,7 @@ class OperationsPage extends StatelessWidget {
       ],
     ))));
     name.dispose(); amount.dispose(); note.dispose();
-    if (result == true) onChanged();
+    if (result == true) widget.onChanged();
   }
 }
 
