@@ -167,7 +167,7 @@ class AppDatabaseSchema {
                   _text(data, 'این کالا دست دوم است') == 'بله'
               ? 1
               : 0,
-          'image_base64': _text(data, 'تصویر کالا'),
+          'image_base64': '', // Image remains in the legacy record until file-based storage is introduced.
           'shipping_cost': _number(data, 'هزینه پست'),
           'freight_cost': _number(data, 'هزینه باربری / حمل'),
           'other_cost': _number(data, 'سایر هزینه‌ها'),
@@ -277,7 +277,7 @@ class AppDatabaseSchema {
         'sale_price': _number(data, 'قیمت فروش'),
         'is_used': (_text(data, 'وضعیت کالا') == 'دست دوم' ||
                 _text(data, 'این کالا دست دوم است') == 'بله') ? 1 : 0,
-        'image_base64': _text(data, 'تصویر کالا'),
+        'image_base64': '',
         'shipping_cost': _number(data, 'هزینه پست'),
         'freight_cost': _number(data, 'هزینه باربری / حمل'),
         'other_cost': _number(data, 'سایر هزینه‌ها'),
