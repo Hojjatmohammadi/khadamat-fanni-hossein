@@ -2162,25 +2162,139 @@ class _OperationsPageState extends State<OperationsPage> {
   }
 }
 
-class ReportsPage extends StatelessWidget {
+class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
+  @override
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> {
+  final fromController = TextEditingController();
+  final toController = TextEditingController();
+  String selectedPeriod = 'همه تاریخ‌ها';
 
   @override
-  Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('گزارش‌های اولیه', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-          for (final r in [
-            'تعداد کالاهای ثبت‌شده: ${DemoStore.products.length}',
-            'تعداد مشتریان: ${DemoStore.customers.length}',
-            'تعداد پذیرش‌های تعمیر: ${DemoStore.repairs.length}',
-            'تعداد فاکتورهای فروش: ${DemoStore.sales.length}',
-          ])
-            Card(child: ListTile(leading: const Icon(Icons.analytics_outlined), title: Text(r))),
-          const Text(
-            'اطلاعات این نسخه به‌صورت دائمی در SQLite همین گوشی ذخیره می‌شوند. همگام‌سازی چند گوشی و پشتیبان‌گیری ابری در مرحله بعد اضافه می‌شود.',
-            style: TextStyle(color: Colors.black54),
+  void dispose() {
+    fromController.dispose();
+    toController.dispose();
+    super.dispose();
+  }
+
+  int _amount(Map<String, String> item, String key) =>
+      int.tryParse((item[key] ?? '').replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+
+  String _money(int value) => value.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
+  Future<void> _pickDate(TextEditingController controller) async {
+    final picked = await showPersianDatePicker(
+      context: context,
+      initialDate: Jalali.now(),
+      firstDate: Jalali(1300, 1, 1),
+      lastDate: Jalali(1500, 12, 29),
+      helpText: 'انتخاب تاریخ شمسی',
+    );
+    if (picked != null) controller.text = picked.formatCompactDate();
+  }
+
+  Future<void> _showReport(String title, IconData icon, List<Map<String, String>> rows, String amountKey, String emptyMessage) async {
+    final total = rows.fold<int>(0, (sum, item) => sum + _amount(item, amountKey));
+    await showDialog<void>(
+      context: context,
+      builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Row(children: [Icon(icon), const SizedBox(width: 8), Expanded(child: Text(title))]),
+          content: SizedBox(
+            width: 440,
+            child: rows.isEmpty
+                ? Text(emptyMessage)
+                : Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text('تعداد موارد: ${rows.length}'),
+                    Text('جمع مبلغ ثبت‌شده: ${_money(total)} تومان', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const Divider(),
+                    SizedBox(height: 300, child: ListView.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) {
+                        final item = rows[rows.length - 1 - i];
+                        final name = item['نام مشتری'] ?? item['نام شخص'] ?? item['نام کالا'] ?? item['شرح کالا/خدمت'] ?? item['نوع عملیات'] ?? item['عنوان'] ?? 'ثبت بدون عنوان';
+                        final date = item['تاریخ'] ?? item['تاریخ ثبت کالا'] ?? '';
+                        return ListTile(dense: true, title: Text(name), subtitle: Text(date), trailing: Text(_money(_amount(item, amountKey))));
+                      },
+                    )),
+                  ]),
           ),
-        ],
-      );
+          actions: [_horizontalDialogActions([
+            TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن')),
+          ])],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reports = <({String title, IconData icon, int count, VoidCallback open})>[
+      (title: 'فاکتور فروش', icon: Icons.receipt_long, count: DemoStore.sales.length, open: () => _showReport('فاکتور فروش', Icons.receipt_long, DemoStore.sales, 'مبلغ کل', 'هنوز فاکتور فروشی ثبت نشده است.')),
+      (title: 'فاکتور خرید', icon: Icons.shopping_bag_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('سوابق خرید ثبت‌شده', Icons.shopping_bag_outlined, AppSettings.purchaseRecords, 'مبلغ', 'سابقه خریدی در تنظیمات ثبت نشده است.')),
+      (title: 'برگشت فروش', icon: Icons.assignment_return, count: 0, open: () => _showReport('برگشت فروش', Icons.assignment_return, const [], 'مبلغ', 'ثبت مستقل برگشت فروش هنوز در اطلاعات برنامه فعال نیست.')),
+      (title: 'برگشت خرید', icon: Icons.keyboard_return, count: 0, open: () => _showReport('برگشت خرید', Icons.keyboard_return, const [], 'مبلغ', 'ثبت مستقل برگشت خرید هنوز در اطلاعات برنامه فعال نیست.')),
+      (title: 'فروش کالاها', icon: Icons.point_of_sale, count: DemoStore.sales.length, open: () => _showReport('فروش کالاها', Icons.point_of_sale, DemoStore.sales, 'مبلغ کل', 'اطلاعات فروش کالا موجود نیست.')),
+      (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
+      (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
+      (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
+      (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
+      (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.products.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.products, 'تعداد', 'برای نمایش کاردکس، گردش ورود و خروج کالا باید ثبت شود.')),
+      (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ', 'سابقه خریدی ثبت نشده است.')),
+      (title: 'ریز فروش و سود', icon: Icons.analytics_outlined, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.analytics_outlined, DemoStore.sales, 'سود', 'اطلاعات کافی برای محاسبه سود ثبت نشده است.')),
+      (title: 'پذیرش تعمیرات', icon: Icons.build_outlined, count: DemoStore.repairs.length, open: () => _showReport('پذیرش تعمیرات', Icons.build_outlined, DemoStore.repairs, 'اجرت', 'پذیرش تعمیری ثبت نشده است.')),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Card(child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Text('بازه زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: TextField(controller: fromController, readOnly: true, onTap: () => _pickDate(fromController), decoration: const InputDecoration(labelText: 'تاریخ از', suffixIcon: Icon(Icons.calendar_month)))),
+              const SizedBox(width: 8),
+              Expanded(child: TextField(controller: toController, readOnly: true, onTap: () => _pickDate(toController), decoration: const InputDecoration(labelText: 'تا تاریخ', suffixIcon: Icon(Icons.calendar_month)))),
+            ]),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, children: [
+              ChoiceChip(label: const Text('همه تاریخ‌ها'), selected: selectedPeriod == 'همه تاریخ‌ها', onSelected: (_) => setState(() => selectedPeriod = 'همه تاریخ‌ها')),
+              ChoiceChip(label: const Text('امروز'), selected: selectedPeriod == 'امروز', onSelected: (_) => setState(() => selectedPeriod = 'امروز')),
+              ChoiceChip(label: const Text('این ماه'), selected: selectedPeriod == 'این ماه', onSelected: (_) => setState(() => selectedPeriod = 'این ماه')),
+              ChoiceChip(label: const Text('امسال'), selected: selectedPeriod == 'امسال', onSelected: (_) => setState(() => selectedPeriod = 'امسال')),
+            ]),
+            Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: () { fromController.clear(); toController.clear(); setState(() => selectedPeriod = 'همه تاریخ‌ها'); }, icon: const Icon(Icons.clear), label: const Text('پاک کردن فیلتر تاریخ'))),
+          ]),
+        )),
+        const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 8), child: Text('گزارش‌ها و صورت‌حساب‌ها', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: reports.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.25),
+          itemBuilder: (context, index) {
+            final report = reports[index];
+            return Card(clipBehavior: Clip.antiAlias, child: InkWell(
+              onTap: report.open,
+              child: Padding(padding: const EdgeInsets.all(10), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(report.icon, size: 34, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 8),
+                Text(report.title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text('${report.count} مورد', style: Theme.of(context).textTheme.bodySmall),
+              ])),
+            ));
+          },
+        ),
+        const Padding(padding: EdgeInsets.all(8), child: Text('فیلتر بازه در این مرحله برای انتخاب تاریخ آماده است؛ اعمال دقیق بازه روی همه گزارش‌ها و محاسبه سود، برگشت‌ها و کاردکس پس از تکمیل ثبت تراکنش‌های مربوط انجام می‌شود.', style: TextStyle(color: Colors.orange))),
+      ],
+    );
+  }
 }
