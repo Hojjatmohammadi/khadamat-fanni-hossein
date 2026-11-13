@@ -106,6 +106,40 @@ class AppSettings {
   }
 }
 
+class PersianDateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text
+        .replaceAll(RegExp(r'[^0-9۰-۹٠-٩]'), '')
+        .split('')
+        .map((digit) {
+          const western = '0123456789';
+          const persian = '۰۱۲۳۴۵۶۷۸۹';
+          const arabic = '٠١٢٣٤٥٦٧٨٩';
+          final p = persian.indexOf(digit);
+          if (p >= 0) return persian[p];
+          final a = arabic.indexOf(digit);
+          if (a >= 0) return persian[a];
+          final w = western.indexOf(digit);
+          return w >= 0 ? persian[w] : '';
+        })
+        .join();
+    final limited = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final formatted = limited.length <= 4
+        ? limited
+        : limited.length <= 6
+            ? '${limited.substring(0, 4)}/${limited.substring(4)}'
+            : '${limited.substring(0, 4)}/${limited.substring(4, 6)}/${limited.substring(6)}';
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
 class HoseinApp extends StatelessWidget {
   const HoseinApp({super.key});
 
@@ -1025,6 +1059,7 @@ class _ProductPageState extends State<ProductPage> {
                       controller: saleDate,
                       keyboardType: TextInputType.datetime,
                       textDirection: TextDirection.ltr,
+                      inputFormatters: [PersianDateInputFormatter()],
                       decoration: InputDecoration(
                         labelText: 'تاریخ ثبت کالا (شمسی)',
                         hintText: '۱۴۰۵/۰۸/۲۲',
