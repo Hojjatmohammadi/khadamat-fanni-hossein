@@ -1882,8 +1882,9 @@ class _OperationsPageState extends State<OperationsPage> {
   final Set<String> _selected = {};
 
   Future<void> _deleteSelected() async {
-    final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x))).toList();
-    if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
+    final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x)) && x['نوع عملیات'] != 'خرید کالا').toList();
+    if (items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سند خرید از این فهرست حذف نمی‌شود؛ اطلاعات خرید را از بخش انبار اصلاح کنید.'))); return; }
+    if (!await _confirmDelete(context, items.length)) return;
     await DemoStore.delete('operations', items);
     if (mounted) setState(() => _selected.clear());
     widget.onChanged();
@@ -1897,7 +1898,7 @@ class _OperationsPageState extends State<OperationsPage> {
         Padding(padding: const EdgeInsets.all(12), child: Text('${_selected.length} مورد انتخاب شده')),
         const Spacer(),
         TextButton(onPressed: () => setState(() => _selected.clear()), child: const Text('لغو انتخاب')),
-        TextButton.icon(onPressed: () => setState(() => _selected.addAll(DemoStore.operations.map((x) => jsonEncode(x)))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
+        TextButton.icon(onPressed: () => setState(() => _selected.addAll(DemoStore.operations.where((x) => x['نوع عملیات'] != 'خرید کالا').map((x) => jsonEncode(x)))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
         IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
       ])),
       Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
@@ -1914,9 +1915,9 @@ class _OperationsPageState extends State<OperationsPage> {
           title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
           subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
           leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
-          onLongPress: () => setState(() => _selected.add(jsonEncode(item))),
+          onLongPress: item['نوع عملیات'] == 'خرید کالا' ? null : () => setState(() => _selected.add(jsonEncode(item))),
           onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _showPartyAccount(item); },
-          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'ویرایش عملیات', onPressed: () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item)),
+          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: item['نوع عملیات'] == 'خرید کالا' ? null : (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : IconButton(icon: const Icon(Icons.edit_outlined), tooltip: item['نوع عملیات'] == 'خرید کالا' ? 'ویرایش از بخش انبار کالا' : 'ویرایش عملیات', onPressed: item['نوع عملیات'] == 'خرید کالا' ? null : () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item)),
         )),
     ])),
   ]));
@@ -1939,12 +1940,17 @@ class _OperationsPageState extends State<OperationsPage> {
       final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
       if (amount <= 0) continue;
       final isSupplier = type == 'فروشنده';
-      final debit = isSupplier
-          ? (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
-          : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
-      final credit = isSupplier
-          ? (['متفرقه شخص بستانکار','دریافت وجه'].contains(op) ? amount : 0.0)
-          : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
+      final paid = double.tryParse((data['مبلغ پرداخت‌شده'] ?? '0').toString().replaceAll(',', '')) ?? 0;
+      final debit = op == 'خرید کالا' && isSupplier
+          ? paid
+          : isSupplier
+              ? (['متفرقه شخص بدهکار','پرداخت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
+              : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
+      final credit = op == 'خرید کالا' && isSupplier
+          ? amount
+          : isSupplier
+              ? (['متفرقه شخص بستانکار','دریافت وجه'].contains(op) ? amount : 0.0)
+              : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
       if (debit == 0 && credit == 0) continue;
       rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
     }
