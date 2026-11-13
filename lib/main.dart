@@ -325,6 +325,8 @@ class DemoStore {
     await renameIn('sales', sales, 'نام مشتری');
     await renameIn('repairs', repairs, 'نام مشتری');
     await renameIn('operations', operations, 'نام شخص');
+    await renameIn('checks', checks, 'نام شخص');
+    await renameIn('returns', returns, 'نام شخص');
     var purchaseChanged = false;
     for (final item in AppSettings.purchaseRecords) {
       if ((item['نام فروشنده'] ?? '').trim() == oldValue) {
@@ -569,6 +571,8 @@ class PartyAccounting {
         DemoStore.sales.any((x) => (x['نام مشتری'] ?? '').trim() == name) ||
         DemoStore.repairs.any((x) => (x['نام مشتری'] ?? '').trim() == name) ||
         DemoStore.operations.any((x) => (x['نام شخص'] ?? '').trim() == name) ||
+        DemoStore.checks.any((x) => (x['نام شخص'] ?? '').trim() == name) ||
+        DemoStore.returns.any((x) => (x['نام شخص'] ?? '').trim() == name) ||
         AppSettings.purchaseRecords.any((x) => (x['نام فروشنده'] ?? '').trim() == name);
   }
 
@@ -2567,7 +2571,7 @@ class OperationsPage extends StatefulWidget {
 }
 
 class _OperationsPageState extends State<OperationsPage> {
-  static const options = ['تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  static const options = ['ثبت هزینه', 'ثبت درآمد', 'تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
   Future<void> _deleteSelected() async {
@@ -2873,7 +2877,7 @@ class _OperationsPageState extends State<OperationsPage> {
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
               TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
               TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
-              if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+              if (['پرداخت وجه','دریافت وجه','ثبت هزینه','ثبت درآمد'].contains(op))
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
               TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
             ])),
@@ -3453,7 +3457,13 @@ class _ReportsPageState extends State<ReportsPage> {
           _line('حساب‌های اشخاص', 0, amount, code: '110', party: party)];
       } else if (type == 'پرداخت وجه') {
         lines = [_line('حساب‌های اشخاص', amount, 0, code: '210', party: party),
-          _line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', 0, amount, code: '101')];
+          _line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد پرداختنی' : 'صندوق', 0, amount, code: method == 'چک' ? '212' : '101')];
+      } else if (type == 'ثبت هزینه') {
+        lines = [_line(item['عنوان حساب هزینه'] ?? 'هزینه جاری', amount, 0, code: '520'),
+          _line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', 0, amount, code: method == 'کارتی / حواله' ? '102' : '101')];
+      } else if (type == 'ثبت درآمد') {
+        lines = [_line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', amount, 0, code: method == 'کارتی / حواله' ? '102' : '101'),
+          _line(item['عنوان حساب درآمد'] ?? 'درآمد متفرقه', 0, amount, code: '409')];
       } else if (type == 'متفرقه شخص بدهکار' || type == 'تخفیف گرفتن') {
         lines = [_line('حساب‌های دریافتنی - اشخاص', amount, 0, code: '110', party: party),
           _line('تعدیلات و مانده افتتاحیه', 0, amount, code: '300')];
