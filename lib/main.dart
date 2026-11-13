@@ -32,6 +32,7 @@ class AppSettings {
   static String themeMode = 'روشن';
   static String drawerImage = '';
   static double fontScale = 1.0;
+  static String productImageMode = 'پیش فرض عکس کالا';
   static List<Map<String, String>> purchaseRecords = [];
   static Map<String, List<String>> productGroups = {
     'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
@@ -49,6 +50,7 @@ class AppSettings {
     themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
     drawerImage = _prefs.getString('drawer_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    productImageMode = _prefs.getString('product_image_mode') ?? 'پیش فرض عکس کالا';
     final savedPurchases = _prefs.getString('purchase_records');
     if (savedPurchases != null) {
       try {
@@ -418,7 +420,25 @@ class _HomePageState extends State<HomePage> {
           key: scaffoldKey,
           appBar: AppBar(
             title: Text(titles[tab]),
-            actions: [IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search))],
+            actions: [
+              if (tab == 1)
+                PopupMenuButton<String>(
+                  tooltip: 'تنظیم نمایش عکس کالا',
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) async {
+                    AppSettings.productImageMode = value;
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('product_image_mode', value);
+                    if (mounted) setState(() {});
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'عدم نمایش عکس کالا', child: Text('عدم نمایش عکس کالا')),
+                    PopupMenuItem(value: 'پیش فرض عکس کالا', child: Text('پیش فرض عکس کالا')),
+                    PopupMenuItem(value: 'کوچک کردن عکس کالا', child: Text('کوچک کردن عکس کالا')),
+                  ],
+                ),
+              IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search)),
+            ],
           ),
           body: pages[tab],
           drawer: Drawer(
@@ -1458,13 +1478,22 @@ class _ProductPageState extends State<ProductPage> {
                 const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
               for (final item in DemoStore.products.reversed)
                 Card(child: ListTile(
-                  leading: (item['تصویر کالا'] ?? '').isNotEmpty
-                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
-                      : CircleAvatar(child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2)),
-                  title: Text(item['نام کالا'] ?? 'بدون نام'),
-                  subtitle: (item['نام فروشنده'] ?? '').trim().isEmpty
+                  leading: AppSettings.productImageMode == 'عدم نمایش عکس کالا'
                       ? null
-                      : Text('فروشنده: ${item['نام فروشنده']}'),
+                      : (item['تصویر کالا'] ?? '').isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                base64Decode(item['تصویر کالا']!),
+                                width: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 28 : 48,
+                                height: AppSettings.productImageMode == 'کوچک کردن عکس کالا' ? 28 : 48,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : (AppSettings.productImageMode == 'کوچک کردن عکس کالا'
+                              ? const Icon(Icons.inventory_2, size: 22)
+                              : CircleAvatar(child: Icon(_selectedProducts.contains(jsonEncode(item)) ? Icons.check : Icons.inventory_2))),
+                  title: Text(item['نام کالا'] ?? 'بدون نام'),
                   onLongPress: () => setState(() => _selectedProducts.add(jsonEncode(item))),
                   onTap: () {
                     if (_selectedProducts.isNotEmpty) setState(() { final k=jsonEncode(item); _selectedProducts.contains(k) ? _selectedProducts.remove(k) : _selectedProducts.add(k); });
