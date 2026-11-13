@@ -492,6 +492,30 @@ class PartyAccounting {
       }
     }
 
+    for (final returned in DemoStore.returns.where((x) => (x['نام شخص'] ?? '').trim() == name)) {
+      final type = returned['نوع برگشت'] ?? '';
+      final side = type == 'برگشت فروش' ? 'بستانکار' : 'بدهکار';
+      _add(rows, name, side, amount(returned, 'مبلغ'), type,
+          returned['تاریخ'] ?? '', returned['شرح'] ?? returned['نام کالا'] ?? type);
+    }
+
+    for (final check in DemoStore.checks.where((x) => (x['نام شخص'] ?? '').trim() == name)) {
+      final type = check['نوع چک'] ?? '';
+      final status = check['وضعیت'] ?? 'پاس نشده';
+      if (status == 'برگشتی' || status == 'باطل شده') {
+        if (type == 'دریافتی') {
+          _add(rows, name, 'بدهکار', amount(check, 'مبلغ'), 'برگشت چک دریافتی',
+              check['تاریخ سررسید'] ?? check['تاریخ ثبت'] ?? '', 'چک برگشت خورده است');
+        }
+      } else if (type == 'دریافتی') {
+        _add(rows, name, 'بستانکار', amount(check, 'مبلغ'), 'چک دریافتی',
+            check['تاریخ ثبت'] ?? '', 'چک شماره ' + (check['شماره چک'] ?? ''));
+      } else if (type == 'پرداختی') {
+        _add(rows, name, 'بدهکار', amount(check, 'مبلغ'), 'چک پرداختی',
+            check['تاریخ ثبت'] ?? '', 'چک شماره ' + (check['شماره چک'] ?? ''));
+      }
+    }
+
     DateTime? parseDate(String raw) {
       final value = _digits(raw);
       final match = RegExp(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})').firstMatch(value);
