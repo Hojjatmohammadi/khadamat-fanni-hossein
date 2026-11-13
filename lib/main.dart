@@ -1266,6 +1266,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> saveSettings() async {
+    final noTextEntered = [storeName.text, managerName.text, phone.text, address.text, postalCode.text].every((v) => v.trim().isEmpty);
+    final appearanceChanged = themeMode != AppSettings.themeMode || fontScale != AppSettings.fontScale || drawerImage != AppSettings.drawerImage;
+    final detailsChanged = storeName.text.trim() != AppSettings.storeName || managerName.text.trim() != AppSettings.managerName || phone.text.trim() != AppSettings.phone || address.text.trim() != AppSettings.address || postalCode.text.trim() != AppSettings.postalCode;
+    if (noTextEntered && !appearanceChanged || !detailsChanged && !appearanceChanged) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+      return;
+    }
     if (phone.text.length > 11) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('شماره تماس حداکثر ۱۱ رقم باشد.')));
       return;
