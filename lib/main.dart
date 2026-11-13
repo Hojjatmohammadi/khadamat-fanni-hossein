@@ -32,6 +32,7 @@ class AppSettings {
   static String themeMode = 'روشن';
   static String drawerImage = '';
   static double fontScale = 1.0;
+  static List<Map<String, String>> purchaseRecords = [];
   static Map<String, List<String>> productGroups = {
     'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
     'قطعات مکانیکی': ['بلبرینگ', 'چرخ‌دنده', 'شفت', 'بوش'],
@@ -48,6 +49,12 @@ class AppSettings {
     themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
     drawerImage = _prefs.getString('drawer_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    final savedPurchases = _prefs.getString('purchase_records');
+    if (savedPurchases != null) {
+      try {
+        purchaseRecords = (jsonDecode(savedPurchases) as List).map((x) => (x as Map).map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''))).toList();
+      } catch (_) {}
+    }
     final savedGroups = _prefs.getString('product_groups');
     if (savedGroups != null) {
       try {
@@ -87,6 +94,10 @@ class AppSettings {
     await _prefs.setString('drawer_image', drawerImage);
     await _prefs.setDouble('font_scale', fontScale);
     revision.value++;
+  }
+
+  static Future<void> savePurchaseRecords() async {
+    await _prefs.setString('purchase_records', jsonEncode(purchaseRecords));
   }
 
   static Future<void> saveProductGroups() async {
@@ -1551,6 +1562,95 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _managePurchases() async {
+    Future<void> editPurchase({Map<String, String>? existing, int? index}) async {
+      final item = TextEditingController(text: existing?['کالا'] ?? '');
+      final seller = TextEditingController(text: existing?['نام فروشنده'] ?? '');
+      final mobile = TextEditingController(text: existing?['موبایل'] ?? '');
+      final sellerAddress = TextEditingController(text: existing?['آدرس'] ?? '');
+      final website = TextEditingController(text: existing?['آدرس سایت'] ?? '');
+      final date = TextEditingController(text: existing?['تاریخ خرید'] ?? Jalali.now().formatCompactDate());
+      final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(existing == null ? 'ثبت خرید کالا' : 'ویرایش خرید کالا'),
+          content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: item, decoration: const InputDecoration(labelText: 'نام کالا')),
+            const SizedBox(height: 8),
+            TextField(controller: date, textDirection: TextDirection.ltr, keyboardType: TextInputType.datetime, inputFormatters: [PersianDateInputFormatter()], decoration: InputDecoration(labelText: 'تاریخ خرید (شمسی)', prefixIcon: IconButton(icon: const Icon(Icons.calendar_month), onPressed: () async {
+              final picked = await showPersianDatePicker(context: d, initialDate: Jalali.now(), firstDate: Jalali(1300, 1, 1), lastDate: Jalali(1500, 12, 29));
+              if (picked != null) date.text = picked.formatCompactDate();
+            }))),
+            const SizedBox(height: 8),
+            TextField(controller: seller, decoration: const InputDecoration(labelText: 'نام فروشنده / شخصی که خرید از او انجام شد')),
+            const SizedBox(height: 8),
+            TextField(controller: mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل')),
+            const SizedBox(height: 8),
+            TextField(controller: sellerAddress, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشنده')),
+            const SizedBox(height: 8),
+            TextField(controller: website, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'آدرس سایت / وب‌سایت')),
+          ]))),
+          actions: [_horizontalDialogActions([
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+            FilledButton(onPressed: () {
+              if (item.text.trim().isEmpty || seller.text.trim().isEmpty || date.text.trim().isEmpty) {
+                ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('نام کالا، تاریخ خرید و نام فروشنده را وارد کنید.')));
+                return;
+              }
+              Navigator.pop(d, true);
+            }, child: const Text('ذخیره')),
+          ])],
+        ),
+      ));
+      if (result == true) {
+        final record = {'کالا': item.text.trim(), 'تاریخ خرید': date.text.trim(), 'نام فروشنده': seller.text.trim(), 'موبایل': mobile.text.trim(), 'آدرس': sellerAddress.text.trim(), 'آدرس سایت': website.text.trim()};
+        if (index == null) {
+          AppSettings.purchaseRecords.add(record);
+        } else {
+          AppSettings.purchaseRecords[index] = record;
+        }
+        await AppSettings.savePurchaseRecords();
+        if (mounted) setState(() {});
+      }
+      item.dispose(); seller.dispose(); mobile.dispose(); sellerAddress.dispose(); website.dispose(); date.dispose();
+    }
+
+    await showDialog<void>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
+        title: const Text('مدیریت خرید کالاها و فروشندگان'),
+        content: SizedBox(width: 400, child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 440),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Align(alignment: Alignment.centerRight, child: FilledButton.icon(onPressed: () async { await editPurchase(); refresh(() {}); }, icon: const Icon(Icons.add), label: const Text('ثبت خرید جدید'))),
+            const Divider(),
+            Expanded(child: AppSettings.purchaseRecords.isEmpty
+              ? const Center(child: Text('هنوز خریدی ثبت نشده است.'))
+              : ListView.builder(itemCount: AppSettings.purchaseRecords.length, itemBuilder: (context, i) {
+                  final p = AppSettings.purchaseRecords[i];
+                  return Card(child: ListTile(
+                    title: Text(p['کالا'] ?? ''),
+                    subtitle: Text('تاریخ: ${p['تاریخ خرید'] ?? ''} • فروشنده: ${p['نام فروشنده'] ?? ''}\nموبایل: ${p['موبایل'] ?? ''}'),
+                    isThreeLine: true,
+                    trailing: PopupMenuButton<String>(onSelected: (v) async {
+                      if (v == 'edit') { await editPurchase(existing: Map<String,String>.from(p), index: i); refresh(() {}); }
+                      if (v == 'delete') {
+                        final yes = await showDialog<bool>(context: d, builder: (confirm) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+                          title: const Text('حذف خرید'), content: const Text('این سابقه خرید حذف شود؟'),
+                          actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(confirm, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(confirm, true), child: const Text('حذف'))])],
+                        )));
+                        if (yes == true) { AppSettings.purchaseRecords.removeAt(i); await AppSettings.savePurchaseRecords(); refresh(() {}); }
+                      }
+                    }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('ویرایش')), PopupMenuItem(value: 'delete', child: Text('حذف'))]),
+                  ));
+                })),
+          ]),
+        )),
+        actions: [_horizontalDialogActions([TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن'))])],
+      )),
+    ));
+  }
+
   Future<void> _resetAppearance() async {
     final yes = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
       title: const Text('بازگردانی تنظیمات ظاهری'),
@@ -1640,6 +1740,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const Divider(height: 28),
           OutlinedButton.icon(onPressed: _manageProductGroups, icon: const Icon(Icons.category_outlined), label: const Text('مدیریت گروه‌ها و زیرگروه‌های کالا')),
+          OutlinedButton.icon(onPressed: _managePurchases, icon: const Icon(Icons.shopping_cart_outlined), label: const Text('مدیریت خرید کالاها و فروشندگان')),
           OutlinedButton.icon(onPressed: _resetAppearance, icon: const Icon(Icons.restart_alt), label: const Text('بازگردانی تنظیمات ظاهری به پیش‌فرض')),
           const Divider(height: 28),
           const Text('عکس پروفایل فروشگاه', style: TextStyle(fontWeight: FontWeight.bold)),
