@@ -31,6 +31,10 @@ class AppSettings {
   static String themeMode = 'روشن';
   static String drawerImage = '';
   static double fontScale = 1.0;
+  static Map<String, List<String>> productGroups = {
+    'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
+    'قطعات مکانیکی': ['بلبرینگ', 'چرخ‌دنده', 'شفت', 'بوش'],
+  };
 
   static Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -43,6 +47,13 @@ class AppSettings {
     themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
     drawerImage = _prefs.getString('drawer_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    final savedGroups = _prefs.getString('product_groups');
+    if (savedGroups != null) {
+      try {
+        final decoded = jsonDecode(savedGroups) as Map<String, dynamic>;
+        productGroups = decoded.map((k, v) => MapEntry(k, (v as List).map((x) => x.toString()).toList()));
+      } catch (_) {}
+    }
   }
 
   static Future<void> save({
@@ -76,6 +87,22 @@ class AppSettings {
     await _prefs.setDouble('font_scale', fontScale);
     revision.value++;
   }
+
+  static Future<void> saveProductGroups() async {
+    await _prefs.setString('product_groups', jsonEncode(productGroups));
+  }
+
+  static Future<void> resetAppearance() async {
+    themeMode = 'روشن';
+    darkMode = false;
+    fontScale = 1.0;
+    drawerImage = '';
+    await _prefs.setString('theme_mode', themeMode);
+    await _prefs.setBool('dark_mode', false);
+    await _prefs.setDouble('font_scale', 1.0);
+    await _prefs.remove('drawer_image');
+    revision.value++;
+  }
 }
 
 class HoseinApp extends StatelessWidget {
@@ -102,7 +129,11 @@ class HoseinApp extends StatelessWidget {
                 filled: true,
                 fillColor: AppSettings.themeMode == 'تیره' ? const Color(0xFF252525) : Colors.white,
               ),
-              textTheme: ThemeData(brightness: brightness).textTheme.apply(fontSizeFactor: AppSettings.fontScale),
+              textTheme: ThemeData(brightness: brightness).textTheme,
+            ),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(AppSettings.fontScale)),
+              child: child ?? const SizedBox.shrink(),
             ),
             home: const HomePage(),
           );
@@ -170,6 +201,32 @@ class DemoStore {
     };
     final index = target.indexWhere((x) => jsonEncode(x) == jsonEncode(oldItem));
     if (index >= 0) target[index] = Map<String,String>.from(newItem);
+  }
+
+  static Future<void> delete(String category, List<Map<String, String>> items) async {
+    if (items.isEmpty) return;
+    final table = switch (category) {
+      'customers' => 'customers', 'products' => 'products', 'repairs' => 'repairs', 'sales' => 'invoices',
+      _ => null,
+    };
+    await _db!.transaction((txn) async {
+      for (final item in items) {
+        final rows = await txn.query('records', columns: ['id'], where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(item)]);
+        for (final row in rows) {
+          final id = row['id'] as int;
+          if (table != null) await txn.delete(table, where: 'legacy_source_id = ?', whereArgs: [id]);
+          await txn.delete('records', where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    });
+    final target = switch (category) {
+      'products' => products, 'customers' => customers, 'repairs' => repairs, 'sales' => sales, 'operations' => operations,
+      _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
+    };
+    for (final item in items) {
+      final index = target.indexWhere((x) => jsonEncode(x) == jsonEncode(item));
+      if (index >= 0) target.removeAt(index);
+    }
   }
 
   static Future<void> add(String category, Map<String, String> item) async {
@@ -342,8 +399,6 @@ class Dashboard extends StatelessWidget {
       ('گزارش‌ها', 'مشاهده گزارش‌ها', Icons.bar_chart, 5),
       ('عملیات‌های دیگر', '۶ عملیات مالی', Icons.account_balance_wallet, 7),
     ];
-    stats.add(('گزارش‌ها', 'گزارش‌گیری', Icons.bar_chart, 5));
-    stats.add(('عملیات‌های دیگر', 'عملیات مالی', Icons.account_balance_wallet, 7));
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -497,7 +552,644 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   item[widget.fields[i]] = controllers[i].text.trim();
                 }
                 if (widget.title == 'مشتری' &&
-                    !RegExp(r'^\d{11}$').hasMatch(item['شماره تماس'] ?? '')) {
+                    (item['شماره تماس'] ?? '').isNotEmpty &&
+                    !RegExp(r'^\d{11}
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.')),
+                  );
+                  return;
+                }
+                if ((item[widget.primary] ?? '').trim().isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('فیلد اصلی را وارد کنید.')));
+                  return;
+                }
+                if (item.values.any((value) => value.isNotEmpty)) {
+                  final category = widget.title == 'مشتری'
+                      ? 'customers'
+                      : widget.title == 'پذیرش تعمیر'
+                          ? 'repairs'
+                          : 'sales';
+                  final operation = existing == null ? DemoStore.add(category, item) : DemoStore.update(category, existing, item);
+                  operation.then((_) {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  }).catchError((error) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
+                    }
+                  });
+                } else {
+                  Navigator.pop(dialogContext, false);
+                }
+              },
+              child: const Text('ذخیره'),
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final controller in controllers) {
+      controller.dispose();
+    }
+    for (final node in focusNodes) {
+      node.dispose();
+    }
+    if (saved == true && mounted) {
+      setState(() {});
+      widget.onChanged();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.transparent,
+        floatingActionButton: FloatingActionButton(
+          heroTag: 'add-${widget.title}',
+          backgroundColor: yellow,
+          foregroundColor: black,
+          onPressed: addItem,
+          child: const Icon(Icons.add),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            if (widget.data.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(28),
+                child: Center(child: Text('هنوز اطلاعاتی ثبت نشده است')),
+              ),
+            for (final item in widget.data.reversed)
+              Card(
+                child: ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.description)),
+                  title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
+                  subtitle: Text(
+                    item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
+                  ),
+                  trailing: const Icon(Icons.edit_outlined),
+                  onTap: () => addItem(existing: item),
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+class ProductPage extends StatefulWidget {
+  final VoidCallback onChanged;
+  const ProductPage({super.key, required this.onChanged});
+
+  @override
+  State<ProductPage> createState() => _ProductPageState();
+}
+
+class _ProductPageState extends State<ProductPage> {
+  Future<void> addProduct() async {
+    final names = ['نام کالا', 'گروه اصلی', 'زیرگروه', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
+    final c = List.generate(names.length, (_) => TextEditingController());
+    final shipping = TextEditingController(text: '0');
+    final freight = TextEditingController(text: '0');
+    final other = TextEditingController(text: '0');
+    final vatRate = TextEditingController(text: '0');
+    bool vatIncluded = false;
+    String unit = 'عدد';
+    bool isUsed = false;
+    String? productImageBase64;
+    final imagePicker = ImagePicker();
+
+    Future<void> pickProductImage(StateSetter refresh, ImageSource source) async {
+      try {
+        final picked = await imagePicker.pickImage(
+          source: source,
+          imageQuality: 70,
+          maxWidth: 1600,
+          maxHeight: 1600,
+        );
+        if (picked == null) return;
+        final compressed = await FlutterImageCompress.compressWithFile(
+          picked.path,
+          minWidth: 900,
+          minHeight: 900,
+          quality: 55,
+          format: CompressFormat.jpeg,
+        );
+        if (compressed == null || compressed.isEmpty) {
+          throw Exception('فشرده‌سازی تصویر انجام نشد');
+        }
+        productImageBase64 = base64Encode(compressed);
+        refresh(() {});
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('انتخاب یا فشرده‌سازی عکس ناموفق بود: $e')),
+          );
+        }
+      }
+    }
+
+    double number(TextEditingController x) => double.tryParse(x.text.replaceAll(',', '').trim()) ?? 0;
+    double totalCost() {
+      final qty = number(c[4]);
+      final purchase = number(c[5]) * qty;
+      final extra = number(shipping) + number(freight) + number(other);
+      final vat = vatIncluded ? purchase * number(vatRate) / 100 : 0;
+      return purchase + extra + vat;
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (context, refresh) => AlertDialog(
+            title: const Text('ثبت کالا'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: unit,
+                      decoration: const InputDecoration(labelText: 'واحد شمارش کالا'),
+                      items: const ['عدد', 'گرم', 'کیلوگرم', 'میلی‌متر', 'سانتی‌متر', 'متر', 'میلی‌لیتر', 'لیتر']
+                          .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                          .toList(),
+                      onChanged: (value) => refresh(() => unit = value ?? 'عدد'),
+                    ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: isUsed,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('این کالا دست دوم است'),
+                      onChanged: (value) => refresh(() => isUsed = value ?? false),
+                    ),
+                    const SizedBox(height: 8),
+                    for (int i = 0; i < names.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextField(
+                          controller: c[i],
+                          keyboardType: i >= 3
+                              ? TextInputType.numberWithOptions(decimal: i == 4 && unit != 'عدد')
+                              : TextInputType.text,
+                          inputFormatters: i == 3 || i >= 5 || (i == 4 && unit == 'عدد')
+                              ? [FilteringTextInputFormatter.digitsOnly]
+                              : i == 4
+                                  ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))]
+                                  : const [],
+                          textInputAction: TextInputAction.next,
+                          onChanged: (_) => refresh(() {}),
+                          decoration: InputDecoration(labelText: names[i]),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text('تصویر کالا', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        children: [
+                          if (productImageBase64 != null)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(base64Decode(productImageBase64!), height: 150, fit: BoxFit.contain),
+                            )
+                          else
+                            const Padding(
+                              padding: EdgeInsets.all(18),
+                              child: Column(children: [Icon(Icons.image_outlined, size: 42, color: Colors.black45), SizedBox(height: 6), Text('هنوز عکسی انتخاب نشده است')]),
+                            ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => pickProductImage(refresh, ImageSource.gallery),
+                                icon: const Icon(Icons.photo_library_outlined),
+                                label: Text(productImageBase64 == null ? 'انتخاب از گالری' : 'تعویض عکس'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => pickProductImage(refresh, ImageSource.camera),
+                                icon: const Icon(Icons.camera_alt_outlined),
+                                label: const Text('گرفتن عکس'),
+                              ),
+                              if (productImageBase64 != null)
+                                TextButton.icon(
+                                  onPressed: () => refresh(() => productImageBase64 = null),
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('حذف عکس'),
+                                ),
+                            ],
+                          ),
+                          const Text('عکس به‌صورت خودکار با کیفیت مناسب و حجم کمتر ذخیره می‌شود.', style: TextStyle(fontSize: 11, color: Colors.black54), textAlign: TextAlign.center),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    const Align(alignment: Alignment.centerRight, child: Text('هزینه‌های رساندن کالا به مغازه', style: TextStyle(fontWeight: FontWeight.bold))),
+                    const SizedBox(height: 10),
+                    TextField(controller: shipping, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه پست')),
+                    const SizedBox(height: 10),
+                    TextField(controller: freight, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
+                    const SizedBox(height: 10),
+                    TextField(controller: other, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
+                    const Divider(height: 24),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: vatIncluded,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('این کالا مشمول ارزش افزوده است'),
+                      onChanged: (v) => refresh(() => vatIncluded = v ?? false),
+                    ),
+                    if (vatIncluded)
+                      TextField(
+                        controller: vatRate,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
+                        onChanged: (_) => refresh(() {}),
+                        decoration: const InputDecoration(labelText: 'درصد ارزش افزوده', suffixText: '٪'),
+                      ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF4CC), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('محاسبه خودکار بهای تمام‌شده', style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 6),
+                          Text('مبلغ ارزش افزوده: ${(vatIncluded ? number(c[5]) * number(c[4]) * number(vatRate) / 100 : 0).toStringAsFixed(0)} تومان'),
+                          Text('جمع کل خرید و هزینه‌ها: ${totalCost().toStringAsFixed(0)} تومان'),
+                          Text('بهای تمام‌شده هر واحد: ${((number(c[4]) > 0) ? totalCost() / number(c[4]) : 0).toStringAsFixed(0)} تومان'),
+                          const Text('هزینه‌ها به نسبت تعداد، بین کالاها سرشکن می‌شوند.', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+              FilledButton(
+                onPressed: () {
+                  if (c[0].text.trim().isEmpty) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام کالا را وارد کنید.')));
+                    return;
+                  }
+                  final qty = number(c[4]);
+                  final total = totalCost();
+                  final item = <String, String>{};
+                  for (int i = 0; i < names.length; i++) { item[names[i]] = c[i].text.trim(); }
+                  item['تصویر کالا'] = productImageBase64 ?? '';
+                  item['واحد شمارش'] = unit;
+                  item['وضعیت کالا'] = isUsed ? 'دست دوم' : 'نو';
+                  item['هزینه پست'] = shipping.text;
+                  item['هزینه باربری / حمل'] = freight.text;
+                  item['سایر هزینه‌ها'] = other.text;
+                  item['مشمول ارزش افزوده'] = vatIncluded ? 'بله' : 'خیر';
+                  item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
+                  item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
+                  item['بهای تمام‌شده هر واحد'] = (qty > 0 ? total / qty : 0).toStringAsFixed(0);
+                  DemoStore.add('products', item).then((_) {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  }).catchError((error) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
+                    }
+                  });
+                },
+                child: const Text('ذخیره کالا'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    for (final x in [...c, shipping, freight, other, vatRate]) { x.dispose(); }
+    if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
+  }
+
+  Future<void> editProduct(Map<String, String> item) async {
+    final editable = item.keys.where((k) => k != 'تصویر کالا').toList();
+    final controllers = {for (final key in editable) key: TextEditingController(text: item[key] ?? '')};
+    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('ویرایش کالا'),
+        content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [for (final key in editable)
+            Padding(padding: const EdgeInsets.only(bottom: 9), child: TextField(
+              controller: controllers[key],
+              keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','قیمت خرید هر واحد'].contains(key) ? TextInputType.number : TextInputType.text,
+              decoration: InputDecoration(labelText: key),
+            )),
+          ],
+        ))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+          FilledButton(onPressed: () async {
+            final changed = Map<String,String>.from(item);
+            for (final key in editable) { changed[key] = controllers[key]!.text.trim(); }
+            await DemoStore.update('products', item, changed);
+            if (d.mounted) Navigator.pop(d, true);
+          }, child: const Text('ذخیره تغییرات')),
+        ],
+      ),
+    ));
+    for (final c in controllers.values) { c.dispose(); }
+    if (result == true && mounted) { setState(() {}); widget.onChanged(); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.transparent,
+        floatingActionButton: FloatingActionButton(
+          heroTag: 'add-product', backgroundColor: yellow, foregroundColor: black,
+          onPressed: addProduct, child: const Icon(Icons.add),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+
+            if (DemoStore.products.isEmpty)
+              const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
+            for (final item in DemoStore.products.reversed)
+              Card(child: ListTile(
+                leading: (item['تصویر کالا'] ?? '').isNotEmpty
+                    ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
+                    : const CircleAvatar(child: Icon(Icons.inventory_2)),
+                title: Text(item['نام کالا'] ?? 'بدون نام'),
+                onTap: () => editProduct(item),
+                trailing: const Icon(Icons.edit_outlined),
+                subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
+              )),
+          ],
+        ),
+      );
+}
+
+class CustomerPage extends StatelessWidget {
+  final VoidCallback onChanged;
+  const CustomerPage({super.key, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SimpleListPage(
+        title: 'مشتری',
+        data: DemoStore.customers,
+        fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات'],
+        primary: 'نام مشتری',
+        onChanged: onChanged,
+      );
+}
+
+class RepairPage extends StatelessWidget {
+  final VoidCallback onChanged;
+  const RepairPage({super.key, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SimpleListPage(
+        title: 'پذیرش تعمیر',
+        data: DemoStore.repairs,
+        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
+        primary: 'نوع دستگاه',
+        onChanged: onChanged,
+      );
+}
+
+class SalesPage extends StatelessWidget {
+  final VoidCallback onChanged;
+  const SalesPage({super.key, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SimpleListPage(
+        title: 'فاکتور فروش',
+        data: DemoStore.sales,
+        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
+        primary: 'نام مشتری',
+        onChanged: onChanged,
+      );
+}
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late final TextEditingController storeName;
+  late final TextEditingController managerName;
+  late final TextEditingController phone;
+  late final TextEditingController address;
+  late final TextEditingController postalCode;
+  late bool darkMode;
+  late String themeMode;
+  late String drawerImage;
+  late double fontScale;
+
+  @override
+  void initState() {
+    super.initState();
+    storeName = TextEditingController(text: AppSettings.storeName);
+    managerName = TextEditingController(text: AppSettings.managerName);
+    phone = TextEditingController(text: AppSettings.phone);
+    address = TextEditingController(text: AppSettings.address);
+    postalCode = TextEditingController(text: AppSettings.postalCode);
+    darkMode = AppSettings.darkMode;
+    themeMode = AppSettings.themeMode;
+    drawerImage = AppSettings.drawerImage;
+    fontScale = AppSettings.fontScale;
+  }
+
+  @override
+  void dispose() {
+    storeName.dispose();
+    managerName.dispose();
+    phone.dispose();
+    address.dispose();
+    postalCode.dispose();
+    super.dispose();
+  }
+
+  Future<void> saveSettings() async {
+    if (phone.text.length > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('شماره تماس حداکثر ۱۱ رقم باشد.')));
+      return;
+    }
+    if (postalCode.text.isNotEmpty && postalCode.text.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کد پستی باید دقیقاً ۱۰ رقم باشد.')));
+      return;
+    }
+    await AppSettings.save(
+      newStoreName: storeName.text,
+      newManagerName: managerName.text,
+      newPhone: phone.text,
+      newAddress: address.text,
+      newPostalCode: postalCode.text,
+      newDarkMode: darkMode,
+      newThemeMode: themeMode,
+      newDrawerImage: drawerImage,
+      newFontScale: fontScale,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تنظیمات با موفقیت ذخیره شد')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('مشخصات فروشگاه', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          TextField(controller: storeName, decoration: const InputDecoration(labelText: 'نام فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: managerName, decoration: const InputDecoration(labelText: 'نام مدیر / صاحب فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)], decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه (حداکثر ۱۱ رقم)')),
+          const SizedBox(height: 10),
+          TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: postalCode, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], decoration: const InputDecoration(labelText: 'کد پستی (دقیقاً ۱۰ رقم)')),
+          const Divider(height: 32),
+          const Text('تنظیمات ظاهری', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          DropdownButtonFormField<String>(
+            value: themeMode,
+            decoration: const InputDecoration(labelText: 'قالب رنگی برنامه'),
+            items: const ['روشن', 'تیره', 'فیروزه‌ای و سرمه‌ای'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => setState(() { themeMode = v ?? 'روشن'; darkMode = themeMode == 'تیره'; }),
+          ),
+          const SizedBox(height: 14),
+          const Text('اندازه نوشته‌ها'),
+          SegmentedButton<double>(
+            segments: const [
+              ButtonSegment(value: 0.82, label: Text('ریز')),
+              ButtonSegment(value: 0.92, label: Text('کوچک')),
+              ButtonSegment(value: 1.0, label: Text('استاندارد')),
+              ButtonSegment(value: 1.12, label: Text('بزرگ')),
+              ButtonSegment(value: 1.25, label: Text('خیلی بزرگ')),
+            ],
+            selected: {fontScale},
+            onSelectionChanged: (v) => setState(() => fontScale = v.first),
+          ),
+          const Divider(height: 28),
+          const Text('عکس بالای منوی کناری', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (drawerImage.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.memory(base64Decode(drawerImage), height: 110, fit: BoxFit.contain)),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(onPressed: () async {
+              final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70, maxWidth: 900, maxHeight: 900);
+              if (x != null) { final bytes = await x.readAsBytes(); setState(() => drawerImage = base64Encode(bytes)); }
+            }, icon: const Icon(Icons.photo_library), label: const Text('انتخاب عکس')),
+            if (drawerImage.isNotEmpty) TextButton.icon(onPressed: () => setState(() => drawerImage = ''), icon: const Icon(Icons.delete), label: const Text('حذف عکس')),
+          ]),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: saveSettings,
+            icon: const Icon(Icons.save),
+            label: const Text('ذخیره تنظیمات'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'مشخصات و تنظیمات این بخش روی همین گوشی ذخیره می‌شوند. در مرحله بعد می‌توان آن‌ها را به سربرگ فاکتور و نسخه پشتیبان متصل کرد.',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
+      );
+}
+
+
+class OperationsPage extends StatelessWidget {
+  final VoidCallback onChanged;
+  OperationsPage({super.key, required this.onChanged});
+  static const options = ['تخفیف دادن', 'تخفیف گرفتن', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    body: ListView(padding: const EdgeInsets.all(12), children: [
+      for (final op in options)
+        Card(child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
+          title: Text(op),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: () => _openOperation(context, op),
+        )),
+      const Divider(),
+      for (final item in DemoStore.operations.reversed)
+        Card(child: ListTile(
+          title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
+          subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
+          onTap: () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item),
+        )),
+    ]),
+  );
+  Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
+    final name = TextEditingController(text: existing?['نام شخص'] ?? '');
+    final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+    final note = TextEditingController(text: existing?['توضیحات'] ?? '');
+    String method = existing?['روش'] ?? 'نقدی';
+    final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
+    final result = await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, set) => AlertDialog(
+      title: Text(op),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
+        TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+        if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
+        TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () async {
+          if (name.text.trim().isEmpty || amount.text.trim().isEmpty) return;
+          final data = {'نوع عملیات': op, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': DateTime.now().toIso8601String(), 'توضیحات': note.text.trim()};
+          if (existing == null) {
+            await DemoStore.add('operations', data);
+          } else {
+            await DemoStore.update('operations', existing, data);
+          }
+          if (d.mounted) Navigator.pop(d, true);
+        }, child: const Text('ثبت عملیات')),
+      ],
+    ))));
+    name.dispose(); amount.dispose(); note.dispose();
+    if (result == true) onChanged();
+  }
+}
+
+class ReportsPage extends StatelessWidget {
+  const ReportsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('گزارش‌های اولیه', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          for (final r in [
+            'تعداد کالاهای ثبت‌شده: ${DemoStore.products.length}',
+            'تعداد مشتریان: ${DemoStore.customers.length}',
+            'تعداد پذیرش‌های تعمیر: ${DemoStore.repairs.length}',
+            'تعداد فاکتورهای فروش: ${DemoStore.sales.length}',
+          ])
+            Card(child: ListTile(leading: const Icon(Icons.analytics_outlined), title: Text(r))),
+          const Text(
+            'اطلاعات این نسخه به‌صورت دائمی در SQLite همین گوشی ذخیره می‌شوند. همگام‌سازی چند گوشی و پشتیبان‌گیری ابری در مرحله بعد اضافه می‌شود.',
+            style: TextStyle(color: Colors.black54),
+          ),
+        ],
+      );
+}
+).hasMatch(item['شماره تماس'] ?? '')) {
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     const SnackBar(content: Text('شماره موبایل باید دقیقاً ۱۱ رقم باشد.')),
                   );
