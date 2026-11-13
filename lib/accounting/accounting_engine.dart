@@ -136,7 +136,7 @@ class AccountingEngine {
   /// Posts a permanent double-entry document. Source identity prevents the
   /// same invoice/payment from being posted twice.
   static Future<int> postJournal(
-    DatabaseExecutor db, {
+    Database db, {
     required String entryNumber,
     required DateTime occurredAt,
     required String description,
@@ -239,7 +239,7 @@ class AccountingEngine {
   /// Adds an inventory movement and updates the normalized product quantity
   /// in the same transaction. Negative stock is rejected unless explicitly allowed.
   static Future<int> recordStockMovement(
-    DatabaseExecutor db, {
+    Database db, {
     required int productId,
     required String movementType,
     required double quantityDelta,
