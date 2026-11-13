@@ -1577,7 +1577,7 @@ class _SettingsPageState extends State<SettingsPage> {
           OutlinedButton.icon(onPressed: _manageProductGroups, icon: const Icon(Icons.category_outlined), label: const Text('مدیریت گروه‌ها و زیرگروه‌های کالا')),
           OutlinedButton.icon(onPressed: _resetAppearance, icon: const Icon(Icons.restart_alt), label: const Text('بازگردانی تنظیمات ظاهری به پیش‌فرض')),
           const Divider(height: 28),
-          const Text('عکس بالای منوی کناری', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('عکس پروفایل فروشگاه', style: TextStyle(fontWeight: FontWeight.bold)),
           if (drawerImage.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.memory(base64Decode(drawerImage), height: 110, fit: BoxFit.contain)),
           Wrap(spacing: 8, children: [
             OutlinedButton.icon(onPressed: () async {
