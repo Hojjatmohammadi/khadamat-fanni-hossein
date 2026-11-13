@@ -598,60 +598,184 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> addItem({Map<String, String>? existing}) async {
     final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => Directionality(
+
+    Future<void> saveForm(BuildContext dialogContext) async {
+      final item = <String, String>{};
+      for (int i = 0; i < widget.fields.length; i++) {
+        item[widget.fields[i]] = controllers[i].text.trim();
+      }
+      if (item.values.every((value) => value.isEmpty)) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+        return;
+      }
+      if ((item[widget.primary] ?? '').trim().isEmpty) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('فیلد «${widget.primary}» اجباری است.')));
+        return;
+      }
+      if (widget.title == 'مشتری' && (item['شماره تماس'] ?? '').isNotEmpty &&
+          !RegExp(r'^\d{11}$').hasMatch(item['شماره تماس'] ?? '')) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.')));
+        return;
+      }
+      final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+      try {
+        if (existing == null) {
+          await DemoStore.add(category, item);
+        } else {
+          await DemoStore.update(category, existing, item);
+        }
+        if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+      } catch (error) {
+        if (dialogContext.mounted) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
+        }
+      }
+    }
+
+    Future<void> requestClose(BuildContext dialogContext) async {
+      final dirty = existing == null
+          ? controllers.any((c) => c.text.trim().isNotEmpty)
+          : widget.fields.asMap().entries.any((e) => controllers[e.key].text.trim() != (existing[e.value] ?? ''));
+      if (!dirty) {
+        Navigator.pop(dialogContext, false);
+        return;
+      }
+      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: Text(existing == null ? 'ثبت ${widget.title} جدید' : 'ویرایش ${widget.title}'),
-          content: SizedBox(
-            width: 360,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (widget.title == 'مشتری' &&
-                    (item['شماره تماس'] ?? '').isNotEmpty &&
-                    !RegExp(r'^\d{11}$').hasMatch(item['شماره تماس'] ?? '')) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.')),
-                  );
-                  return;
-                }
-                if ((item[widget.primary] ?? '').trim().isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('فیلد اصلی را وارد کنید.')));
-                  return;
-                }
-                if (item.values.any((value) => value.isNotEmpty)) {
-                  final category = widget.title == 'مشتری'
-                      ? 'customers'
-                      : widget.title == 'پذیرش تعمیر'
-                          ? 'repairs'
-                          : 'sales';
-                  final operation = existing == null ? DemoStore.add(category, item) : DemoStore.update(category, existing, item);
-                  operation.then((_) {
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  }).catchError((error) {
-                    if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
-                    }
-                  });
-                } else {
-                  Navigator.pop(dialogContext, false);
-                }
-              },
-              child: const Text('ذخیره'),
-            ),
+          title: const Text('تغییرات ذخیره نشده‌اند'),
+          content: const Text('برای ذخیره، دکمه «ذخیره» را بزنید. آیا می‌خواهید بدون ذخیره خارج شوید؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
           ],
+        ),
+      ));
+      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) requestClose(dialogContext);
+        },
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text(existing == null ? 'ثبت ${widget.title} جدید' : 'ویرایش ${widget.title}'),
+            content: SizedBox(
+              width: 360,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.title == 'مشتری' && existing == null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              final allowed = await FlutterContacts.requestPermission(readonly: true);
+                              if (!allowed) {
+                                if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('اجازه دسترسی به مخاطبین داده نشد.')));
+                                return;
+                              }
+                              final contacts = await FlutterContacts.getContacts(withProperties: true);
+                              if (!dialogContext.mounted) return;
+                              if (contacts.isEmpty) {
+                                await showDialog<void>(context: dialogContext, builder: (d) => Directionality(
+                                  textDirection: TextDirection.rtl,
+                                  child: AlertDialog(
+                                    title: const Text('مخاطبی پیدا نشد'),
+                                    content: const Text('در فهرست مخاطبین گوشی، مخاطبی برای نمایش وجود ندارد.'),
+                                    actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('باشه'))],
+                                  ),
+                                ));
+                                return;
+                              }
+                              final selected = await showDialog<Contact>(
+                                context: dialogContext,
+                                builder: (pickContext) => Directionality(
+                                  textDirection: TextDirection.rtl,
+                                  child: AlertDialog(
+                                    title: const Text('انتخاب از مخاطبین'),
+                                    content: SizedBox(
+                                      width: 360,
+                                      height: 420,
+                                      child: ListView.builder(
+                                        itemCount: contacts.length,
+                                        itemBuilder: (context, index) {
+                                          final contact = contacts[index];
+                                          return ListTile(
+                                            title: Text(contact.displayName),
+                                            subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : 'بدون شماره'),
+                                            onTap: () => Navigator.pop(pickContext, contact),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                              if (selected != null) {
+                                controllers[0].text = selected.displayName;
+                                if (controllers.length > 1 && selected.phones.isNotEmpty) {
+                                  controllers[1].text = selected.phones.first.number.replaceAll(RegExp(r'[^0-9]'), '');
+                                }
+                              }
+                            } catch (error) {
+                              if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('باز کردن مخاطبین ناموفق بود: $error')));
+                            }
+                          },
+                          icon: const Icon(Icons.contacts_outlined),
+                          label: const Text('انتخاب از مخاطبین گوشی'),
+                        ),
+                      ),
+                    for (int i = 0; i < widget.fields.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextField(
+                          controller: controllers[i],
+                          focusNode: focusNodes[i],
+                          keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                              ? TextInputType.number : TextInputType.text,
+                          inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                              ? [FilteringTextInputFormatter.digitsOnly] : const [],
+                          textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
+                          onSubmitted: (_) {
+                            if (i < focusNodes.length - 1) FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
+                            else FocusScope.of(dialogContext).unfocus();
+                          },
+                          decoration: InputDecoration(labelText: widget.fields[i]),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              if (existing != null) TextButton.icon(
+                onPressed: () async {
+                  if (!await _confirmDelete(dialogContext, 1)) return;
+                  final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+                  await DemoStore.delete(category, [existing]);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                },
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('حذف'),
+              ),
+              TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
+              FilledButton(onPressed: () => saveForm(dialogContext), child: const Text('ذخیره')),
+            ],
+          ),
         ),
       ),
     );
-    for (final controller in controllers) {
-      controller.dispose();
-    }
-    for (final node in focusNodes) {
-      node.dispose();
-    }
+    for (final controller in controllers) { controller.dispose(); }
+    for (final node in focusNodes) { node.dispose(); }
     if (saved == true && mounted) {
       setState(() {});
       widget.onChanged();
