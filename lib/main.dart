@@ -1083,7 +1083,10 @@ class _ProductPageState extends State<ProductPage> {
     final shipping = TextEditingController(text: '0');
     final freight = TextEditingController(text: '0');
     final other = TextEditingController(text: '0');
+    final supplier = TextEditingController();
+    final purchasePaid = TextEditingController(text: '0');
     final vatRate = TextEditingController(text: '0');
+    String purchaseMethod = 'نقدی';
     bool vatIncluded = false;
     String? productGroup;
     String? productSubgroup;
@@ -1134,6 +1137,7 @@ class _ProductPageState extends State<ProductPage> {
     Future<void> requestProductClose(BuildContext dialogContext) async {
       final dirty = c.any((x) => x.text.trim().isNotEmpty) ||
           shipping.text.trim() != '0' || freight.text.trim() != '0' || other.text.trim() != '0' ||
+          supplier.text.trim().isNotEmpty || purchasePaid.text.trim() != '0' || purchaseMethod != 'نقدی' ||
           vatRate.text.trim() != '0' || vatIncluded || unit != 'عدد' || isUsed ||
           productGroup != null || productSubgroup != null || productImageBase64 != null;
       if (!dirty) { Navigator.pop(dialogContext, false); return; }
@@ -1300,6 +1304,13 @@ class _ProductPageState extends State<ProductPage> {
                     TextField(controller: freight, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
                     const SizedBox(height: 10),
                     TextField(controller: other, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
+                    const SizedBox(height: 10),
+                    const Align(alignment: Alignment.centerRight, child: Text('اطلاعات طرف حساب خرید', style: TextStyle(fontWeight: FontWeight.bold))),
+                    const SizedBox(height: 8),
+                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اختیاری)')),
+                    const SizedBox(height: 8),
+                    TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (تومان)')),
+                    DropdownButtonFormField<String>(value: purchaseMethod, decoration: const InputDecoration(labelText: 'روش پرداخت خرید'), items: const ['نقدی','کارت به کارت','حواله بانکی','چک'].map((m) => DropdownMenuItem(value:m, child:Text(m))).toList(), onChanged: (v) => refresh(() => purchaseMethod = v ?? 'نقدی')),
                     const Divider(height: 24),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -1370,7 +1381,22 @@ class _ProductPageState extends State<ProductPage> {
                   item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
                   item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
                   item['بهای تمام‌شده هر واحد'] = (qty > 0 ? total / qty : 0).toStringAsFixed(0);
-                  DemoStore.add('products', item).then((_) {
+                  item['نام فروشنده'] = supplier.text.trim();
+                  item['مبلغ پرداخت‌شده خرید'] = purchasePaid.text.trim();
+                  item['روش پرداخت خرید'] = purchaseMethod;
+                  if (number(purchasePaid) > total) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('مبلغ پرداخت‌شده نمی‌تواند از جمع بهای تمام‌شده بیشتر باشد.')));
+                    return;
+                  }
+                  DemoStore.add('products', item).then((_) async {
+                    if (supplier.text.trim().isNotEmpty && total > 0) {
+                      await DemoStore.add('operations', {
+                        'نوع عملیات':'خرید کالا', 'نوع طرف حساب':'فروشنده', 'نام شخص':supplier.text.trim(),
+                        'مبلغ':total.toStringAsFixed(0), 'مبلغ پرداخت‌شده':number(purchasePaid).toStringAsFixed(0),
+                        'روش':purchaseMethod, 'تاریخ':DateTime.now().toIso8601String(),
+                        'توضیحات':'ثبت خرید موجودی: ${c[0].text.trim()} (${qty.toStringAsFixed(0)} عدد)',
+                      });
+                    }
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((error) {
                     if (dialogContext.mounted) {
@@ -1386,7 +1412,7 @@ class _ProductPageState extends State<ProductPage> {
         ),
       ),
     );
-    for (final x in [...c, shipping, freight, other, vatRate, saleDate]) { x.dispose(); }
+    for (final x in [...c, shipping, freight, other, supplier, purchasePaid, vatRate, saleDate]) { x.dispose(); }
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
