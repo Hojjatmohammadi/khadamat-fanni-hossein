@@ -365,7 +365,7 @@ class AppDatabaseSchema {
         'unit_price': (total + discount) / quantity,
         'line_total': total + discount,
       });
-    } else if (category == 'checks' || category == 'returns' ||
+    } else if (category == 'operations' || category == 'checks' || category == 'returns' ||
         category == 'stockMovements' || category == 'journalEntries') {
       // These ledgers remain in the canonical JSON records table until their
       // dedicated normalized schema is introduced. No legacy mirror is needed.
