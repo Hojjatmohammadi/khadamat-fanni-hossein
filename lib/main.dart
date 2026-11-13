@@ -2875,7 +2875,7 @@ class _OperationsPageState extends State<OperationsPage> {
           child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
             title: Text(op),
             content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص')),
+              TextField(controller: name, decoration: InputDecoration(labelText: op == 'ثبت هزینه' || op == 'ثبت درآمد' ? 'عنوان هزینه یا درآمد' : 'نام شخص')),
               TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [PersianDigitsOnlyFormatter()], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
               if (['پرداخت وجه','دریافت وجه','ثبت هزینه','ثبت درآمد'].contains(op))
                 DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
@@ -3153,8 +3153,8 @@ class _ReportsPageState extends State<ReportsPage> {
       (title: 'سود کالاها', icon: Icons.trending_up, count: DemoStore.sales.length, open: () => _showReport('ریز فروش و سود', Icons.trending_up, DemoStore.sales, 'سود', 'برای محاسبه سود، قیمت تمام‌شده و جزئیات فروش باید ثبت شده باشد.')),
       (title: 'چک‌ها', icon: Icons.receipt, count: DemoStore.checks.length, open: () => _showReport('چک‌ها', Icons.receipt, DemoStore.checks, 'مبلغ', 'چکی ثبت نشده است.')),
       (title: 'دفتر کل و تراز آزمایشی', icon: Icons.menu_book, count: DemoStore.journalEntries.length, open: () => _showReport('دفتر کل و تراز آزمایشی', Icons.menu_book, AccountingEngine.trialBalance().map((x) => {...x, 'مبلغ': x['مانده'] ?? '0'}), 'مبلغ', 'سندی برای دفتر کل ثبت نشده است.', dateFilter: false)),
-      (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
-      (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
+      (title: 'هزینه‌ها', icon: Icons.trending_down, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').length, open: () => _showReport('هزینه‌ها و پرداخت‌ها', Icons.trending_down, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت هزینه' || x['نوع عملیات'] == 'پرداخت وجه').toList(), 'مبلغ', 'هزینه یا پرداختی ثبت نشده است.')),
+      (title: 'درآمدها', icon: Icons.trending_up, count: DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').length, open: () => _showReport('درآمدها و دریافت‌ها', Icons.trending_up, DemoStore.operations.where((x) => x['نوع عملیات'] == 'ثبت درآمد' || x['نوع عملیات'] == 'دریافت وجه').toList(), 'مبلغ', 'درآمد یا دریافتی ثبت نشده است.')),
       (title: 'لیست قیمت انبار', icon: Icons.inventory_2_outlined, count: DemoStore.products.length, open: () => _showReport('لیست قیمت انبار', Icons.inventory_2_outlined, DemoStore.products, 'قیمت فروش', 'کالایی در انبار ثبت نشده است.')),
       (title: 'کاردکس کالا', icon: Icons.history, count: DemoStore.stockMovements.length, open: () => _showReport('کاردکس کالا', Icons.history, DemoStore.stockMovements, 'ارزش گردش', 'گردش انباری ثبت نشده است.')),
       (title: 'ریز خرید', icon: Icons.shopping_cart_outlined, count: AppSettings.purchaseRecords.length, open: () => _showReport('ریز خرید', Icons.shopping_cart_outlined, AppSettings.purchaseRecords, 'مبلغ خرید', 'سابقه خریدی ثبت نشده است.')),
@@ -3459,11 +3459,11 @@ class _ReportsPageState extends State<ReportsPage> {
         lines = [_line('حساب‌های اشخاص', amount, 0, code: '210', party: party),
           _line(method == 'کارتی / حواله' ? 'بانک' : method == 'چک' ? 'اسناد پرداختنی' : 'صندوق', 0, amount, code: method == 'چک' ? '212' : '101')];
       } else if (type == 'ثبت هزینه') {
-        lines = [_line(item['عنوان حساب هزینه'] ?? 'هزینه جاری', amount, 0, code: '520'),
+        lines = [_line('هزینه: ' + (item['نام شخص'] ?? 'عمومی'), amount, 0, code: '520'),
           _line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', 0, amount, code: method == 'کارتی / حواله' ? '102' : '101')];
       } else if (type == 'ثبت درآمد') {
         lines = [_line(method == 'کارتی / حواله' ? 'بانک' : 'صندوق', amount, 0, code: method == 'کارتی / حواله' ? '102' : '101'),
-          _line(item['عنوان حساب درآمد'] ?? 'درآمد متفرقه', 0, amount, code: '409')];
+          _line('درآمد: ' + (item['نام شخص'] ?? 'متفرقه'), 0, amount, code: '409')];
       } else if (type == 'متفرقه شخص بدهکار' || type == 'تخفیف گرفتن') {
         lines = [_line('حساب‌های دریافتنی - اشخاص', amount, 0, code: '110', party: party),
           _line('تعدیلات و مانده افتتاحیه', 0, amount, code: '300')];
