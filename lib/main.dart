@@ -446,6 +446,14 @@ class Dashboard extends StatelessWidget {
   }
 }
 
+Future<bool> _confirmDelete(BuildContext context, int count) async {
+  return await showDialog<bool>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+    title: const Text('تأیید حذف'),
+    content: Text('آیا از حذف $count مورد انتخاب‌شده مطمئن هستید؟ این عمل قابل بازگشت نیست.'),
+    actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('حذف'))],
+  ))) ?? false;
+}
+
 class SimpleListPage extends StatefulWidget {
   final String title;
   final List<Map<String, String>> data;
@@ -467,6 +475,21 @@ class SimpleListPage extends StatefulWidget {
 }
 
 class _SimpleListPageState extends State<SimpleListPage> {
+  final Set<String> _selectedKeys = {};
+
+  String _keyOf(Map<String, String> item) => jsonEncode(item);
+
+  Future<void> _deleteSelected() async {
+    final selected = widget.data.where((item) => _selectedKeys.contains(_keyOf(item))).toList();
+    if (selected.isEmpty) return;
+    if (!await _confirmDelete(context, selected.length)) return;
+    final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+    await DemoStore.delete(category, selected);
+    if (!mounted) return;
+    setState(() => _selectedKeys.clear());
+    widget.onChanged();
+  }
+
   Future<void> addItem({Map<String, String>? existing}) async {
     final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
@@ -544,6 +567,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
             ),
           ),
           actions: [
+            if (existing != null) TextButton.icon(onPressed: () async {
+              if (!await _confirmDelete(dialogContext, 1)) return;
+              final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+              await DemoStore.delete(category, [existing]);
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+            }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
             FilledButton(
               onPressed: () {
@@ -609,28 +638,38 @@ class _SimpleListPageState extends State<SimpleListPage> {
           onPressed: addItem,
           child: const Icon(Icons.add),
         ),
-        body: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            if (widget.data.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(28),
-                child: Center(child: Text('هنوز اطلاعاتی ثبت نشده است')),
-              ),
-            for (final item in widget.data.reversed)
-              Card(
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.description)),
+        body: Column(children: [
+          if (_selectedKeys.isNotEmpty)
+            Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(children: [
+                Text('${_selectedKeys.length} مورد انتخاب شده'),
+                const Spacer(),
+                TextButton(onPressed: () => setState(() => _selectedKeys.clear()), child: const Text('لغو انتخاب')),
+                TextButton.icon(onPressed: () => setState(() => _selectedKeys.addAll(widget.data.map(_keyOf))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
+                IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red), tooltip: 'حذف موارد انتخاب‌شده'),
+              ]),
+            )),
+          Expanded(child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (widget.data.isEmpty)
+                const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز اطلاعاتی ثبت نشده است'))),
+              for (final item in widget.data.reversed)
+                Card(child: ListTile(
+                  leading: CircleAvatar(child: Icon(_selectedKeys.contains(_keyOf(item)) ? Icons.check : Icons.description)),
                   title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
-                  subtitle: Text(
-                    item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
-                  ),
-                  trailing: const Icon(Icons.edit_outlined),
-                  onTap: () => addItem(existing: item),
-                ),
-              ),
-          ],
-        ),
+                  subtitle: Text(item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • ')),
+                  trailing: _selectedKeys.isNotEmpty ? Checkbox(value: _selectedKeys.contains(_keyOf(item)), onChanged: (_) => setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); })) : const Icon(Icons.edit_outlined),
+                  onLongPress: () => setState(() => _selectedKeys.add(_keyOf(item))),
+                  onTap: () {
+                    if (_selectedKeys.isNotEmpty) setState(() { final k=_keyOf(item); _selectedKeys.contains(k) ? _selectedKeys.remove(k) : _selectedKeys.add(k); });
+                    else addItem(existing: item);
+                  },
+                )),
+            ],
+          )),
+        ]),
       );
 }
 
