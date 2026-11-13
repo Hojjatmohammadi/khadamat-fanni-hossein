@@ -7,7 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' hide Border;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:persian_datetime_picker/persian_datetime_picker.dart';
@@ -2406,7 +2406,6 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
         first = false;
       }
       final sheet = excel[sheetName];
-      sheet.rtl = true;
       final keys = <String>{};
       for (final row in entry.value) { keys.addAll(row.keys); }
       final columns = keys.toList();
@@ -2580,8 +2579,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
             )),
       ]))),
       if (busy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
-      if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:
-$lastSaved', style: const TextStyle(fontSize: 11)),
+      if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:\n$lastSaved', style: const TextStyle(fontSize: 11)),
       const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Google Drive از مسیر انتخاب‌گر فایل اندروید برای بازیابی قابل استفاده است و هنگام تهیه خروجی نیز می‌توانی Drive را از پنجره اشتراک‌گذاری انتخاب کنی. همگام‌سازی خودکار و پس‌زمینه هنوز فعال نیست.'))),
     ],
   );
