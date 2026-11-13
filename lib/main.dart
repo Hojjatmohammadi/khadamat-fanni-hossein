@@ -1019,7 +1019,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
   }
 
   Future<void> addItem({Map<String, String>? existing}) async {
-    final controllers = widget.fields.map((field) => TextEditingController(text: existing != null ? (existing[field] ?? '') : (field.contains('تاریخ') ? Jalali.now().formatCompactDate() : ''))).toList();
+    final controllers = widget.fields.map((field) => TextEditingController(text: existing != null ? (existing[field] ?? '') : field == 'روش پرداخت' ? 'نقدی' : (field.contains('تاریخ') ? Jalali.now().formatCompactDate() : ''))).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> saveForm(BuildContext dialogContext) async {
@@ -1220,6 +1220,26 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   if (value != null) controllers[i].text = value;
                                 },
                               )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'نام کالا (از انبار)'
+                                ? DropdownButtonFormField<String>(
+                                    value: DemoStore.products.any((p) => (p['نام کالا'] ?? '') == controllers[i].text.trim()) ? controllers[i].text.trim() : null,
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(labelText: 'انتخاب کالا از انبار'),
+                                    hint: const Text('فروش خدمت یا کالای خارج از انبار را خالی بگذارید'),
+                                    items: DemoStore.products.map((p) {
+                                      final name = p['نام کالا'] ?? '';
+                                      final code = p['کد کالا'] ?? '';
+                                      return DropdownMenuItem<String>(value: name, child: Text(code.isEmpty ? name : name + ' • ' + code, overflow: TextOverflow.ellipsis));
+                                    }).toList(),
+                                    onChanged: (value) { if (value != null) controllers[i].text = value; },
+                                  )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'روش پرداخت'
+                                ? DropdownButtonFormField<String>(
+                                    value: ['نقدی','کارتی / حواله','چک'].contains(controllers[i].text) ? controllers[i].text : 'نقدی',
+                                    decoration: const InputDecoration(labelText: 'روش دریافت وجه'),
+                                    items: const ['نقدی','کارتی / حواله','چک'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                                    onChanged: (value) { if (value != null) controllers[i].text = value; },
+                                  )
                             : widget.title == 'مشتری' && widget.fields[i] == 'ماهیت مانده اولیه'
                                 ? DropdownButtonFormField<String>(
                                     value: controllers[i].text.trim().isEmpty ? 'بدهکار' : controllers[i].text.trim(),
@@ -2046,7 +2066,7 @@ class SalesPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ فاکتور'],
+        fields: const ['نام مشتری', 'نام کالا (از انبار)', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'روش پرداخت', 'تاریخ فاکتور'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -2992,8 +3012,8 @@ class _ReportsPageState extends State<ReportsPage> {
     }
 
     if (category == 'sales') {
-      final net = (PartyAccounting.amount(item, 'مبلغ کل') - PartyAccounting.amount(item, 'تخفیف')).clamp(0, 1 << 62);
-      final received = PartyAccounting.amount(item, 'مبلغ دریافتی').clamp(0, net);
+      final net = (PartyAccounting.amount(item, 'مبلغ کل') - PartyAccounting.amount(item, 'تخفیف')).clamp(0, 1 << 62).toInt();
+      final received = PartyAccounting.amount(item, 'مبلغ دریافتی').clamp(0, net).toInt();
       final receivable = net - received;
       final lines = <Map<String,String>>[];
       if (received > 0) lines.add(_line((item['روش پرداخت'] ?? 'نقدی') == 'کارتی / حواله' ? 'بانک' : 'صندوق', received, 0, code: '101'));
