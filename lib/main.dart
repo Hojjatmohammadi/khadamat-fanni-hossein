@@ -302,6 +302,21 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
+  final _productPageKey = GlobalKey<_ProductPageState>();
+  final _customerPageKey = GlobalKey<_SimpleListPageState>();
+  final _repairPageKey = GlobalKey<_SimpleListPageState>();
+  final _salesPageKey = GlobalKey<_SimpleListPageState>();
+  final _operationsPageKey = GlobalKey<_OperationsPageState>();
+
+  Future<void> _addForCurrentTab() async {
+    switch (tab) {
+      case 1: await _productPageKey.currentState?.addProduct(); break;
+      case 2: await _customerPageKey.currentState?.addItem(); break;
+      case 3: await _repairPageKey.currentState?.addItem(); break;
+      case 4: await _salesPageKey.currentState?.addItem(); break;
+      case 7: await _operationsPageKey.currentState?.addNewOperation(); break;
+    }
+  }
   int tab = 0;
   final List<int> _tabHistory = [];
   final TextEditingController drawerSearchController = TextEditingController();
@@ -392,13 +407,13 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final pages = [
       Dashboard(onSelect: _selectTab),
-      ProductPage(onChanged: () => setState(() {})),
-      CustomerPage(onChanged: () => setState(() {})),
-      RepairPage(onChanged: () => setState(() {})),
-      SalesPage(onChanged: () => setState(() {})),
+      ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
+      CustomerPage(pageKey: _customerPageKey, onChanged: () => setState(() {})),
+      RepairPage(pageKey: _repairPageKey, onChanged: () => setState(() {})),
+      SalesPage(pageKey: _salesPageKey, onChanged: () => setState(() {})),
       const ReportsPage(),
       const SettingsPage(),
-      OperationsPage(onChanged: () => setState(() {})),
+      OperationsPage(key: _operationsPageKey, onChanged: () => setState(() {})),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -413,7 +428,11 @@ class _HomePageState extends State<HomePage> {
           key: scaffoldKey,
           appBar: AppBar(
             title: Text(titles[tab]),
-            actions: [IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search))],
+            actions: [
+              if (tab == 1 || tab == 2 || tab == 3 || tab == 4 || tab == 7)
+                IconButton(tooltip: 'افزودن مورد جدید', onPressed: _addForCurrentTab, icon: const Icon(Icons.add)),
+              IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search)),
+            ],
           ),
           body: pages[tab],
           drawer: Drawer(
@@ -859,13 +878,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
-        floatingActionButton: FloatingActionButton(
-          heroTag: 'add-${widget.title}',
-          backgroundColor: yellow,
-          foregroundColor: black,
-          onPressed: addItem,
-          child: const Icon(Icons.add),
-        ),
         body: Column(children: [
           if (_selectedKeys.isNotEmpty)
             Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
@@ -1335,10 +1347,6 @@ class _ProductPageState extends State<ProductPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
-        floatingActionButton: FloatingActionButton(
-          heroTag: 'add-product', backgroundColor: yellow, foregroundColor: black,
-          onPressed: addProduct, child: const Icon(Icons.add),
-        ),
         body: Column(children: [
           if (_selectedProducts.isNotEmpty)
             Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
@@ -1378,10 +1386,12 @@ class _ProductPageState extends State<ProductPage> {
 
 class CustomerPage extends StatelessWidget {
   final VoidCallback onChanged;
-  const CustomerPage({super.key, required this.onChanged});
+  final GlobalKey<_SimpleListPageState> pageKey;
+  const CustomerPage({super.key, required this.pageKey, required this.onChanged});
 
   @override
   Widget build(BuildContext context) => SimpleListPage(
+        key: pageKey,
         title: 'مشتری',
         data: DemoStore.customers,
         fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات'],
@@ -1392,10 +1402,12 @@ class CustomerPage extends StatelessWidget {
 
 class RepairPage extends StatelessWidget {
   final VoidCallback onChanged;
-  const RepairPage({super.key, required this.onChanged});
+  final GlobalKey<_SimpleListPageState> pageKey;
+  const RepairPage({super.key, required this.pageKey, required this.onChanged});
 
   @override
   Widget build(BuildContext context) => SimpleListPage(
+        key: pageKey,
         title: 'پذیرش تعمیر',
         data: DemoStore.repairs,
         fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
@@ -1406,10 +1418,12 @@ class RepairPage extends StatelessWidget {
 
 class SalesPage extends StatelessWidget {
   final VoidCallback onChanged;
-  const SalesPage({super.key, required this.onChanged});
+  final GlobalKey<_SimpleListPageState> pageKey;
+  const SalesPage({super.key, required this.pageKey, required this.onChanged});
 
   @override
   Widget build(BuildContext context) => SimpleListPage(
+        key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
         fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
@@ -1723,6 +1737,8 @@ class _OperationsPageState extends State<OperationsPage> {
         )),
     ])),
   ]));
+  Future<void> addNewOperation() => _openOperation(context, options.first);
+
   Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
