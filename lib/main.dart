@@ -263,7 +263,15 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
+  final TextEditingController drawerSearchController = TextEditingController();
   final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه', 'عملیات‌های دیگر'];
+
+  @override
+  void dispose() { drawerSearchController.dispose(); super.dispose(); }
+
+  String _scopeForTab() => switch (tab) {
+    1 => 'products', 2 => 'customers', 3 => 'repairs', 4 => 'sales', 5 => 'reports', 7 => 'operations', _ => 'all',
+  };
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -343,6 +351,7 @@ class _HomePageState extends State<HomePage> {
           key: scaffoldKey,
           appBar: AppBar(
             title: Text(titles[tab]),
+            actions: [IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search))],
           ),
           body: pages[tab],
           drawer: Drawer(
@@ -366,6 +375,16 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
+                Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 12), child: TextField(
+                  controller: drawerSearchController,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    labelText: 'جست‌وجو در کل برنامه',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: () => _showScopedSearch(context, 'all', initialQuery: drawerSearchController.text)),
+                  ),
+                  onSubmitted: (value) => _showScopedSearch(context, 'all', initialQuery: value),
+                )),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
                     leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart, Icons.settings, Icons.account_balance_wallet][i]),
@@ -444,6 +463,92 @@ class Dashboard extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _showScopedSearch(BuildContext context, String scope, {String initialQuery = ''}) async {
+  final controller = TextEditingController(text: initialQuery);
+  final records = <({String section, Map<String, String> data})>[];
+  void add(String section, List<Map<String, String>> items) {
+    for (final item in items) records.add((section: section, data: item));
+  }
+  if (scope == 'all' || scope == 'products') add('کالاها و انبار', DemoStore.products);
+  if (scope == 'all' || scope == 'customers') add('مشتریان', DemoStore.customers);
+  if (scope == 'all' || scope == 'repairs') add('تعمیرات', DemoStore.repairs);
+  if (scope == 'all' || scope == 'sales') add('فروش و فاکتورها', DemoStore.sales);
+  if (scope == 'all' || scope == 'operations') add('عملیات مالی', DemoStore.operations);
+  if (scope == 'reports') {
+    add('گزارش‌ها', [
+      {'عنوان گزارش': 'تعداد کالاهای ثبت‌شده', 'مقدار': DemoStore.products.length.toString()},
+      {'عنوان گزارش': 'تعداد مشتریان', 'مقدار': DemoStore.customers.length.toString()},
+      {'عنوان گزارش': 'تعداد پذیرش‌های تعمیر', 'مقدار': DemoStore.repairs.length.toString()},
+      {'عنوان گزارش': 'تعداد فاکتورهای فروش', 'مقدار': DemoStore.sales.length.toString()},
+      {'عنوان گزارش': 'تعداد عملیات مالی', 'مقدار': DemoStore.operations.length.toString()},
+    ]);
+  }
+  String title = scope == 'all' ? 'جست‌وجو در کل برنامه' : 'جست‌وجو در این بخش';
+  await showDialog<void>(context: context, builder: (dialogContext) => Directionality(
+    textDirection: TextDirection.rtl,
+    child: StatefulBuilder(builder: (dialogContext, refresh) {
+      final query = controller.text.trim().toLowerCase();
+      final filtered = query.isEmpty ? <({String section, Map<String, String> data})>[] : records.where((r) {
+        final text = '${r.section} ${r.data.entries.map((e) => '${e.key} ${e.value}').join(' ')}'.toLowerCase();
+        return text.contains(query);
+      }).toList();
+      return AlertDialog(
+        title: Text(title),
+        content: SizedBox(width: 420, height: 480, child: Column(children: [
+          TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'عبارت مورد جست‌وجو',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: IconButton(icon: const Icon(Icons.clear), tooltip: 'حذف فیلتر', onPressed: () { controller.clear(); refresh(() {}); }),
+            ),
+            onChanged: (_) => refresh(() {}),
+            onSubmitted: (_) => refresh(() {}),
+          ),
+          const SizedBox(height: 8),
+          Expanded(child: query.isEmpty
+              ? const Center(child: Text('برای شروع، عبارت موردنظر را وارد کنید.'))
+              : filtered.isEmpty
+                  ? const Center(child: Text('موردی پیدا نشد.'))
+                  : ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final result = filtered[index];
+                        final entries = result.data.entries.where((e) => e.value.isNotEmpty).toList();
+                        final primary = entries.isEmpty ? 'بدون عنوان' : entries.first.value;
+                        final detail = entries.skip(1).take(2).map((e) => '${e.key}: ${e.value}').join(' • ');
+                        return Card(child: ListTile(
+                          leading: const Icon(Icons.search),
+                          title: Text(primary, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text('${result.section}${detail.isEmpty ? '' : ' • $detail'}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                          onTap: () {
+                            Navigator.pop(dialogContext);
+                            showDialog<void>(context: context, builder: (detailContext) => Directionality(
+                              textDirection: TextDirection.rtl,
+                              child: AlertDialog(
+                                title: Text(result.section),
+                                content: SizedBox(width: 420, child: SingleChildScrollView(child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [for (final entry in result.data.entries.where((e) => e.value.isNotEmpty))
+                                    Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Text('${entry.key}: ${entry.value}'))],
+                                ))),
+                                actions: [TextButton(onPressed: () => Navigator.pop(detailContext), child: const Text('بستن'))],
+                              ),
+                            ));
+                          },
+                        ));
+                      },
+                    )),
+        ])),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))],
+      );
+    }),
+  ));
+  controller.dispose();
 }
 
 Future<bool> _confirmDelete(BuildContext context, int count) async {
