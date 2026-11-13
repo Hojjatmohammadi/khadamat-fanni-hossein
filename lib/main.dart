@@ -283,7 +283,7 @@ class DemoStore {
         DateTime.now().microsecondsSinceEpoch.toString();
     if (category == 'sales') {
       AccountingEngine.validateSale(savedItem, oldItem: oldItem);
-      savedItem.addAll(AccountingEngine.prepareSale(savedItem));
+      savedItem.addAll(AccountingEngine.prepareSale(savedItem, oldItem: oldItem));
     } else if (category == 'repairs') {
       AccountingEngine.validateRepair(savedItem, oldItem: oldItem);
     } else if (category == 'returns') {
@@ -623,16 +623,21 @@ class AccountingEngine {
     return null;
   }
 
-  static Map<String,String> prepareSale(Map<String,String> item) {
+  static Map<String,String> prepareSale(Map<String,String> item, {Map<String,String>? oldItem}) {
     final result = Map<String,String>.from(item);
     final productName = (result['نام کالا (از انبار)'] ?? '').trim();
     final product = _product(productName);
     final quantity = _qty(result, 'تعداد');
-    var unitCost = _qty(result, 'بهای تمام‌شده هر واحد');
+    var unitCost = 0.0;
     if (product != null) {
-      unitCost = _qty(product, 'بهای تمام‌شده هر واحد') > 0
-          ? _qty(product, 'بهای تمام‌شده هر واحد')
-          : _qty(product, 'قیمت خرید هر واحد');
+      final sameOriginalProduct = oldItem != null &&
+          (oldItem['نام کالا (از انبار)'] ?? '').trim() == productName &&
+          _qty(oldItem, 'بهای تمام‌شده هر واحد') > 0;
+      unitCost = sameOriginalProduct
+          ? _qty(oldItem!, 'بهای تمام‌شده هر واحد')
+          : (_qty(product, 'بهای تمام‌شده هر واحد') > 0
+              ? _qty(product, 'بهای تمام‌شده هر واحد')
+              : _qty(product, 'قیمت خرید هر واحد'));
       result['شناسه کالا'] = product['کد کالا'] ?? '';
       result['واحد کالا'] = product['واحد شمارش'] ?? 'عدد';
     }
