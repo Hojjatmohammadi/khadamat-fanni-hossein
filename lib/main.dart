@@ -284,6 +284,8 @@ class DemoStore {
     if (category == 'sales') {
       AccountingEngine.validateSale(savedItem, oldItem: oldItem);
       savedItem.addAll(AccountingEngine.prepareSale(savedItem));
+    } else if (category == 'repairs') {
+      AccountingEngine.validateRepair(savedItem, oldItem: oldItem);
     }
     await _db!.update('records', {'data': jsonEncode(savedItem)}, where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)]);
     final target = switch (category) {
@@ -370,6 +372,8 @@ class DemoStore {
     if (category == 'sales') {
       AccountingEngine.validateSale(savedItem);
       savedItem.addAll(AccountingEngine.prepareSale(savedItem));
+    } else if (category == 'repairs') {
+      AccountingEngine.validateRepair(savedItem);
     }
     await _db!.transaction((txn) async {
       final recordId = await txn.insert('records', {
@@ -631,6 +635,19 @@ class AccountingEngine {
       result['واحد کالا'] = product['واحد شمارش'] ?? 'عدد';
     }
     return result;
+  }
+
+  static void validateRepair(Map<String,String> item, {Map<String,String>? oldItem}) {
+    final productName = (item['نام قطعه مصرفی از انبار'] ?? '').trim();
+    if (productName.isEmpty) return;
+    final product = _product(productName);
+    if (product == null) throw StateError('قطعه انتخاب‌شده در انبار پیدا نشد.');
+    final requested = _qty(item, 'تعداد قطعه مصرفی');
+    final oldQty = oldItem != null && (oldItem['نام قطعه مصرفی از انبار'] ?? '') == productName
+        ? _qty(oldItem, 'تعداد قطعه مصرفی') : 0;
+    final available = _qty(product, 'موجودی') + oldQty;
+    if (requested <= 0) throw StateError('تعداد قطعه مصرفی باید بیشتر از صفر باشد.');
+    if (requested > available) throw StateError('موجودی قطعه کافی نیست. موجودی قابل مصرف: ' + available.toString());
   }
 
   static void validateSale(Map<String,String> item, {Map<String,String>? oldItem}) {
@@ -1259,6 +1276,18 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                       final name = p['نام کالا'] ?? '';
                                       final code = p['کد کالا'] ?? '';
                                       return DropdownMenuItem<String>(value: name, child: Text(code.isEmpty ? name : name + ' • ' + code, overflow: TextOverflow.ellipsis));
+                                    }).toList(),
+                                    onChanged: (value) { if (value != null) controllers[i].text = value; },
+                                  )
+                            : widget.title == 'پذیرش تعمیر' && widget.fields[i] == 'نام قطعه مصرفی از انبار'
+                                ? DropdownButtonFormField<String>(
+                                    value: DemoStore.products.any((p) => (p['نام کالا'] ?? '') == controllers[i].text.trim()) ? controllers[i].text.trim() : null,
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(labelText: 'قطعه مصرفی (اختیاری)'),
+                                    hint: const Text('در صورت مصرف قطعه از انبار انتخاب کنید'),
+                                    items: DemoStore.products.map((p) {
+                                      final name = p['نام کالا'] ?? '';
+                                      return DropdownMenuItem<String>(value: name, child: Text('$name • موجودی: ${p['موجودی'] ?? '0'}'));
                                     }).toList(),
                                     onChanged: (value) { if (value != null) controllers[i].text = value; },
                                   )
@@ -2081,7 +2110,7 @@ class RepairPage extends StatelessWidget {
   Widget build(BuildContext context) => SimpleListPage(
         title: 'پذیرش تعمیر',
         data: DemoStore.repairs,
-        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'مبلغ دریافتی', 'تاریخ پذیرش', 'وضعیت تعمیر'],
+        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'نام قطعه مصرفی از انبار', 'تعداد قطعه مصرفی', 'اجرت', 'مبلغ دریافتی', 'تاریخ پذیرش', 'وضعیت تعمیر'],
         primary: 'نوع دستگاه',
         onChanged: onChanged,
       );
@@ -3289,6 +3318,13 @@ class _ReportsPageState extends State<ReportsPage> {
               delta: qty, before: 0, after: qty,
               date: item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
               note: 'موجودی اولیه هنگام ثبت کالا', unitCost: cost);
+          final openingValue = (qty * cost).round();
+          if (openingValue > 0) {
+            await _postJournal(id + ':opening', item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
+                'موجودی اولیه ' + (item['نام کالا'] ?? ''),
+                [_line('موجودی کالا', openingValue, 0, code: '120'),
+                 _line('سرمایه / مانده افتتاحیه', 0, openingValue, code: '300')]);
+          }
         }
       } else {
         final oldQty = _qty(previous, 'موجودی');
@@ -3296,12 +3332,24 @@ class _ReportsPageState extends State<ReportsPage> {
         final delta = newQty - oldQty;
         if (delta != 0) {
           final product = _product(item['نام کالا'] ?? '');
-          if (product != null) await _addMovement(
-            reference: id + ':adjust:' + DateTime.now().microsecondsSinceEpoch.toString(),
-            type: 'اصلاح موجودی',
-            product: product, delta: delta, before: oldQty, after: newQty,
-            date: item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
-            note: 'اصلاح دستی موجودی', unitCost: _qty(item, 'بهای تمام‌شده هر واحد'));
+          if (product != null) {
+            final adjustmentRef = id + ':adjust:' + DateTime.now().microsecondsSinceEpoch.toString();
+            final unitCost = _qty(item, 'بهای تمام‌شده هر واحد');
+            await _addMovement(
+              reference: adjustmentRef,
+              type: 'اصلاح موجودی',
+              product: product, delta: delta, before: oldQty, after: newQty,
+              date: item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
+              note: 'اصلاح دستی موجودی', unitCost: unitCost);
+            final value = (delta.abs() * unitCost).round();
+            if (value > 0) {
+              await _postJournal(adjustmentRef, item['تاریخ ثبت کالا'] ?? Jalali.now().formatCompactDate(),
+                'اصلاح موجودی ' + (item['نام کالا'] ?? ''),
+                delta > 0
+                  ? [_line('موجودی کالا', value, 0, code: '120'), _line('تعدیلات موجودی', 0, value, code: '300')]
+                  : [_line('کسری / ضایعات موجودی', value, 0, code: '520'), _line('موجودی کالا', 0, value, code: '120')]);
+            }
+          }
         }
       }
       return;
@@ -3351,7 +3399,26 @@ class _ReportsPageState extends State<ReportsPage> {
       if (received > 0) lines.add(_line('صندوق', received, 0, code: '101'));
       if (due > 0) lines.add(_line('حساب‌های دریافتنی - مشتریان', due, 0, code: '110', party: item['نام مشتری'] ?? ''));
       if (total > 0) lines.add(_line('درآمد خدمات تعمیر', 0, total, code: '402'));
-      await _postJournal(reference, item['تاریخ پذیرش'] ?? Jalali.now().formatCompactDate(), 'اجرت تعمیر ' + (item['نوع دستگاه'] ?? ''), lines);
+      final partName = (item['نام قطعه مصرفی از انبار'] ?? '').trim();
+      final part = _product(partName);
+      final partQty = _qty(item, 'تعداد قطعه مصرفی');
+      if (part != null && partQty > 0) {
+        final before = _qty(part, 'موجودی');
+        final after = before - partQty;
+        final unitCost = _qty(part, 'بهای تمام‌شده هر واحد') > 0 ? _qty(part, 'بهای تمام‌شده هر واحد') : _qty(part, 'قیمت خرید هر واحد');
+        if (after < -0.0001) throw StateError('موجودی قطعه برای تعمیر کافی نیست.');
+        await _setProductQuantity(part, after);
+        await _addMovement(reference: reference, type: 'مصرف قطعه در تعمیر', product: part,
+          delta: -partQty, before: before, after: after,
+          date: item['تاریخ پذیرش'] ?? Jalali.now().formatCompactDate(),
+          note: 'مصرف در تعمیر ' + (item['نوع دستگاه'] ?? ''), unitCost: unitCost);
+        final cost = (partQty * unitCost).round();
+        if (cost > 0) {
+          lines.add(_line('بهای قطعات مصرفی تعمیر', cost, 0, code: '502'));
+          lines.add(_line('موجودی کالا', 0, cost, code: '120'));
+        }
+      }
+      await _postJournal(reference, item['تاریخ پذیرش'] ?? Jalali.now().formatCompactDate(), 'اجرت و قطعات تعمیر ' + (item['نوع دستگاه'] ?? ''), lines);
       return;
     }
 
