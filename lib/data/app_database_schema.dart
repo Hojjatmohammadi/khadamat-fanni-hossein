@@ -235,9 +235,9 @@ class AppDatabaseSchema {
       final invoiceId = await db.insert('invoices', {
         'invoice_number': 'LEGACY-' + row['id'].toString(),
         'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total + discount,
+        'subtotal': total,
         'discount': discount,
-        'total': total,
+        'total': (total - discount).clamp(0, total),
         'received_amount': _number(data, 'مبلغ دریافتی'),
         'created_at': _text(row, 'created_at').isEmpty
             ? DateTime.now().toIso8601String()
@@ -251,8 +251,8 @@ class AppDatabaseSchema {
         'invoice_id': invoiceId,
         'product_name_snapshot': description,
         'quantity': quantity,
-        'unit_price': (total + discount) / quantity,
-        'line_total': total + discount,
+        'unit_price': total / quantity,
+        'line_total': total,
       });
     }
   }
@@ -350,9 +350,9 @@ class AppDatabaseSchema {
       final invoiceId = await db.insert('invoices', {
         'invoice_number': 'LEGACY-' + sourceId.toString(),
         'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total + discount,
+        'subtotal': total,
         'discount': discount,
-        'total': total,
+        'total': (total - discount).clamp(0, total),
         'received_amount': _number(data, 'مبلغ دریافتی'),
         'created_at': createdAt,
         'legacy_source_id': sourceId,
@@ -364,8 +364,8 @@ class AppDatabaseSchema {
         'invoice_id': invoiceId,
         'product_name_snapshot': description,
         'quantity': quantity,
-        'unit_price': (total + discount) / quantity,
-        'line_total': total + discount,
+        'unit_price': total / quantity,
+        'line_total': total,
       });
     } else if (category == 'operations' || category == 'checks' || category == 'returns' ||
         category == 'stockMovements' || category == 'journalEntries') {
