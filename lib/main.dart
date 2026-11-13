@@ -411,7 +411,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   item[widget.fields[i]] = controllers[i].text.trim();
                 }
                 if (widget.title == 'مشتری' &&
-                    !RegExp(r'^\\d{11}
+                    !RegExp(r'^\d{11}$').hasMatch(item['شماره تماس'] ?? '')) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('شماره موبایل باید دقیقاً ۱۱ رقم باشد.')),
+                  );
+                  return;
+                }
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((error) {
@@ -585,7 +590,7 @@ class _ProductPageState extends State<ProductPage> {
                           inputFormatters: i == 3 || i >= 5 || (i == 4 && unit == 'عدد')
                               ? [FilteringTextInputFormatter.digitsOnly]
                               : i == 4
-                                  ? [FilteringTextInputFormatter.allow(RegExp(r'^\\d*\\.?\\d{0,3}'))]
+                                  ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))]
                                   : const [],
                           textInputAction: TextInputAction.next,
                           onChanged: (_) => refresh(() {}),
@@ -660,7 +665,7 @@ class _ProductPageState extends State<ProductPage> {
                       TextField(
                         controller: vatRate,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\\d*\\.?\\d{0,3}'))],
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
                         onChanged: (_) => refresh(() {}),
                         decoration: const InputDecoration(labelText: 'درصد ارزش افزوده', suffixText: '٪'),
                       ),
