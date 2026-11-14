@@ -3877,30 +3877,50 @@ class _OperationsPageState extends State<OperationsPage> {
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
     final note = TextEditingController(text: existing?['توضیحات'] ?? '');
-    final initialName = name.text, initialAmount = amount.text, initialNote = note.text;
+    final checkNumber = TextEditingController(text: existing?['شماره چک'] ?? '');
+    final checkBank = TextEditingController(text: existing?['بانک چک'] ?? '');
+    final oldDue = DateTime.tryParse(existing?['تاریخ سررسید میلادی'] ?? '');
+    Jalali? checkDueDate = oldDue == null ? null : Jalali.fromDateTime(oldDue);
+    final initialName = name.text;
+    final initialAmount = amount.text;
+    final initialNote = note.text;
     String method = existing?['روش'] ?? 'نقدی';
-    String partyType = existing?['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
+    String partyType = existing?['نوع طرف حساب'] ??
+        (op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
     final initialMethod = method;
     final initialPartyType = partyType;
-    final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
+    final initialCheckNumber = checkNumber.text;
+    final initialCheckBank = checkBank.text;
+    final initialDue = checkDueDate?.formatCompactDate() ?? '';
+    const methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
 
     bool dirty() => existing == null
-        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی' || partyType != initialPartyType
-        : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod || partyType != initialPartyType;
+        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty ||
+          note.text.trim().isNotEmpty || method != 'نقدی' ||
+          partyType != initialPartyType || checkNumber.text.trim().isNotEmpty ||
+          checkBank.text.trim().isNotEmpty || checkDueDate != null
+        : name.text.trim() != initialName || amount.text.trim() != initialAmount ||
+          note.text.trim() != initialNote || method != initialMethod ||
+          partyType != initialPartyType || checkNumber.text.trim() != initialCheckNumber ||
+          checkBank.text.trim() != initialCheckBank ||
+          (checkDueDate?.formatCompactDate() ?? '') != initialDue;
 
     Future<void> requestClose(BuildContext dialogContext) async {
       if (!dirty()) { Navigator.pop(dialogContext, false); return; }
-      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('تغییرات ذخیره نشده‌اند'),
-          content: const Text('اطلاعات این عملیات ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
-          actions: [_horizontalDialogActions([
-            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
-            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
-          ])],
+      final discard = await showDialog<bool>(
+        context: dialogContext,
+        builder: (d) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تغییرات ذخیره نشده‌اند'),
+            content: const Text('اطلاعات این عملیات ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
+            actions: [_horizontalDialogActions([
+              TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
+              FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
+            ])],
+          ),
         ),
-      ));
+      );
       if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
     }
 
@@ -3909,64 +3929,179 @@ class _OperationsPageState extends State<OperationsPage> {
       barrierDismissible: false,
       builder: (dialogContext) => PopScope<Object?>(
         canPop: false,
-        onPopInvokedWithResult: (didPop, result) { if (!didPop) requestClose(dialogContext); },
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) requestClose(dialogContext);
+        },
         child: Directionality(
           textDirection: TextDirection.rtl,
-          child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
-            title: Text(op),
-            content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              DropdownButtonFormField<String>(
-                value: partyType,
-                decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
-                items: const [DropdownMenuItem(value: 'مشتری', child: Text('مشتری')), DropdownMenuItem(value: 'فروشنده', child: Text('فروشنده')), DropdownMenuItem(value: 'سایر اشخاص', child: Text('سایر اشخاص'))],
-                onChanged: (v) => set(() { partyType = v ?? 'مشتری'; }),
-              ),
-              if (partyType == 'مشتری' && ['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: DemoStore.customers.any((c) => c['نام مشتری'] == name.text.trim()) ? name.text.trim() : null,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'انتخاب مشتری (اختیاری)'),
-                  items: DemoStore.customers.map((c) => c['نام مشتری'] ?? '').where((n) => n.trim().isNotEmpty).toSet().map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
-                  onChanged: (v) { if (v != null) { name.text = v; set(() {}); } },
+          child: StatefulBuilder(
+            builder: (dialogContext, set) => AlertDialog(
+              title: Text(op),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: partyType,
+                      decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
+                      items: const [
+                        DropdownMenuItem(value: 'مشتری', child: Text('مشتری')),
+                        DropdownMenuItem(value: 'فروشنده', child: Text('فروشنده')),
+                        DropdownMenuItem(value: 'سایر اشخاص', child: Text('سایر اشخاص')),
+                      ],
+                      onChanged: (value) => set(() => partyType = value ?? 'مشتری'),
+                    ),
+                    if (partyType == 'مشتری' &&
+                        ['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) &&
+                        DemoStore.customers.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: DemoStore.customers.any((customer) => customer['نام مشتری'] == name.text.trim())
+                            ? name.text.trim() : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'انتخاب مشتری (اختیاری)'),
+                        items: DemoStore.customers
+                            .map((customer) => customer['نام مشتری'] ?? '')
+                            .where((value) => value.trim().isNotEmpty)
+                            .toSet()
+                            .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            name.text = value;
+                            set(() {});
+                          }
+                        },
+                      ),
+                    TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
+                    TextField(
+                      controller: amount,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+                    ),
+                    if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+                      DropdownButtonFormField<String>(
+                        value: methods.contains(method) ? method : 'نقدی',
+                        decoration: const InputDecoration(labelText: 'روش عملیات'),
+                        items: methods.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                        onChanged: (value) => set(() => method = value ?? 'نقدی'),
+                      ),
+                    if ((op == 'پرداخت وجه' || op == 'دریافت وجه') &&
+                        method == 'چک' && (double.tryParse(amount.text.trim()) ?? 0) > 0) ...[
+                      const SizedBox(height: 8),
+                      TextField(controller: checkNumber, decoration: const InputDecoration(labelText: 'شماره چک (اجباری)')),
+                      const SizedBox(height: 8),
+                      TextField(controller: checkBank, decoration: const InputDecoration(labelText: 'بانک چک')),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showPersianDatePicker(
+                            context: dialogContext,
+                            initialDate: checkDueDate ?? Jalali.now(),
+                            firstDate: Jalali(1300, 1, 1),
+                            lastDate: Jalali(1500, 12, 29),
+                            locale: const Locale('fa', 'IR'),
+                            textDirection: TextDirection.rtl,
+                            helpText: 'تاریخ سررسید چک',
+                            cancelText: 'انصراف',
+                            confirmText: 'تأیید',
+                          );
+                          if (picked != null) set(() => checkDueDate = picked);
+                        },
+                        icon: const Icon(Icons.calendar_month),
+                        label: Text(checkDueDate == null
+                            ? 'انتخاب سررسید چک'
+                            : 'سررسید: ' + checkDueDate!.formatCompactDate()),
+                      ),
+                    ],
+                    TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+                  ],
                 ),
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
-              TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
-              if (op == 'پرداخت وجه' || op == 'دریافت وجه')
-                DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
-              TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
-            ])),
-            actions: [_horizontalDialogActions([
-              if (existing != null) TextButton.icon(onPressed: () async {
-                if (!await _confirmDelete(dialogContext, 1)) return;
-                await DemoStore.delete('operations', [existing]);
-                if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-              }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
-              TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
-              FilledButton(onPressed: () async {
-                if (name.text.trim().isEmpty && amount.text.trim().isEmpty && note.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
-                  return;
-                }
-                if (name.text.trim().isEmpty || amount.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام شخص و مبلغ را وارد کنید.')));
-                  return;
-                }
-                final canonicalOp = op == 'تخفیف دادن به مشتری' ? 'تخفیف دادن' : op == 'تخفیف گرفتن از فروشنده' ? 'تخفیف گرفتن' : op;
-                final data = <String, String>{'نوع عملیات': canonicalOp, 'نوع طرف حساب': partyType, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': (existing?['تاریخ'] ?? DateTime.now().toIso8601String()).toString(), 'توضیحات': note.text.trim()};
-                try {
-                  if (existing == null) await DemoStore.add('operations', data);
-                  else await DemoStore.update('operations', existing, data);
-                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                } catch (error) {
-                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ذخیره عملیات ناموفق بود: $error')));
-                }
-              }, child: const Text('ثبت عملیات')),
-            ])],
-          )),
+              ),
+              actions: [_horizontalDialogActions([
+                if (existing != null)
+                  TextButton.icon(
+                    onPressed: () async {
+                      if (!await _confirmDelete(dialogContext, 1)) return;
+                      try {
+                        await DemoStore.delete('operations', [existing]);
+                        if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                      } catch (error) {
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(content: Text('حذف سند ناموفق بود: $error')),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('حذف'),
+                  ),
+                TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
+                FilledButton(
+                  onPressed: () async {
+                    if (name.text.trim().isEmpty && amount.text.trim().isEmpty && note.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+                      return;
+                    }
+                    if (name.text.trim().isEmpty || amount.text.trim().isEmpty ||
+                        (double.tryParse(amount.text.trim()) ?? 0) <= 0) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام شخص و مبلغ مثبت را وارد کنید.')));
+                      return;
+                    }
+                    if ((op == 'پرداخت وجه' || op == 'دریافت وجه') && method == 'چک' &&
+                        ((double.tryParse(amount.text.trim()) ?? 0) > 0) &&
+                        (checkNumber.text.trim().isEmpty || checkDueDate == null)) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای عملیات چکی، شماره چک و تاریخ سررسید الزامی است.')));
+                      return;
+                    }
+                    final canonicalOp = op == 'تخفیف دادن به مشتری'
+                        ? 'تخفیف دادن'
+                        : op == 'تخفیف گرفتن از فروشنده'
+                            ? 'تخفیف گرفتن'
+                            : op;
+                    final occurredAt = DateTime.now();
+                    final data = <String, String>{
+                      'نوع عملیات': canonicalOp,
+                      'نوع طرف حساب': partyType,
+                      'نام شخص': name.text.trim(),
+                      'مبلغ': amount.text.trim(),
+                      'روش': method,
+                      'تاریخ': existing?['تاریخ'] ?? occurredAt.toIso8601String(),
+                      'تاریخ میلادی': occurredAt.toIso8601String(),
+                      'توضیحات': note.text.trim(),
+                      'شماره چک': checkNumber.text.trim(),
+                      'بانک چک': checkBank.text.trim(),
+                      'تاریخ سررسید میلادی': checkDueDate?.toDateTime().toIso8601String() ?? '',
+                    };
+                    try {
+                      if (existing == null) {
+                        await DemoStore.add('operations', data);
+                      } else {
+                        await DemoStore.update('operations', existing, data);
+                      }
+                      if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                    } catch (error) {
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          SnackBar(content: Text('ذخیره عملیات ناموفق بود: $error')),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('ثبت عملیات'),
+                ),
+              ])],
+            ),
+          ),
         ),
       ),
     );
-    name.dispose(); amount.dispose(); note.dispose();
+    name.dispose();
+    amount.dispose();
+    note.dispose();
+    checkNumber.dispose();
+    checkBank.dispose();
     if (result == true) widget.onChanged();
   }
 }
