@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
 
@@ -12,6 +13,25 @@ class InvoiceArchiveRepository {
   final AppDatabase _database;
 
   Future<int> archive({
+    required int businessDocumentId,
+    required Map<String, Object?> snapshot,
+    required String idempotencyKey,
+    int renderVersion = 1,
+  }) async {
+    final db = await _database.database;
+    return db.transaction((txn) => insertInTransaction(
+          txn,
+          businessDocumentId: businessDocumentId,
+          snapshot: snapshot,
+          idempotencyKey: idempotencyKey,
+          renderVersion: renderVersion,
+        ));
+  }
+
+  /// Inserts the immutable snapshot inside the caller's transaction. This is
+  /// used by sale posting so the invoice and its archive commit atomically.
+  static Future<int> insertInTransaction(
+    DatabaseExecutor txn, {
     required int businessDocumentId,
     required Map<String, Object?> snapshot,
     required String idempotencyKey,
@@ -31,57 +51,54 @@ class InvoiceArchiveRepository {
     }
 
     final encoded = jsonEncode(snapshot);
-    final db = await _database.database;
-    return db.transaction((txn) async {
-      final document = await txn.query(
-        'business_documents',
-        columns: ['id'],
-        where: 'id = ?',
-        whereArgs: [businessDocumentId],
-        limit: 1,
-      );
-      if (document.isEmpty) {
-        throw StateError('فاکتور اصلی پیدا نشد');
-      }
+    final document = await txn.query(
+      'business_documents',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [businessDocumentId],
+      limit: 1,
+    );
+    if (document.isEmpty) {
+      throw StateError('فاکتور اصلی پیدا نشد');
+    }
 
-      final byKey = await txn.query(
-        'invoice_archives',
-        where: 'idempotency_key = ?',
-        whereArgs: [idempotencyKey],
-        limit: 1,
-      );
-      if (byKey.isNotEmpty) {
-        final existing = byKey.single;
-        if (existing['business_document_id'] == businessDocumentId &&
-            existing['snapshot_json'] == encoded &&
-            existing['render_version'] == renderVersion) {
-          return existing['id'] as int;
-        }
-        throw StateError('کلید ثبت فاکتور قبلاً با اطلاعات دیگری استفاده شده است');
+    final byKey = await txn.query(
+      'invoice_archives',
+      where: 'idempotency_key = ?',
+      whereArgs: [idempotencyKey],
+      limit: 1,
+    );
+    if (byKey.isNotEmpty) {
+      final existing = byKey.single;
+      if (existing['business_document_id'] == businessDocumentId &&
+          existing['snapshot_json'] == encoded &&
+          existing['render_version'] == renderVersion) {
+        return existing['id'] as int;
       }
+      throw StateError('کلید ثبت فاکتور قبلاً با اطلاعات دیگری استفاده شده است');
+    }
 
-      final byDocument = await txn.query(
-        'invoice_archives',
-        where: 'business_document_id = ?',
-        whereArgs: [businessDocumentId],
-        limit: 1,
-      );
-      if (byDocument.isNotEmpty) {
-        final existing = byDocument.single;
-        if (existing['snapshot_json'] == encoded &&
-            existing['render_version'] == renderVersion) {
-          return existing['id'] as int;
-        }
-        throw StateError('برای این فاکتور قبلاً نسخه بایگانی‌شده ثبت شده است');
+    final byDocument = await txn.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [businessDocumentId],
+      limit: 1,
+    );
+    if (byDocument.isNotEmpty) {
+      final existing = byDocument.single;
+      if (existing['snapshot_json'] == encoded &&
+          existing['render_version'] == renderVersion) {
+        return existing['id'] as int;
       }
+      throw StateError('برای این فاکتور قبلاً نسخه بایگانی‌شده ثبت شده است');
+    }
 
-      return txn.insert('invoice_archives', {
-        'business_document_id': businessDocumentId,
-        'snapshot_json': encoded,
-        'render_version': renderVersion,
-        'archived_at': DateTime.now().toIso8601String(),
-        'idempotency_key': idempotencyKey,
-      });
+    return txn.insert('invoice_archives', {
+      'business_document_id': businessDocumentId,
+      'snapshot_json': encoded,
+      'render_version': renderVersion,
+      'archived_at': DateTime.now().toIso8601String(),
+      'idempotency_key': idempotencyKey,
     });
   }
 
