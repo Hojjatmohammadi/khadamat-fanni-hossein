@@ -17,6 +17,8 @@ import 'jalali_date_field.dart';
 import 'check_reminder_service.dart';
 import 'product_duplicate_checker.dart';
 import 'localized_number.dart';
+import 'invoice_archive_repository.dart';
+import 'invoice_settings_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,6 +65,8 @@ class DemoStore {
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
   static final BackupService backups = BackupService(_database);
+  static final InvoiceArchiveRepository invoiceArchives = InvoiceArchiveRepository(_database);
+  static final InvoiceSettingsRepository invoiceSettings = InvoiceSettingsRepository(_database);
   static String? backupStartupNotice;
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
@@ -1766,7 +1770,12 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     for (final row in rows) {
       final id = (row['id'] as num).toInt();
       final outstanding = await DemoStore.trades.getOutstandingAmount(id);
-      documents.add({...row, 'outstanding_amount': outstanding});
+      final archivedInvoice = await DemoStore.invoiceArchives.getArchive(id);
+      documents.add({
+        ...row,
+        'outstanding_amount': outstanding,
+        'invoice_archived': archivedInvoice != null,
+      });
     }
     if (mounted) setState(() => _documents = documents);
   }
@@ -1790,6 +1799,315 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       _quantityController.text = '1';
       _priceController.clear();
     });
+  }
+
+  Future<void> _editInvoiceHeader() async {
+    final values = await DemoStore.invoiceSettings.getSettings();
+    if (!mounted) return;
+
+    final fields = <String, String>{
+      'shopName': 'نام فروشگاه',
+      'ownerName': 'نام مسئول فاکتور',
+      'phone': 'شماره تماس',
+      'postalCode': 'کد پستی',
+      'address': 'نشانی فروشگاه',
+    };
+    final controllers = {
+      for (final entry in fields.entries)
+        entry.key: TextEditingController(text: values[entry.key] ?? ''),
+    };
+    final picker = ImagePicker();
+
+    Future<void> chooseInvoiceImage(
+      StateSetter refreshDialog,
+      String field,
+      String title,
+    ) async {
+      try {
+        final picked = await picker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 70,
+          maxWidth: 1100,
+          maxHeight: 1100,
+        );
+        if (picked == null) return;
+        final compressed = await FlutterImageCompress.compressWithFile(
+          picked.path,
+          minWidth: 700,
+          minHeight: 700,
+          quality: 55,
+          format: CompressFormat.jpeg,
+        );
+        if (compressed == null || compressed.isEmpty) {
+          throw Exception('فشرده‌سازی تصویر انجام نشد');
+        }
+        values[field] = base64Encode(compressed);
+        refreshDialog(() {});
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('انتخاب $title ناموفق بود: $error')),
+          );
+        }
+      }
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refreshDialog) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تنظیم سربرگ فاکتور فروش'),
+            content: SizedBox(
+              width: 460,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in fields.entries) ...[
+                      TextField(
+                        controller: controllers[entry.key],
+                        decoration: InputDecoration(labelText: entry.value),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    _invoiceImageSetting(
+                      title: 'مهر فروشگاه',
+                      value: values['stampImageBase64'] ?? '',
+                      onPick: () => chooseInvoiceImage(
+                        refreshDialog,
+                        'stampImageBase64',
+                        'مهر',
+                      ),
+                      onRemove: () => refreshDialog(
+                        () => values['stampImageBase64'] = '',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _invoiceImageSetting(
+                      title: 'امضای مسئول',
+                      value: values['signatureImageBase64'] ?? '',
+                      onPick: () => chooseInvoiceImage(
+                        refreshDialog,
+                        'signatureImageBase64',
+                        'امضا',
+                      ),
+                      onRemove: () => refreshDialog(
+                        () => values['signatureImageBase64'] = '',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'سربرگ، مهر و امضای این صفحه فقط برای فاکتورهای بعدی اعمال می‌شوند؛ نسخه‌های بایگانی‌شده قبلی تغییر نمی‌کنند.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  for (final entry in controllers.entries) {
+                    values[entry.key] = entry.value.text.trim();
+                  }
+                  Navigator.pop(dialogContext, true);
+                },
+                child: const Text('ذخیره تنظیمات'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+    if (saved != true || !mounted) return;
+
+    try {
+      await DemoStore.invoiceSettings.saveSettings(values);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تنظیمات سربرگ، مهر و امضا ذخیره شد')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ذخیره تنظیمات ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
+  Widget _invoiceImageSetting({
+    required String title,
+    required String value,
+    required VoidCallback onPick,
+    required VoidCallback onRemove,
+  }) {
+    Widget? preview;
+    if (value.isNotEmpty) {
+      try {
+        preview = Image.memory(
+          base64Decode(value),
+          height: 64,
+          width: 100,
+          fit: BoxFit.contain,
+        );
+      } catch (_) {
+        preview = const Icon(Icons.broken_image_outlined);
+      }
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 104,
+              height: 68,
+              child: Center(child: preview ?? const Icon(Icons.image_outlined, size: 32)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextButton.icon(
+                    onPressed: onPick,
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('انتخاب تصویر'),
+                  ),
+                  if (value.isNotEmpty)
+                    TextButton(
+                      onPressed: onRemove,
+                      child: const Text('حذف تصویر'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _viewArchivedInvoice(Map<String, Object?> document) async {
+    final id = (document['id'] as num).toInt();
+    try {
+      final archive = await DemoStore.invoiceArchives.getArchive(id);
+      if (archive == null || !mounted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('نسخه بایگانی‌شده‌ای برای این فاکتور پیدا نشد')),
+          );
+        }
+        return;
+      }
+      final snapshot = archive['snapshot'] as Map<String, dynamic>;
+      final items = (snapshot['items'] as List? ?? const [])
+          .whereType<Map>()
+          .toList(growable: false);
+
+      Widget imagePreview(String key, String label) {
+        final encoded = snapshot[key]?.toString() ?? '';
+        if (encoded.isEmpty) return const SizedBox.shrink();
+        try {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label),
+                const SizedBox(height: 4),
+                Image.memory(base64Decode(encoded), height: 64, fit: BoxFit.contain),
+              ],
+            ),
+          );
+        } catch (_) {
+          return Text('$label: تصویر قابل نمایش نیست');
+        }
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text('نسخه بایگانی فاکتور ${snapshot['documentNumber'] ?? ''}'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(snapshot['shopName']?.toString() ?? ''),
+                    Text('مسئول: ${snapshot['ownerName'] ?? ''}'),
+                    Text('تلفن: ${snapshot['phone'] ?? ''}'),
+                    Text('کد پستی: ${snapshot['postalCode'] ?? ''}'),
+                    Text('نشانی: ${snapshot['address'] ?? ''}'),
+                    const Divider(),
+                    Text('مشتری: ${snapshot['counterpartyName'] ?? ''}'),
+                    Text('تاریخ: ${snapshot['documentDate'] ?? ''}'),
+                    const SizedBox(height: 8),
+                    for (final item in items)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(item['productName']?.toString() ?? ''),
+                        subtitle: Text(
+                          'تعداد: ${item['quantity']} × ${item['unitPrice']} تومان',
+                        ),
+                        trailing: Text('${item['lineTotal']} تومان'),
+                      ),
+                    const Divider(),
+                    Text('جمع: ${snapshot['subtotal']} تومان'),
+                    Text('تخفیف: ${snapshot['discountAmount']} تومان'),
+                    Text('ارزش افزوده: ${snapshot['vatAmount']} تومان'),
+                    Text('مبلغ نهایی: ${snapshot['totalAmount']} تومان'),
+                    Text('پرداخت‌شده: ${snapshot['paidAmount']} تومان'),
+                    Text('مانده: ${snapshot['outstandingAmount']} تومان'),
+                    imagePreview('stampImageBase64', 'مهر ثبت‌شده هنگام صدور'),
+                    imagePreview('signatureImageBase64', 'امضای ثبت‌شده هنگام صدور'),
+                    const SizedBox(height: 8),
+                    Text(
+                      'زمان بایگانی: ${archive['archived_at']}',
+                      style: const TextStyle(fontSize: 11, color: Colors.black54),
+                    ),
+                    const Text(
+                      'این نسخه ثابت است و تغییر تنظیمات فعلی فروشگاه، آن را عوض نمی‌کند.',
+                      style: TextStyle(fontSize: 11, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('بستن'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('نمایش فاکتور بایگانی‌شده ناموفق بود: $error')),
+        );
+      }
+    }
   }
 
   Future<void> _saveDocument() async {
@@ -1829,7 +2147,11 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       if (_isPurchase) {
         await DemoStore.trades.recordPurchase(draft);
       } else {
-        await DemoStore.trades.recordSale(draft);
+        final invoiceHeader = await DemoStore.invoiceSettings.getSettings();
+        await DemoStore.trades.recordSale(
+          draft,
+          invoiceHeaderSnapshot: invoiceHeader,
+        );
       }
       await DemoStore.refreshProducts();
       await DemoStore.refreshSales();
@@ -1851,7 +2173,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       });
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isPurchase ? 'فاکتور خرید ثبت شد' : 'فاکتور فروش ثبت شد')),
+        SnackBar(content: Text(_isPurchase ? 'فاکتور خرید ثبت شد' : 'فاکتور فروش ثبت و بایگانی شد')),
       );
     } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2127,6 +2449,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             onChanged: (date) => setState(() => _documentDate = date),
           ),
           const SizedBox(height: 10),
+          if (!_isPurchase)
+            OutlinedButton.icon(
+              onPressed: _saving ? null : _editInvoiceHeader,
+              icon: const Icon(Icons.tune),
+              label: const Text('تنظیم سربرگ، مهر و امضای فاکتور'),
+            ),
+          if (!_isPurchase) const SizedBox(height: 8),
           if (products.isEmpty)
             const Padding(
               padding: EdgeInsets.all(12),
@@ -2319,6 +2648,14 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                           icon: const Icon(Icons.payments_outlined),
                           label: Text(_isPurchase ? 'ثبت پرداخت' : 'ثبت دریافت'),
                         ),
+                        if (!_isPurchase)
+                          TextButton.icon(
+                            onPressed: document['invoice_archived'] == true
+                                ? () => _viewArchivedInvoice(document)
+                                : null,
+                            icon: const Icon(Icons.archive_outlined),
+                            label: const Text('نسخه بایگانی'),
+                          ),
                       ],
                     ),
                   ],
