@@ -994,6 +994,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
 
   final List<TradeLineDraft> _lines = [];
   List<Map<String, Object?>> _documents = [];
+  List<Map<String, Object?>> _partyOptions = [];
+  String? _selectedPartyId;
   int? _selectedProductId;
   String _cashAccountCode = '1000';
   bool _vatExempt = false;
@@ -1008,6 +1010,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     super.initState();
     _selectedProductId = _firstProductId();
     _loadDocuments();
+    _loadParties();
   }
 
   @override
@@ -1063,6 +1066,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     return net + charges + vat;
   }
 
+  Future<void> _loadParties() async {
+    final rows = await DemoStore.parties.getParties(
+      partyType: _isPurchase ? 'supplier' : 'customer',
+    );
+    if (mounted) setState(() => _partyOptions = rows);
+  }
+
   Future<void> _loadDocuments() async {
     final rows = await DemoStore.trades.getDocuments(type: widget.documentType);
     final documents = <Map<String, Object?>>[];
@@ -1110,6 +1120,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         PartyDraft(
           partyType: _isPurchase ? 'supplier' : 'customer',
           displayName: partyName,
+          preferredId: _selectedPartyId,
         ),
       );
       final draft = TradeDocumentDraft(
@@ -1136,10 +1147,12 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       await DemoStore.refreshProducts();
       await DemoStore.refreshSales();
       await _loadDocuments();
+      await _loadParties();
       if (!mounted) return;
       setState(() {
         _lines.clear();
         _partyController.clear();
+        _selectedPartyId = null;
         _discountController.text = '0';
         _vatRateController.text = '0';
         _paidController.text = '0';
@@ -1379,9 +1392,45 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         children: [
           Text(_pageTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
           const SizedBox(height: 12),
+          if (_partyOptions.isNotEmpty)
+            DropdownButtonFormField<String>(
+              initialValue: _selectedPartyId,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: 'انتخاب از اشخاص ثبت‌شده ($_partyLabel)'),
+              items: [
+                for (final party in _partyOptions)
+                  DropdownMenuItem(
+                    value: party['id'] as String,
+                    child: Text(
+                      '${party['display_name']}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedPartyId = value;
+                  if (value != null) {
+                    final selected = _partyOptions.firstWhere((p) => p['id'] == value);
+                    _partyController.text = selected['display_name']?.toString() ?? '';
+                  }
+                });
+              },
+            ),
+          const SizedBox(height: 8),
           TextField(
             controller: _partyController,
             decoration: InputDecoration(labelText: _partyLabel),
+            onChanged: (value) {
+              if (_selectedPartyId != null) {
+                final selected = _partyOptions.firstWhere(
+                  (p) => p['id'] == _selectedPartyId,
+                );
+                if (value.trim() != selected['display_name']?.toString()) {
+                  setState(() => _selectedPartyId = null);
+                }
+              }
+            },
           ),
           const SizedBox(height: 10),
           JalaliDateField(
