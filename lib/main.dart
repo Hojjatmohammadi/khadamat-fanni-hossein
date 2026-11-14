@@ -1126,6 +1126,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
       final normalized = await DemoStore.database.query('customers', columns: ['id'], where: 'legacy_source_id = ?', whereArgs: [customerRecord.first['id']], limit: 1);
       if (normalized.isNotEmpty) customerId = normalized.first['id'] as int;
     }
+    final sameNameRows = await DemoStore.database.rawQuery(
+      "SELECT COUNT(*) AS total FROM customers WHERE TRIM(first_name || ' ' || last_name) = ?",
+      [customerName],
+    );
+    final sameNameCount = (sameNameRows.first['total'] as num?)?.toInt() ?? 0;
     final records = await DemoStore.database.query('records', columns: ['id','category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
     if (!mounted) return;
     final rows = <Map<String,Object?>>[];
@@ -1137,14 +1142,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
         if (customerId != null && linkedId != null) {
           if (linkedId != customerId) continue;
-        } else if (person != customerName) {
+        } else if (sameNameCount > 1 || person != customerName) {
           continue;
         }
       } else {
         final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
         if (customerId != null && linkedId != null) {
           if (linkedId != customerId) continue;
-        } else if (person != customerName) {
+        } else if (sameNameCount > 1 || person != customerName) {
           continue;
         }
       }
@@ -1201,6 +1206,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
             DataCell(Text((row['debit'] as double).toStringAsFixed(0))), DataCell(Text((row['credit'] as double).toStringAsFixed(0))), DataCell(Text(b.abs().toStringAsFixed(0) + ' ' + (b > 0.009 ? 'بدهکار' : b < -0.009 ? 'بستانکار' : 'تسویه'))),
           ]); }).toList(),
         )),
+        if (sameNameCount > 1)
+          const Text('هشدار: چند مشتری با نام یکسان وجود دارد؛ اسناد قدیمیِ بدون شناسه مشتری برای جلوگیری از اختلاط حساب در این دفتر لحاظ نشده‌اند.', style: TextStyle(fontSize:11,color:Colors.deepOrange)),
         const Text('مانده مثبت یعنی مشتری به فروشگاه بدهکار است؛ مانده منفی یعنی فروشگاه به مشتری بدهکار است.', style: TextStyle(fontSize:11,color:Colors.grey)),
       ]))),
       actions: [_horizontalDialogActions([
@@ -2548,6 +2555,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           const Divider(color: Colors.black, height: 28),
           Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
+          Text('تاریخ فاکتور: ${item['تاریخ'] ?? Jalali.now().formatCompactDate()}'),
           Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
           Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
           Text('تعداد: ${item['تعداد'] ?? '۱'}'),
