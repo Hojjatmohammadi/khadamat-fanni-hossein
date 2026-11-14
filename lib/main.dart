@@ -3861,6 +3861,8 @@ class _SettingsPageState extends State<SettingsPage> {
         newDarkMode: darkMode,
         newThemeMode: themeMode,
         newDrawerImage: drawerImage,
+        newStampImage: stampImage,
+        newSignatureImage: signatureImage,
         newFontScale: fontScale,
       );
       if (!mounted) return false;
