@@ -1029,7 +1029,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
     return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
   }
 
-  Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false}) async {
+  Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, int? customerId}) async {
     final amount = TextEditingController(), note = TextEditingController();
     const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
     String method = methods.first;
@@ -1048,7 +1048,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       )),
     ));
     if (saved == true) {
-      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
+      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'شناسه مشتری':customerId?.toString() ?? '', 'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
       if (mounted) { setState(() {}); widget.onChanged(); }
     }
     amount.dispose(); note.dispose();
@@ -1057,14 +1057,29 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> _showCustomerAccount(Map<String, String> customer) async {
     final customerName = (customer['نام مشتری'] ?? '').trim();
     if (customerName.isEmpty) return;
-    final records = await DemoStore.database.query('records', columns: ['category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
+    final customerRecord = await DemoStore.database.query('records', columns: ['id'], where: 'category = ? AND data = ?', whereArgs: ['customers', jsonEncode(customer)], limit: 1);
+    int? customerId;
+    if (customerRecord.isNotEmpty) {
+      final normalized = await DemoStore.database.query('customers', columns: ['id'], where: 'legacy_source_id = ?', whereArgs: [customerRecord.first['id']], limit: 1);
+      if (normalized.isNotEmpty) customerId = normalized.first['id'] as int;
+    }
+    final records = await DemoStore.database.query('records', columns: ['id','category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
     if (!mounted) return;
     final rows = <Map<String,Object?>>[];
     for (final record in records) {
       Map<String,dynamic> data;
       try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
       final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
-      if (person != customerName) continue;
+      if (record['category'] == 'operations') {
+        final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
+        if (customerId != null && linkedId != null) {
+          if (linkedId != customerId) continue;
+        } else if (person != customerName) {
+          continue;
+        }
+      } else if (person != customerName) {
+        continue;
+      }
       if (record['category'] == 'operations') {
         final type = (data['نوع عملیات'] ?? '').toString();
         final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
@@ -1122,8 +1137,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
       ]))),
       actions: [_horizontalDialogActions([
         TextButton(onPressed: () => Navigator.pop(d,false), child: const Text('بستن')),
-        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت دریافت از مشتری')),
-        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, asDeposit: true); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.savings_outlined), label: const Text('ثبت بیعانه')),
+        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, customerId: customerId); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت دریافت از مشتری')),
+        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, asDeposit: true, customerId: customerId); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.savings_outlined), label: const Text('ثبت بیعانه')),
         FilledButton.icon(onPressed: () => Navigator.pop(d,true), icon: const Icon(Icons.edit_outlined), label: const Text('ویرایش مشخصات')),
       ])],
     )));
