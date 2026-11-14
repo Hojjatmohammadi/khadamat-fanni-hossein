@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -30,7 +30,6 @@ class InvoicePdfService {
 
     var y = 64.0;
     final right = _width - _margin;
-    final textColor = const ui.Color(0xFF202124);
     final muted = const ui.Color(0xFF5F6368);
     final borderPaint = ui.Paint()
       ..color = const ui.Color(0xFFB8BEC5)
