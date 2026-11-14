@@ -18,6 +18,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
@@ -34,6 +35,7 @@ const black = Color(0xFF171717);
 
 class AppSettings {
   static late SharedPreferences _prefs;
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
   static final revision = ValueNotifier<int>(0);
   static String storeName = 'خدمات فنی حسین';
   static String appName = 'خدمات فنی حسین';
@@ -68,7 +70,7 @@ class AppSettings {
     invoicePrefix = _prefs.getString('invoice_prefix') ?? 'HOS';
     nextInvoiceNumber = _prefs.getInt('next_invoice_number') ?? 1;
     pinEnabled = _prefs.getBool('pin_enabled') ?? false;
-    pinCode = _prefs.getString('pin_code') ?? '';
+    pinCode = await _secureStorage.read(key: 'app_pin') ?? '';
     managerName = _prefs.getString('manager_name') ?? '';
     phone = _prefs.getString('store_phone') ?? '';
     address = _prefs.getString('store_address') ?? '';
@@ -123,7 +125,11 @@ class AppSettings {
     await _prefs.setString('invoice_prefix', invoicePrefix);
     await _prefs.setInt('next_invoice_number', nextInvoiceNumber);
     await _prefs.setBool('pin_enabled', pinEnabled);
-    await _prefs.setString('pin_code', pinCode);
+    if (pinEnabled) {
+      await _secureStorage.write(key: 'app_pin', value: pinCode);
+    } else {
+      await _secureStorage.delete(key: 'app_pin');
+    }
     revision.value++;
   }
 
@@ -157,8 +163,7 @@ class AppSettings {
     if (data['default_discount_percent'] is num) { defaultDiscountPercent = (data['default_discount_percent'] as num).toDouble(); await _prefs.setDouble('default_discount_percent', defaultDiscountPercent); }
     if (data['invoice_prefix'] is String) { invoicePrefix = data['invoice_prefix']; await _prefs.setString('invoice_prefix', invoicePrefix); }
     if (data['next_invoice_number'] is num) { nextInvoiceNumber = (data['next_invoice_number'] as num).toInt(); await _prefs.setInt('next_invoice_number', nextInvoiceNumber); }
-    if (data['pin_enabled'] is bool) { pinEnabled = data['pin_enabled']; await _prefs.setBool('pin_enabled', pinEnabled); }
-    if (data['pin_code'] is String) { pinCode = data['pin_code']; await _prefs.setString('pin_code', pinCode); }
+
     if (data['manager_name'] is String) { managerName = data['manager_name']; await _prefs.setString('manager_name', managerName); }
     if (data['phone'] is String) { phone = data['phone']; await _prefs.setString('store_phone', phone); }
     if (data['address'] is String) { address = data['address']; await _prefs.setString('store_address', address); }
@@ -1056,7 +1061,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
               if (sameCustomer) alreadyApplied += _ledgerAmount(sale['بیعانه تخصیص‌یافته']);
             } catch (_) {}
           }
-          final net = (_ledgerAmount(item['مبلغ کل']) - _ledgerAmount(item['تخفیف'])).clamp(0, double.infinity).toDouble();
+          final gross = _ledgerAmount(item['مبلغ کل']);
+          final tax = gross * AppSettings.vatPercent / 100;
+          final net = (gross - _ledgerAmount(item['تخفیف']) + tax).clamp(0, double.infinity).toDouble();
           item['بیعانه تخصیص‌یافته'] = (deposits - alreadyApplied).clamp(0, net).toStringAsFixed(0);
         }
       }
@@ -2609,8 +2616,6 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'default_discount_percent': AppSettings.defaultDiscountPercent,
       'invoice_prefix': AppSettings.invoicePrefix,
       'next_invoice_number': AppSettings.nextInvoiceNumber,
-      'pin_enabled': AppSettings.pinEnabled,
-      'pin_code': AppSettings.pinCode,
       'manager_name': AppSettings.managerName,
       'phone': AppSettings.phone,
       'address': AppSettings.address,
