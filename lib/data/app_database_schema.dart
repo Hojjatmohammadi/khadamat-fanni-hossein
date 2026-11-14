@@ -22,6 +22,18 @@ class AppDatabaseSchema {
       )
     ''');
     await db.execute('''
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS suppliers_name_idx ON suppliers(normalized_name)');
+    await db.execute('''
       CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT NOT NULL DEFAULT '',
@@ -106,6 +118,92 @@ class AppDatabaseSchema {
     await db.execute('CREATE INDEX IF NOT EXISTS invoices_created_idx ON invoices(created_at)');
     await db.execute('CREATE INDEX IF NOT EXISTS invoice_items_invoice_idx ON invoice_items(invoice_id)');
     await AccountingEngine.createTables(db);
+  }
+
+  /// Creates or finds a supplier by normalized name. The caller should pass a
+  /// selected supplier ID when duplicate names are intentionally distinct.
+  static Future<int> ensureSupplier(
+    DatabaseExecutor db,
+    String supplierName, {
+    String phone = '',
+    String address = '',
+  }) async {
+    final name = supplierName.trim().replaceAll(RegExp(r'\\s+'), ' ');
+    if (name.isEmpty) throw ArgumentError('نام فروشنده الزامی است.');
+    final normalized = name.toLowerCase();
+    final existing = await db.query(
+      'suppliers',
+      columns: ['id'],
+      where: 'normalized_name = ?',
+      whereArgs: [normalized],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) return existing.first['id'] as int;
+    return db.insert('suppliers', {
+      'name': name,
+      'normalized_name': normalized,
+      'phone': phone.trim(),
+      'address': address.trim(),
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Backfills supplier identities for historic purchase and supplier-operation
+  /// journal rows without touching immutable invoice/purchase snapshots.
+  static Future<void> migrateSupplierPartyIds(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS suppliers_name_idx ON suppliers(normalized_name)');
+    final records = await db.query(
+      'records',
+      columns: ['id', 'category', 'data'],
+      where: 'category = ?',
+      whereArgs: ['operations'],
+      orderBy: 'id ASC',
+    );
+    for (final record in records) {
+      final data = _decode(record['data']);
+      final operation = _text(data, 'نوع عملیات');
+      final partyType = _text(data, 'نوع طرف حساب');
+      final supplierName = _text(data, 'نام شخص');
+      if (supplierName.isEmpty ||
+          !(operation == 'خرید کالا' || partyType == 'فروشنده' ||
+            operation == 'تخفیف گرفتن' || operation == 'تخفیف گرفتن از فروشنده')) {
+        continue;
+      }
+      final supplierId = await ensureSupplier(db, supplierName);
+      data['شناسه فروشنده'] = supplierId.toString();
+      await db.update(
+        'records',
+        {'data': jsonEncode(data)},
+        where: 'id = ?',
+        whereArgs: [record['id']],
+      );
+      final sourceType = operation == 'خرید کالا' ? 'purchase' : 'operation';
+      await db.update(
+        'journal_lines',
+        {'party_type': 'supplier', 'party_id': supplierId},
+        where: '''entry_id IN (
+          SELECT id FROM journal_entries WHERE source_type = ? AND source_id = ?
+        ) AND account_id IN (SELECT id FROM accounts WHERE code IN ('2000','1110'))''',
+        whereArgs: [sourceType, record['id'].toString()],
+      );
+      await db.update(
+        'checks_register',
+        {'party_type': 'supplier', 'party_id': supplierId},
+        where: 'party_name_snapshot = ? AND party_type = ? AND party_id IS NULL',
+        whereArgs: [supplierName, 'فروشنده'],
+      );
+    }
   }
 
   static String _text(Map<String, Object?> data, String key) =>
