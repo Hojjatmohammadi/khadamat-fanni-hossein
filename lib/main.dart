@@ -5124,7 +5124,7 @@ class _OperationsPageState extends State<OperationsPage> {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('سند اصلی و تعداد معتبر را انتخاب کنید.')));
                     return;
                   }
-                  final parts = selected.split(':');
+                  final parts = (selected ?? '').split(':');
                   try {
                     await DemoStore.addReturn(
                       originalCategory: parts.first,
