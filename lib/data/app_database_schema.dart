@@ -702,8 +702,9 @@ class AppDatabaseSchema {
         ));
       }
       if (gross > 0) {
+        final revenueCode = selectedProductName.isEmpty ? '4010' : '4000';
         lines.add(JournalLineInput(
-          accountId: await AccountingEngine.accountId(db, '4000'),
+          accountId: await AccountingEngine.accountId(db, revenueCode),
           credit: gross,
           memo: 'فروش فاکتور ' + invoiceNumber,
         ));
