@@ -220,8 +220,7 @@ class PartyRepository {
     final isSupplier = party['party_type'] == 'supplier';
 
     final totals = await db.rawQuery('''
-      SELECT COUNT(*) AS line_count,
-        COALESCE(SUM(l.debit), 0) AS total_debit,
+      SELECT COALESCE(SUM(l.debit), 0) AS total_debit,
         COALESCE(SUM(l.credit), 0) AS total_credit
       FROM journal_lines l
       WHERE l.party_id = ?
@@ -280,7 +279,13 @@ class PartyRepository {
                 : 'تسویه',
       });
     }
-    final totalLines = (totals.single['line_count'] as num).toInt();
+    final pageCount = await db.rawQuery('''
+      SELECT COUNT(*) AS line_count
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.journal_entry_id
+      WHERE ${filters.join(' AND ')}
+    ''', args);
+    final totalLines = (pageCount.single['line_count'] as num).toInt();
     final nextOffset = offset + rows.length;
     return {
       'party': party,
