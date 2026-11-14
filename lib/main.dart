@@ -4353,7 +4353,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
                     }
                     if (financialSnapshot.hasError) {
-                      return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('محاسبه گزارش مالی ناموفق بود: \${financialSnapshot.error}')));
+                      return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('محاسبه گزارش مالی ناموفق بود: ' + financialSnapshot.error.toString())));
                     }
                     final totals = financialSnapshot.data ?? const <String, double>{};
                     String money(String key) => (totals[key] ?? 0).toStringAsFixed(0) + ' تومان';
@@ -4365,13 +4365,13 @@ class _ReportsPageState extends State<ReportsPage> {
                           children: [
                             const Text('گزارش مالی از دفتر حسابداری دوبل', style: TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
-                            Text('فروش و درآمد خالص پس از برگشت و تخفیف: \${money('salesNet')}'),
-                            Text('خریدهای ثبت‌شده در گردش انبار: \${money('purchases')}'),
-                            Text('بهای تمام‌شده کالای فروش‌رفته: \${money('costOfGoods')}'),
-                            Text('سود ناخالص: \${money('grossProfit')}'),
-                            Text('هزینه‌ها: \${money('expenses')}'),
-                            Text('سود خالص: \${money('netProfit')}'),
-                            Text('ارزش فعلی موجودی انبار: \${money('inventoryValue')}'),
+                            Text('فروش و درآمد خالص پس از برگشت و تخفیف: ' + money('salesNet')),
+                            Text('خریدهای ثبت‌شده در گردش انبار: ' + money('purchases')),
+                            Text('بهای تمام‌شده کالای فروش‌رفته: ' + money('costOfGoods')),
+                            Text('سود ناخالص: ' + money('grossProfit')),
+                            Text('هزینه‌ها: ' + money('expenses')),
+                            Text('سود خالص: ' + money('netProfit')),
+                            Text('ارزش فعلی موجودی انبار: ' + money('inventoryValue')),
                             const SizedBox(height: 6),
                             const Text('توجه: محاسبات دفتر کل برای خریدها و فروش‌هایی است که با نسخهٔ جدید ثبت شده‌اند؛ اسناد قدیمی پیش از اتصال به دفتر دوبل، خودکار به سوابق حسابداری تبدیل نشده‌اند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
                           ],
