@@ -857,6 +857,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
         return;
       }
       final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+      if (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') {
+        final customerName = (item['نام مشتری'] ?? '').trim();
+        final matches = await DemoStore.database.query('customers', columns: ['id'], where: "TRIM(first_name || ' ' || last_name) = ?", whereArgs: [customerName], limit: 2);
+        if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
+      }
       try {
         if (existing == null) {
           await DemoStore.add(category, item);
@@ -949,7 +954,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                     for (int i = 0; i < widget.fields.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: widget.title == 'پذیرش تعمیر' && widget.fields[i] == 'نام مشتری'
+                        child: (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'نام مشتری'
                             ? DropdownButtonFormField<String>(
                                 value: repairCustomerNames.contains(controllers[i].text.trim())
                                     ? controllers[i].text.trim()
@@ -1077,8 +1082,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
         } else if (person != customerName) {
           continue;
         }
-      } else if (person != customerName) {
-        continue;
+      } else {
+        final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
+        if (customerId != null && linkedId != null) {
+          if (linkedId != customerId) continue;
+        } else if (person != customerName) {
+          continue;
+        }
       }
       if (record['category'] == 'operations') {
         final type = (data['نوع عملیات'] ?? '').toString();
