@@ -18,7 +18,7 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('khadamat_db_test_');
-    store = AppDatabase(databasePath: '\${tempDir.path}/test.db');
+    store = AppDatabase(databasePath: '${tempDir.path}/test.db');
     accounting = AccountingRepository(store);
     await store.database;
   });
@@ -49,7 +49,7 @@ void main() {
   });
 
   test('migrates version 1 records and opening product balances', () async {
-    final legacyPath = '\${tempDir.path}/legacy.db';
+    final legacyPath = '${tempDir.path}/legacy.db';
     final legacyDb = await databaseFactory.openDatabase(
       legacyPath,
       options: OpenDatabaseOptions(
