@@ -259,6 +259,54 @@ class AppDatabaseSchema {
     }
   }
 
+  static Future<int> insertCheck(
+    DatabaseExecutor db, {
+    required String checkNumber,
+    required String direction,
+    required String partyType,
+    required String partyName,
+    int? partyId,
+    required double amount,
+    required DateTime issueDate,
+    required DateTime dueDate,
+    String bankName = '',
+    String notes = '',
+  }) async {
+    if (checkNumber.trim().isEmpty || amount <= 0 ||
+        !amount.isFinite || !['received', 'issued'].contains(direction) ||
+        dueDate.isBefore(issueDate)) {
+      throw StateError('شماره، مبلغ یا تاریخ‌های چک معتبر نیستند.');
+    }
+    final duplicate = await db.query('checks_register',
+      columns: ['id'],
+      where: 'check_number = ? AND direction = ? AND bank_name = ? AND status != ?',
+      whereArgs: [checkNumber.trim(), direction, bankName.trim(), 'cancelled'],
+      limit: 1);
+    if (duplicate.isNotEmpty) throw StateError('این شماره چک با همین بانک و جهت قبلاً ثبت شده است.');
+    final id = await db.insert('checks_register', {
+      'check_number': checkNumber.trim(),
+      'direction': direction,
+      'party_type': partyType,
+      'party_id': partyId,
+      'party_name_snapshot': partyName.trim(),
+      'amount': amount,
+      'issue_date': issueDate.toIso8601String(),
+      'due_date': dueDate.toIso8601String(),
+      'status': 'pending',
+      'bank_name': bankName.trim(),
+      'notes': notes.trim(),
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    await db.insert('checks_history', {
+      'check_id': id,
+      'old_status': '',
+      'new_status': 'pending',
+      'occurred_at': DateTime.now().toIso8601String(),
+      'notes': 'ثبت اولیه چک',
+    });
+    return id;
+  }
+
   /// Keeps normalized rows synchronized when editable customer, repair or
   /// product details are changed. Quantity edits are recorded as stock adjustments.
   static Future<void> updateLegacyRecord(
@@ -393,21 +441,22 @@ class AppDatabaseSchema {
           ? 'مورد ثبت‌شده در نسخه قبلی'
           : _text(data, 'شرح کالا/خدمت');
       final selectedProductName = _text(data, 'کالای انبار');
+      final selectedProductId = int.tryParse(_text(data, 'شناسه کالای انبار'));
       int? productId;
       double costOfGoods = 0;
       var productIsUsed = false;
-      if (selectedProductName.isNotEmpty) {
+      if (selectedProductName.isNotEmpty || selectedProductId != null) {
         final matches = await db.query(
           'products',
-          columns: ['id', 'quantity', 'purchase_price', 'is_used'],
-          where: 'name = ?',
-          whereArgs: [selectedProductName],
+          columns: ['id', 'name', 'quantity', 'purchase_price', 'is_used'],
+          where: selectedProductId != null ? 'id = ?' : 'name = ?',
+          whereArgs: [selectedProductId ?? selectedProductName],
           limit: 2,
         );
         if (matches.length != 1) {
           throw StateError(matches.isEmpty
               ? 'کالای انتخاب‌شده در انبار پیدا نشد.'
-              : 'نام این کالا تکراری است؛ کد کالا باید یکتا شود و فروش از روی نام مبهم مجاز نیست.');
+              : 'نام این کالا تکراری است؛ برای فروش، شناسه یکتا لازم است.');
         }
         final product = matches.first;
         productId = product['id'] as int;
@@ -440,6 +489,26 @@ class AppDatabaseSchema {
         'unit_price': gross / quantity,
         'line_total': gross,
       });
+
+      final paymentMethod = _text(data, 'روش پرداخت');
+      if (paymentMethod == 'چک' && received > 0) {
+        final dueDate = DateTime.tryParse(_text(data, 'تاریخ سررسید میلادی'));
+        if (dueDate == null) throw StateError('تاریخ سررسید چک باید انتخاب شود.');
+        final issueDate = DateTime.tryParse(_text(data, 'تاریخ میلادی')) ?? DateTime.parse(createdAt);
+        await insertCheck(
+          db,
+          checkNumber: _text(data, 'شماره چک'),
+          direction: 'received',
+          partyType: 'مشتری',
+          partyName: _text(data, 'نام مشتری'),
+          partyId: customerIdValue,
+          amount: received,
+          issueDate: issueDate,
+          dueDate: dueDate,
+          bankName: _text(data, 'بانک چک'),
+          notes: 'دریافت بابت فاکتور ' + invoiceNumber,
+        );
+      }
 
       final lines = <JournalLineInput>[];
       if (received > 0) {
