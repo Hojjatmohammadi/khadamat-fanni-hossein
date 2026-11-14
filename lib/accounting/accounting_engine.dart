@@ -369,16 +369,41 @@ class AccountingEngine {
   static Future<List<Map<String, Object?>>> stockCardex(
     DatabaseExecutor db, int productId, {DateTime? from, DateTime? to}
   ) async {
+    // Opening balance includes every movement strictly before the selected period.
+    var openingBalance = 0.0;
+    if (from != null) {
+      final openingRows = await db.rawQuery(
+        '''SELECT COALESCE(SUM(quantity_delta), 0) AS opening
+           FROM stock_movements
+           WHERE product_id = ? AND occurred_at < ?''',
+        [productId, from.toIso8601String()],
+      );
+      openingBalance = (openingRows.first['opening'] as num).toDouble();
+    }
     final clauses = <String>['product_id = ?'];
     final args = <Object?>[productId];
-    if (from != null) { clauses.add('occurred_at >= ?'); args.add(from.toIso8601String()); }
-    if (to != null) { clauses.add('occurred_at < ?'); args.add(to.add(const Duration(days: 1)).toIso8601String()); }
-    final rows = await db.query('stock_movements', where: clauses.join(' AND '),
-      whereArgs: args, orderBy: 'occurred_at ASC, id ASC');
-    var balance = 0.0;
+    if (from != null) {
+      clauses.add('occurred_at >= ?');
+      args.add(from.toIso8601String());
+    }
+    if (to != null) {
+      clauses.add('occurred_at < ?');
+      args.add(to.add(const Duration(days: 1)).toIso8601String());
+    }
+    final rows = await db.query(
+      'stock_movements',
+      where: clauses.join(' AND '),
+      whereArgs: args,
+      orderBy: 'occurred_at ASC, id ASC',
+    );
+    var balance = openingBalance;
     return rows.map((row) {
       balance += (row['quantity_delta'] as num).toDouble();
-      return <String, Object?>{...row, 'running_quantity': balance};
+      return <String, Object?>{
+        ...row,
+        'opening_quantity': openingBalance,
+        'running_quantity': balance,
+      };
     }).toList();
   }
 }
