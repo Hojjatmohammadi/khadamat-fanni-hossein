@@ -1608,11 +1608,26 @@ class _RepairPageState extends State<RepairPage> {
   }
 
   Future<void> _recordRepairServiceIncome() async {
-    final repair = DemoStore.repairs.firstWhere(
-      (item) => int.tryParse(item['__database_id'] ?? '') != null,
-      orElse: () => <String, String>{},
+    final repairs = DemoStore.repairs.where((item) => int.tryParse(item['__database_id'] ?? '') != null).toList();
+    if (repairs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ابتدا پذیرش تعمیر را ثبت کنید')));
+      return;
+    }
+    final repairId = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('انتخاب پذیرش تعمیر'),
+        children: [
+          for (final item in repairs)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, item['__database_id']),
+              child: Text((item['نوع دستگاه'] ?? 'دستگاه') + ' — ' + (item['نام مشتری'] ?? 'بدون نام') + ' | اجرت: ' + (item['اجرت'] ?? '0')),
+            ),
+        ],
+      ),
     );
-    if (repair.isEmpty) return;
+    if (repairId == null || !mounted) return;
+    final repair = repairs.firstWhere((item) => item['__database_id'] == repairId);
     final amount = LocalizedNumber.tryParseInt(repair['اجرت'] ?? '');
     if (amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('برای این پذیرش اجرت معتبر ثبت نشده است')));
@@ -1621,7 +1636,7 @@ class _RepairPageState extends State<RepairPage> {
     final paidController = TextEditingController(text: amount.toString());
     final paid = await showDialog<int>(context: context, builder: (dialogContext) => AlertDialog(
       title: const Text('ثبت درآمد اجرت تعمیر'),
-      content: TextField(controller: paidController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافت‌شده (تومان)')),
+      content: TextField(controller: paidController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافت‌شده (تومان)', helperText: 'برای اجرت دریافت‌نشده عدد صفر وارد کنید')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, LocalizedNumber.tryParseInt(paidController.text)), child: const Text('ثبت')),
@@ -1640,10 +1655,10 @@ class _RepairPageState extends State<RepairPage> {
         paidAmount: paid,
         cashAccountCode: '1000',
         customerId: customerId,
-        idempotencyKey: 'repair-service-income-' + repair['__database_id']!,
+        idempotencyKey: 'repair-service-income-' + repairId,
       );
       widget.onChanged();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('درآمد اجرت ثبت شد')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('درآمد اجرت ثبت شد؛ مانده دریافت‌نشده در حساب مشتری باقی ماند')));
     } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت درآمد ناموفق بود: ' + error.toString())));
     }
