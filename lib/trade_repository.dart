@@ -609,7 +609,6 @@ class TradeRepository {
       final prepared = <Map<String, Object?>>[];
       var baseTotal = 0;
       var taxTotal = 0;
-      var costTotal = 0;
 
       for (final returnLine in draft.lines) {
         final sourceLines = await txn.query(
@@ -655,7 +654,6 @@ class TradeRepository {
             : (lineTax * returnLine.quantity / originalQuantity).round();
         baseTotal += baseAmount;
         taxTotal += taxAmount;
-        costTotal += costAmount;
         prepared.add({
           'productId': productId,
           'productName': sourceLine['product_name'] as String,
@@ -983,8 +981,13 @@ class TradeRepository {
   List<int> _allocate(int amount, List<int> weights) {
     if (weights.isEmpty) return const [];
     final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
-    if (amount == 0 || weightTotal == 0) {
+    if (amount == 0) {
       return List<int>.filled(weights.length, 0);
+    }
+    if (weightTotal == 0) {
+      final result = List<int>.filled(weights.length, 0);
+      result[result.length - 1] = amount;
+      return result;
     }
     final result = List<int>.filled(weights.length, 0);
     var assigned = 0;
