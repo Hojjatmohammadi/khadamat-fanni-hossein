@@ -215,6 +215,20 @@ class PersianDateInputFormatter extends TextInputFormatter {
   }
 }
 
+DateTime _parsePersianOrIsoDate(String raw) {
+  var value = raw.trim();
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  for (var i = 0; i < 10; i++) {
+    value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
+  }
+  final match = RegExp(r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$').firstMatch(value);
+  if (match != null) {
+    return Jalali(int.parse(match.group(1)!), int.parse(match.group(2)!), int.parse(match.group(3)!)).toDateTime();
+  }
+  return DateTime.tryParse(value) ?? DateTime.now();
+}
+
 class HoseinApp extends StatelessWidget {
   const HoseinApp({super.key});
 
@@ -1027,6 +1041,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
   String _keyOf(Map<String, String> item) => jsonEncode(item);
 
   Future<void> _deleteSelected() async {
+    if (widget.title == 'فاکتور فروش') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فاکتورهای صادرشده از بایگانی حذف نمی‌شوند.')));
+      return;
+    }
     final selected = widget.data.where((item) => _selectedKeys.contains(_keyOf(item))).toList();
     if (selected.isEmpty) return;
     if (!await _confirmDelete(context, selected.length)) return;
@@ -1038,12 +1056,32 @@ class _SimpleListPageState extends State<SimpleListPage> {
   }
 
   Future<void> addItem({Map<String, String>? existing}) async {
+    if (widget.title == 'فاکتور فروش' && existing != null) {
+      final issueNew = await showDialog<bool>(
+        context: context,
+        builder: (d) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text('فاکتور ' + (existing['شماره فاکتور'] ?? 'صادرشده')),
+            content: const Text('فاکتور صادرشده در بایگانی ثابت است و قابل ویرایش یا حذف نیست. برای اصلاح، یک فاکتور جدید صادر کنید.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('بستن')),
+              FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('صدور فاکتور جدید')),
+            ],
+          ),
+        ),
+      );
+      if (issueNew == true && mounted) await addItem();
+      return;
+    }
     final controllers = widget.fields.map((field) {
       var value = existing?[field] ?? '';
-      if (field == 'تاریخ') {
+      if (field == 'تاریخ' || field == 'سررسید چک') {
         final parsed = DateTime.tryParse(value);
-        value = parsed != null ? Jalali.fromDateTime(parsed).formatCompactDate() : (value.isEmpty ? Jalali.now().formatCompactDate() : value);
+        value = parsed != null ? Jalali.fromDateTime(parsed).formatCompactDate() : (value.isEmpty && field == 'تاریخ' ? Jalali.now().formatCompactDate() : value);
       }
+      if (existing == null && field == 'تعداد') value = '1';
+      if (existing == null && field == 'روش پرداخت') value = 'نقدی';
       return TextEditingController(text: value);
     }).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
@@ -1070,6 +1108,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
         } catch (_) {}
       }
     }
+    final inventoryOptions = widget.title == 'فاکتور فروش'
+        ? await DemoStore.database.query(
+            'products',
+            columns: ['id', 'name', 'quantity', 'unit', 'is_used'],
+            orderBy: 'name COLLATE NOCASE ASC',
+          )
+        : <Map<String, Object?>>[];
 
     Future<void> saveForm(BuildContext dialogContext) async {
       final item = <String, String>{};
@@ -1098,6 +1143,41 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final customerName = (item['نام مشتری'] ?? '').trim();
         final matches = await DemoStore.database.query('customers', columns: ['id'], where: "TRIM(first_name || ' ' || last_name) = ?", whereArgs: [customerName], limit: 2);
         if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
+      }
+      if (widget.title == 'فاکتور فروش') {
+        final quantity = _ledgerAmount(item['تعداد']);
+        final gross = _ledgerAmount(item['مبلغ کل']);
+        final discount = _ledgerAmount(item['تخفیف']);
+        final received = _ledgerAmount(item['مبلغ دریافتی']);
+        if (quantity <= 0 || gross < 0 || discount < 0 || received < 0 || discount > gross) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('تعداد، مبلغ فاکتور یا تخفیف نامعتبر است.')));
+          return;
+        }
+        final productId = int.tryParse(item['شناسه کالای انبار'] ?? '');
+        final selectedProduct = productId == null
+            ? <Map<String, Object?>>[]
+            : inventoryOptions.where((row) => row['id'] == productId).toList();
+        if (productId != null && selectedProduct.isEmpty) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('کالای انتخاب‌شده در انبار پیدا نشد.')));
+          return;
+        }
+        if (selectedProduct.isNotEmpty) {
+          item['کالای انبار'] = (selectedProduct.first['name'] ?? '').toString();
+          item['واحد شمارش'] = (selectedProduct.first['unit'] ?? 'عدد').toString();
+          item['وضعیت کالا'] = selectedProduct.first['is_used'] == 1 ? 'دست دوم' : 'نو';
+        } else {
+          item['کالای انبار'] = '';
+        }
+        item['تاریخ میلادی'] = _parsePersianOrIsoDate(item['تاریخ'] ?? '').toIso8601String();
+        if ((item['روش پرداخت'] ?? 'نقدی') == 'چک' && received > 0) {
+          final checkNumber = (item['شماره چک'] ?? '').trim();
+          final dueDate = (item['سررسید چک'] ?? '').trim();
+          if (checkNumber.isEmpty || dueDate.isEmpty) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای دریافت با چک، شماره چک و تاریخ سررسید الزامی است.')));
+            return;
+          }
+          item['تاریخ سررسید میلادی'] = _parsePersianOrIsoDate(dueDate).toIso8601String();
+        }
       }
       if (widget.title == 'فاکتور فروش') {
         if (existing == null) {
@@ -1318,6 +1398,54 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   if (value != null) controllers[i].text = value;
                                 },
                               )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'شناسه کالای انبار'
+                            ? DropdownButtonFormField<String>(
+                                value: inventoryOptions.any((row) => row['id'].toString() == controllers[i].text) ? controllers[i].text : null,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'انتخاب کالا از انبار (اختیاری)', helperText: 'برای فروش قطعه کالا را انتخاب کنید؛ برای اجرت و خدمات خالی بگذارید.'),
+                                items: [
+                                  const DropdownMenuItem<String>(value: '', child: Text('فقط خدمت / بدون کالا')),
+                                  ...inventoryOptions.map((row) => DropdownMenuItem<String>(
+                                    value: row['id'].toString(),
+                                    child: Text(
+                                      (row['name'] ?? '').toString() + ' — موجودی: ' +
+                                      (row['quantity'] ?? 0).toString() +
+                                      (row['is_used'] == 1 ? ' — دست دوم' : ''),
+                                    ),
+                                  )),
+                                ],
+                                onChanged: (value) => controllers[i].text = value ?? '',
+                              )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'روش پرداخت'
+                            ? DropdownButtonFormField<String>(
+                                value: ['نقدی','کارت‌خوان','کارت به کارت','حواله بانکی','چک'].contains(controllers[i].text) ? controllers[i].text : 'نقدی',
+                                decoration: const InputDecoration(labelText: 'روش دریافت وجه'),
+                                items: const ['نقدی','کارت‌خوان','کارت به کارت','حواله بانکی','چک']
+                                    .map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                                onChanged: (value) => controllers[i].text = value ?? 'نقدی',
+                              )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'سررسید چک'
+                            ? TextField(
+                                controller: controllers[i],
+                                readOnly: true,
+                                decoration: const InputDecoration(labelText: 'تاریخ سررسید چک (شمسی)', suffixIcon: Icon(Icons.calendar_month)),
+                                onTap: () async {
+                                  final current = controllers[i].text.trim();
+                                  final initial = current.isEmpty ? Jalali.now() : Jalali.fromDateTime(_parsePersianOrIsoDate(current));
+                                  final picked = await showPersianDatePicker(
+                                    context: dialogContext,
+                                    initialDate: initial,
+                                    firstDate: Jalali(1300, 1, 1),
+                                    lastDate: Jalali(1500, 12, 29),
+                                    locale: const Locale('fa', 'IR'),
+                                    textDirection: TextDirection.rtl,
+                                    helpText: 'انتخاب سررسید چک',
+                                    cancelText: 'انصراف',
+                                    confirmText: 'تأیید',
+                                  );
+                                  if (picked != null) controllers[i].text = picked.formatCompactDate();
+                                },
+                              )
                             : TextField(
                                 controller: controllers[i],
                                 focusNode: focusNodes[i],
@@ -1341,7 +1469,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
               ),
             ),
             actions: [_horizontalDialogActions([
-              if (existing != null) TextButton.icon(
+              if (existing != null && widget.title != 'فاکتور فروش') TextButton.icon(
                 onPressed: () async {
                   if (!await _confirmDelete(dialogContext, 1)) return;
                   final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
@@ -2147,7 +2275,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ'],
+        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
