@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -66,6 +66,7 @@ class AppDatabase {
         await _createCommerceSchema(db);
         await _createPartyAndCheckSchema(db);
         await _createBankReconciliationSchema(db);
+        await _createInvoiceArchiveSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -98,6 +99,9 @@ class AppDatabase {
           // the unused multi-device synchronization tables from older builds.
           await db.execute('DROP TABLE IF EXISTS sync_conflicts');
           await db.execute('DROP TABLE IF EXISTS sync_outbox');
+        }
+        if (oldVersion < 11) {
+          await _createInvoiceArchiveSchema(db);
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -473,6 +477,36 @@ class AppDatabase {
     """);
   }
 
+
+
+  static Future<void> _createInvoiceArchiveSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_archives (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_document_id INTEGER NOT NULL UNIQUE,
+        snapshot_json TEXT NOT NULL,
+        render_version INTEGER NOT NULL DEFAULT 1 CHECK (render_version > 0),
+        archived_at TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        FOREIGN KEY (business_document_id)
+          REFERENCES business_documents(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE TRIGGER IF NOT EXISTS immutable_invoice_archives_update
+      BEFORE UPDATE ON invoice_archives
+      BEGIN
+        SELECT RAISE(ABORT, 'archived invoices are immutable');
+      END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER IF NOT EXISTS immutable_invoice_archives_delete
+      BEFORE DELETE ON invoice_archives
+      BEGIN
+        SELECT RAISE(ABORT, 'archived invoices cannot be deleted');
+      END
+    ''');
+  }
 
   static Future<void> _createBankReconciliationSchema(DatabaseExecutor db) async {
     await db.execute('''
