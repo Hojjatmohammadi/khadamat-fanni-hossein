@@ -590,6 +590,23 @@ class DemoStore {
         occurredAt: DateTime.tryParse(operation['تاریخ'] ?? '') ?? DateTime.parse(createdAt),
       );
 
+      if ((operation['روش'] ?? '') == 'چک' && paid > 0) {
+        final dueDate = DateTime.tryParse(operation['تاریخ سررسید میلادی'] ?? '');
+        if (dueDate == null) throw StateError('تاریخ سررسید چک باید انتخاب شود.');
+        await AppDatabaseSchema.insertCheck(
+          txn,
+          checkNumber: operation['شماره چک'] ?? '',
+          direction: 'issued',
+          partyType: 'فروشنده',
+          partyName: supplier,
+          amount: paid,
+          issueDate: DateTime.tryParse(operation['تاریخ'] ?? '') ?? DateTime.parse(createdAt),
+          dueDate: dueDate,
+          bankName: operation['بانک چک'] ?? '',
+          notes: 'پرداخت بابت خرید کالا از ' + supplier,
+        );
+      }
+
       final lines = <JournalLineInput>[
         JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '1200'),
