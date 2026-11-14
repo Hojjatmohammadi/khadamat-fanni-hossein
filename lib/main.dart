@@ -1973,6 +1973,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
       }
       if (existing == null && field == 'تعداد') value = '1';
       if (existing == null && field == 'روش پرداخت') value = 'نقدی';
+      if (existing == null && field == 'درصد ارزش افزوده') value = AppSettings.vatPercent.toStringAsFixed(0);
+      if (existing == null && field == 'مشمول ارزش افزوده') value = 'بله';
       return TextEditingController(text: value);
     }).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
@@ -2059,6 +2061,32 @@ class _SimpleListPageState extends State<SimpleListPage> {
         } else {
           item['کالای انبار'] = '';
         }
+        final customerName = (item['نام مشتری'] ?? '').trim();
+        if (customerName.isNotEmpty) {
+          final customerRows = await DemoStore.database.query(
+            'customers',
+            columns: ['id'],
+            where: "TRIM(first_name || ' ' || last_name) = ?",
+            whereArgs: [customerName],
+            limit: 2,
+          );
+          if (customerRows.length > 1) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام این مشتری تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.')));
+            return;
+          }
+          item['شناسه مشتری'] = customerRows.isEmpty ? '' : customerRows.first['id'].toString();
+        } else {
+          item['شناسه مشتری'] = '';
+        }
+        final vatPercent = _ledgerAmount(item['درصد ارزش افزوده']);
+        if (vatPercent < 0 || vatPercent > 100) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('درصد ارزش افزوده باید بین صفر تا صد باشد.')));
+          return;
+        }
+        final taxable = (item['مشمول ارزش افزوده'] ?? 'بله') == 'بله';
+        final taxBase = (gross - discount).clamp(0.0, double.infinity).toDouble();
+        final taxAmount = taxable ? taxBase * vatPercent / 100 : 0.0;
+        item['مبلغ مالیات'] = taxAmount.toStringAsFixed(0);
         item['تاریخ میلادی'] = _parsePersianOrIsoDate(item['تاریخ'] ?? '').toIso8601String();
         if ((item['روش پرداخت'] ?? 'نقدی') == 'چک' && received > 0) {
           final checkNumber = (item['شماره چک'] ?? '').trim();
@@ -2315,6 +2343,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                     .map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
                                 onChanged: (value) => controllers[i].text = value ?? 'نقدی',
                               )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'مشمول ارزش افزوده'
+                            ? DropdownButtonFormField<String>(
+                                value: ['بله','خیر'].contains(controllers[i].text) ? controllers[i].text : 'بله',
+                                decoration: const InputDecoration(labelText: 'مشمول ارزش افزوده؟'),
+                                items: const ['بله','خیر'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                                onChanged: (value) => controllers[i].text = value ?? 'بله',
+                              )
                             : widget.title == 'فاکتور فروش' && widget.fields[i] == 'سررسید چک'
                             ? TextField(
                                 controller: controllers[i],
@@ -2340,9 +2375,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
                             : TextField(
                                 controller: controllers[i],
                                 focusNode: focusNodes[i],
-                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                keyboardType: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مبلغ دریافتی'].contains(widget.fields[i])
                                     ? TextInputType.number : TextInputType.text,
-                                inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'].contains(widget.fields[i])
+                                inputFormatters: const ['شماره تماس', 'اجرت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مبلغ دریافتی'].contains(widget.fields[i])
                                     ? [FilteringTextInputFormatter.digitsOnly] : const [],
                                 textInputAction: i == widget.fields.length - 1 ? TextInputAction.done : TextInputAction.next,
                                 onSubmitted: (_) {
@@ -3231,7 +3266,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ'],
+        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مشمول ارزش افزوده', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
