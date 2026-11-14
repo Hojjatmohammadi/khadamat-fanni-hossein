@@ -203,4 +203,39 @@ void main() {
     expect(row['statement_balance'], -25000);
   });
 
+
+  test('journal and general ledger date filters preserve opening balance', () async {
+    await accounting.recordExpense(
+      expenseDate: '2026-11-01',
+      description: 'هزینه اول دوره',
+      amount: 1000,
+      expenseAccountCode: '6100',
+      cashAccountCode: '1000',
+      idempotencyKey: 'ledger-before-range',
+    );
+    await accounting.recordExpense(
+      expenseDate: '2026-11-14',
+      description: 'هزینه داخل دوره',
+      amount: 2000,
+      expenseAccountCode: '6100',
+      cashAccountCode: '1000',
+      idempotencyKey: 'ledger-inside-range',
+    );
+    final journal = await accounting.getJournalEntries(
+      fromDate: '2026-11-10',
+      toDate: '2026-11-14',
+    );
+    expect(journal, hasLength(1));
+    expect(journal.single['description'], 'هزینه: هزینه داخل دوره');
+
+    final ledger = await accounting.getAccountLedger(
+      '6100',
+      fromDate: '2026-11-10',
+      toDate: '2026-11-14',
+    );
+    expect(ledger['opening_balance'], 1000);
+    expect(ledger['closing_balance'], 3000);
+    expect((ledger['lines'] as List), hasLength(1));
+  });
+
 }
