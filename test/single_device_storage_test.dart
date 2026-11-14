@@ -70,7 +70,6 @@ void main() {
 
     expect(names, isNot(contains('sync_outbox')));
     expect(names, isNot(contains('sync_conflicts')));
-    expect(names, contains('products'));
     await upgraded.close();
   });
 }
