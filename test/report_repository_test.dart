@@ -79,14 +79,17 @@ void main() {
       cashAccountCode: '1000',
       customerId: 'customer-service-1',
       idempotencyKey: 'repair-service-income-1',
+      repairId: 'repair-1',
     );
-    await trades.recordCustomerReceipt(PartyPaymentDraft(
-      documentDate: '2026-11-15',
-      counterpartyName: 'مشتری خدمات',
-      counterpartyId: 'customer-service-1',
+    await accounting.recordRepairServiceReceipt(
+      receiptDate: '2026-11-15',
+      repairId: 'repair-1',
+      customerId: 'customer-service-1',
+      description: 'اجرت تعمیر پمپ',
       amount: 6000,
+      cashAccountCode: '1000',
       idempotencyKey: 'repair-service-later-receipt',
-    ));
+    );
 
     final expenses = await repository.getExpenses(
       from: DateTime(2026, 11, 14),
