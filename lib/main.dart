@@ -16,6 +16,7 @@ import 'checks_page.dart';
 import 'jalali_date_field.dart';
 import 'check_reminder_service.dart';
 import 'product_duplicate_checker.dart';
+import 'localized_number.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -582,7 +583,7 @@ class _ProductPageState extends State<ProductPage> {
       }
     }
 
-    double number(TextEditingController x) => double.tryParse(x.text.replaceAll(',', '').trim()) ?? 0;
+    double number(TextEditingController x) => LocalizedNumber.parseDoubleOrZero(x.text);
     double totalCost() {
       final qty = number(c[4]);
       final purchase = number(c[5]) * qty;
@@ -966,7 +967,7 @@ class _RepairPageState extends State<RepairPage> {
               ),
               FilledButton(
                 onPressed: () async {
-                  final quantity = double.tryParse(quantityController.text.trim());
+                  final quantity = LocalizedNumber.tryParseDouble(quantityController.text);
                   if (selectedRepairId == null ||
                       selectedProductId == null ||
                       quantity == null ||
@@ -1144,11 +1145,11 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   }
 
   int _int(TextEditingController controller) {
-    return int.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+    return LocalizedNumber.parseIntOrZero(controller.text);
   }
 
   double _double(TextEditingController controller) {
-    return double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+    return LocalizedNumber.parseDoubleOrZero(controller.text);
   }
 
   String _productName(int id) {
