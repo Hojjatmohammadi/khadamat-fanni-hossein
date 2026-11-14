@@ -1,17 +1,14 @@
+import 'localized_number.dart';
+
 /// Detects likely duplicate inventory items before they are added.
 class ProductDuplicateChecker {
   const ProductDuplicateChecker._();
 
   static String normalize(String? value) {
-    if (value == null) return '';
-    return value
-        .trim()
+    return LocalizedNumber.normalize(value ?? '')
         .toLowerCase()
         .replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک')
-        .replaceAllMapped(RegExp(r'[۰-۹]'), (Match match) =>
-            String.fromCharCode(match.group(0)!.codeUnitAt(0) - 1728))
-        .replaceAll(RegExp(r'\s+'), ' ');
+        .replaceAll('ك', 'ک');
   }
 
   /// A matching non-empty item code is a duplicate. Otherwise, name,
