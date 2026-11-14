@@ -992,6 +992,15 @@ class _SimpleListPageState extends State<SimpleListPage> {
         if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
       }
       if (widget.title == 'فاکتور فروش') {
+        if (existing == null) {
+          final gross = _ledgerAmount(item['مبلغ کل']);
+          if ((item['تخفیف'] ?? '').trim().isEmpty && AppSettings.defaultDiscountPercent > 0) {
+            item['تخفیف'] = (gross * AppSettings.defaultDiscountPercent / 100).toStringAsFixed(0);
+          }
+          final tax = gross * AppSettings.vatPercent / 100;
+          item['درصد مالیات'] = AppSettings.vatPercent.toString();
+          item['مبلغ مالیات'] = tax.toStringAsFixed(0);
+        }
         final linkedRepairId = (item['پذیرش تعمیر مرتبط'] ?? '').trim();
         if (linkedRepairId.isNotEmpty) {
           if (!repairOptions.containsKey(linkedRepairId)) {
@@ -1371,6 +1380,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
         desc = 'فاکتور فروش: ' + (data['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمت').toString();
         if (gross > 0) rows.add({'date':date,'description':desc,'method':'','debit':gross,'credit':0.0});
         if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
+        final tax = _ledgerAmount(data['مبلغ مالیات']);
+        if (tax > 0) rows.add({'date':date,'description':'مالیات بر ارزش افزوده فاکتور','method':'','debit':tax,'credit':0.0});
         if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
         continue;
       } else if (record['category'] == 'repairs') {
@@ -2797,7 +2808,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     final gross = double.tryParse((item['مبلغ کل'] ?? '0').replaceAll(',', '')) ?? 0;
     final discount = double.tryParse((item['تخفیف'] ?? '0').replaceAll(',', '')) ?? 0;
     final received = double.tryParse((item['مبلغ دریافتی'] ?? '0').replaceAll(',', '')) ?? 0;
-    final net = (gross - discount).clamp(0, gross);
+    final tax = double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0;
+    final net = (gross - discount + tax).clamp(0, double.infinity).toDouble();
     return Container(
       width: 560,
       color: Colors.white,
@@ -2817,12 +2829,13 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
           Text('تعداد: ${item['تعداد'] ?? '۱'}'),
           const Divider(color: Colors.black),
-          _invoiceLine('مبلغ کل قبل از تخفیف', gross),
-          _invoiceLine('تخفیف', discount),
-          _invoiceLine('مبلغ نهایی', net),
-          _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0),
-          _invoiceLine('مبلغ جدید دریافتی', received),
-          _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net)),
+          _invoiceLine('مبلغ کل قبل از تخفیف', gross, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('تخفیف', discount, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مالیات بر ارزش افزوده', double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency) ,
+          _invoiceLine('مبلغ نهایی', net, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مبلغ جدید دریافتی', received, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net), item['واحد پول در زمان صدور'] ?? AppSettings.currency),
           const SizedBox(height: 26),
           const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
         ]),
@@ -2830,11 +2843,11 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     );
   }
 
-  Widget _invoiceLine(String title, num value) => Padding(
+  Widget _invoiceLine(String title, num value, String currency) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(title),
-      Text('${value.toStringAsFixed(0)} ${item['واحد پول در زمان صدور'] ?? AppSettings.currency}', style: const TextStyle(fontWeight: FontWeight.bold)),
+      Text('${value.toStringAsFixed(0)} $currency', style: const TextStyle(fontWeight: FontWeight.bold)),
     ]),
   );
 
