@@ -212,24 +212,24 @@ class _ReportsPageState extends State<ReportsPage> {
       };
       y += drawText('خدمات فنی حسین', size: 40, bold: true) + 12;
       y += drawText(title, size: 32, bold: true) + 10;
-      y += drawText('از \${_from.toIso8601String().substring(0, 10)} تا \${_to.toIso8601String().substring(0, 10)}', size: 20) + 20;
+      y += drawText('از ${_from.toIso8601String().substring(0, 10)} تا ${_to.toIso8601String().substring(0, 10)}', size: 20) + 20;
       canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFB8BEC5)..strokeWidth = 2);
       y += 20;
 
       final lines = <String>[];
       for (final row in _rows.take(27)) {
         if (_report == 'profit') {
-          lines.add('\${row['account_code']} - \${row['account_name']} | \${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: \${_money(row['balance'])} تومان');
+          lines.add('${row['account_code']} - ${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: ${_money(row['balance'])} تومان');
         } else if (_report == 'item_profit') {
-          lines.add('\${row['product_name']} | فروش: \${_money(row['net_revenue'])} | بها: \${_money(row['net_cost'])} | سود: \${_money(row['gross_profit'])}');
+          lines.add('${row['product_name']} | فروش: ${_money(row['net_revenue'])} | بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}');
         } else if (_report == 'stock') {
-          lines.add('\${row['occurred_at']} | \${row['product_name']} | \${_typeName(row['movement_type'])} | تعداد: \${row['quantity_delta']}');
+          lines.add('${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تعداد: ${row['quantity_delta']}');
         } else {
-          lines.add('\${row['document_date']} | \${_typeName(row['document_type'])} | \${row['document_number']} | \${_money(row['total_amount'])} تومان');
+          lines.add('${row['document_date']} | ${_typeName(row['document_type'])} | ${row['document_number']} | ${_money(row['total_amount'])} تومان');
         }
       }
       for (var i = 0; i < lines.length; i++) {
-        final h = drawText('\${i + 1}. \${lines[i]}', size: 21);
+        final h = drawText('${i + 1}. ${lines[i]}', size: 21);
         y += h + 15;
         canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFE0E3E7));
         y += 8;
@@ -237,7 +237,7 @@ class _ReportsPageState extends State<ReportsPage> {
       }
       if (_rows.length > lines.length) {
         y += 8;
-        drawText('برای کوتاه ماندن فایل، فقط \${lines.length} ردیف نخست نمایش داده شد.', size: 18);
+        drawText('برای کوتاه ماندن فایل، فقط ${lines.length} ردیف نخست نمایش داده شد.', size: 18);
       }
 
       final picture = recorder.endRecording();
@@ -259,7 +259,7 @@ class _ReportsPageState extends State<ReportsPage> {
       final bytes = await document.save();
       await Printing.sharePdf(
         bytes: bytes,
-        filename: 'report_\${DateTime.now().millisecondsSinceEpoch}.pdf',
+        filename: 'report_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
     } catch (error) {
       _message('ساخت یا اشتراک PDF ناموفق بود: $error');
