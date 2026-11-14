@@ -29,6 +29,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DemoStore.init();
   await AppSettings.load();
+  await DemoStore.autoBackupIfDue();
   runApp(const HoseinApp());
 }
 
@@ -352,7 +353,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 6,
+      version: 7,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -368,6 +369,7 @@ class DemoStore {
         await db.execute('CREATE INDEX records_category_idx ON records(category)');
         await AppDatabaseSchema.create(db);
         await _createInvoiceArchive(db);
+        await _createPurchaseArchive(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -384,6 +386,10 @@ class DemoStore {
         }
         if (oldVersion < 5) await _createInvoiceArchive(db);
         if (oldVersion < 6) await AccountingEngine.createTables(db);
+        if (oldVersion < 7) {
+          await _createPurchaseArchive(db);
+          await _backfillPurchaseArchive(db);
+        }
       },
     );
     await _loadCategory('products', products);
@@ -392,6 +398,7 @@ class DemoStore {
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
     await _backfillInvoiceArchive(_db!);
+    await _backfillPurchaseArchive(_db!);
     await AccountingEngine.ensureDefaultAccounts(_db!);
   }
 
@@ -413,6 +420,114 @@ class DemoStore {
       BEFORE DELETE ON invoice_archive BEGIN
         SELECT RAISE(ABORT, 'Archived invoices cannot be deleted');
       END''');
+  }
+
+  static Future<void> _createPurchaseArchive(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS purchase_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        legacy_source_id INTEGER NOT NULL UNIQUE,
+        purchase_number TEXT NOT NULL UNIQUE,
+        snapshot_json TEXT NOT NULL,
+        archived_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS purchase_archive_no_update
+      BEFORE UPDATE ON purchase_archive BEGIN
+        SELECT RAISE(ABORT, 'Archived purchase documents are immutable');
+      END''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS purchase_archive_no_delete
+      BEFORE DELETE ON purchase_archive BEGIN
+        SELECT RAISE(ABORT, 'Archived purchase documents cannot be deleted');
+      END''');
+  }
+
+  static Future<void> _backfillPurchaseArchive(DatabaseExecutor db) async {
+    await _createPurchaseArchive(db);
+    final rows = await db.query('records',
+      where: 'category = ?', whereArgs: ['operations'], orderBy: 'id ASC');
+    for (final row in rows) {
+      final sourceId = row['id'] as int;
+      try {
+        final operation = jsonDecode(row['data'] as String) as Map<String, dynamic>;
+        if (operation['نوع عملیات'] != 'خرید کالا') continue;
+        final existing = await db.query('purchase_archive',
+          columns: ['id'], where: 'legacy_source_id = ?',
+          whereArgs: [sourceId], limit: 1);
+        if (existing.isNotEmpty) continue;
+        final productId = int.tryParse((operation['شناسه کالای انبار'] ?? '').toString());
+        Map<String, dynamic> productSnapshot = <String, dynamic>{};
+        if (productId != null) {
+          final productRows = await db.query('products', where: 'id = ?',
+            whereArgs: [productId], limit: 1);
+          if (productRows.isNotEmpty) productSnapshot = productRows.first;
+        }
+        final number = 'PUR-<escape>:</escape>' + sourceId.toString().padLeft(6, '0');
+        await db.insert('purchase_archive', {
+          'legacy_source_id': sourceId,
+          'purchase_number': number,
+          'snapshot_json': jsonEncode({
+            'operation': operation,
+            'product': productSnapshot,
+          }),
+          'archived_at': (row['created_at'] as String?) ?? DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      } catch (_) {
+        // A malformed old purchase remains in the ledger; do not block startup.
+      }
+    }
+  }
+
+  static Future<void> autoBackupIfDue() async {
+    try {
+      final root = await getApplicationDocumentsDirectory();
+      final folder = Directory(p.join(root.path, 'پشتیبان‌های خودکار'));
+      if (!await folder.exists()) await folder.create(recursive: true);
+      final now = DateTime.now();
+      final day = now.year.toString().padLeft(4, '0') + '-' +
+          now.month.toString().padLeft(2, '0') + '-' +
+          now.day.toString().padLeft(2, '0');
+      final backupFile = File(p.join(folder.path, 'backup_' + day + '.hfbak'));
+      if (await backupFile.exists()) return;
+      await database.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      final source = File(database.path);
+      if (!await source.exists()) return;
+      final settings = <String, Object?>{
+        'store_name': AppSettings.storeName,
+        'app_name': AppSettings.appName,
+        'currency': AppSettings.currency,
+        'vat_percent': AppSettings.vatPercent,
+        'default_discount_percent': AppSettings.defaultDiscountPercent,
+        'invoice_prefix': AppSettings.invoicePrefix,
+        'next_invoice_number': AppSettings.nextInvoiceNumber,
+        'manager_name': AppSettings.managerName,
+        'phone': AppSettings.phone,
+        'address': AppSettings.address,
+        'postal_code': AppSettings.postalCode,
+        'theme_mode': AppSettings.themeMode,
+        'dark_mode': AppSettings.darkMode,
+        'drawer_image': AppSettings.drawerImage,
+        'font_scale': AppSettings.fontScale,
+        'product_image_mode': AppSettings.productImageMode,
+        'product_groups': AppSettings.productGroups,
+      };
+      final bundle = <String, Object?>{
+        'format': 'khadamat_fanni_hosein_backup',
+        'format_version': 1,
+        'created_at': now.toIso8601String(),
+        'database_base64': base64Encode(await source.readAsBytes()),
+        'settings': settings,
+      };
+      await backupFile.writeAsString(jsonEncode(bundle), encoding: utf8, flush: true);
+      final oldFiles = folder.listSync().whereType<File>()
+        .where((file) => file.path.endsWith('.hfbak')).toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+      for (final old in oldFiles.skip(7)) {
+        await old.delete();
+      }
+    } catch (_) {
+      // Local automatic backup failure must not block opening the app.
+    }
   }
 
   static Future<void> _backfillInvoiceArchive(DatabaseExecutor db) async {
@@ -577,6 +692,10 @@ class DemoStore {
         where: 'legacy_source_id = ?', whereArgs: [productRecordId], limit: 1);
       if (normalized.isEmpty) throw StateError('ثبت کالای خریداری‌شده در انبار کامل نشد.');
       final productId = normalized.first['id'] as int;
+      operation['شناسه کالای انبار'] = productId.toString();
+      operation['تعداد خرید'] = quantity.toString();
+      operation['نام کالا'] = product['نام کالا'] ?? '';
+      operation['بهای تمام‌شده هر واحد'] = unitCost.toString();
 
       final operationId = await txn.insert('records', {
         'category': 'operations',
@@ -586,6 +705,15 @@ class DemoStore {
       await AppDatabaseSchema.insertLegacyRecord(
         txn, 'operations', operation, operationId, createdAt,
       );
+      await txn.insert('purchase_archive', {
+        'legacy_source_id': operationId,
+        'purchase_number': 'PUR-' + operationId.toString().padLeft(6, '0'),
+        'snapshot_json': jsonEncode({
+          'operation': operation,
+          'product': product,
+        }),
+        'archived_at': createdAt,
+      });
 
       await AccountingEngine.recordStockMovementInTransaction(
         txn,
