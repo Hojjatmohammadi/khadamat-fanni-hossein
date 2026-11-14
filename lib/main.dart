@@ -354,7 +354,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 7,
+      version: 8,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -390,6 +390,10 @@ class DemoStore {
         if (oldVersion < 7) {
           await _createPurchaseArchive(db);
           await _backfillPurchaseArchive(db);
+        }
+        if (oldVersion < 8) {
+          await AccountingEngine.createTables(db);
+          await AccountingEngine.ensureDefaultAccounts(db);
         }
       },
     );
