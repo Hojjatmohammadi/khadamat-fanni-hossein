@@ -2040,7 +2040,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
       if (widget.title == 'فاکتور فروش') {
         final quantity = _ledgerAmount(item['تعداد']);
         final gross = _ledgerAmount(item['مبلغ کل']);
-        final discount = _ledgerAmount(item['تخفیف']);
+        var discount = _ledgerAmount(item['تخفیف']);
+        if ((item['تخفیف'] ?? '').trim().isEmpty && AppSettings.defaultDiscountPercent > 0) {
+          discount = gross * AppSettings.defaultDiscountPercent / 100;
+          item['تخفیف'] = discount.toStringAsFixed(0);
+        }
         final received = _ledgerAmount(item['مبلغ دریافتی']);
         if (quantity <= 0 || gross < 0 || discount < 0 || received < 0 || discount > gross) {
           ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('تعداد، مبلغ فاکتور یا تخفیف نامعتبر است.')));
@@ -2104,9 +2108,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           if ((item['تخفیف'] ?? '').trim().isEmpty && AppSettings.defaultDiscountPercent > 0) {
             item['تخفیف'] = (gross * AppSettings.defaultDiscountPercent / 100).toStringAsFixed(0);
           }
-          final tax = gross * AppSettings.vatPercent / 100;
-          item['درصد مالیات'] = AppSettings.vatPercent.toString();
-          item['مبلغ مالیات'] = tax.toStringAsFixed(0);
+          item['درصد مالیات'] = item['درصد ارزش افزوده'] ?? AppSettings.vatPercent.toString();
         }
         final linkedRepairId = (item['پذیرش تعمیر مرتبط'] ?? '').trim();
         if (linkedRepairId.isNotEmpty) {
