@@ -421,6 +421,414 @@ class AppDatabaseSchema {
     }
   }
 
+  /// Rebuilds missing journal entries for legacy documents that predate the
+  /// double-entry ledger. Each source is posted at most once by the journal
+  /// source unique index; original JSON documents remain unchanged.
+  static Future<void> migrateHistoricalJournals(DatabaseExecutor db) async {
+    await AccountingEngine.ensureDefaultAccounts(db);
+    final records = await db.query(
+      'records',
+      columns: ['id', 'category', 'data', 'created_at'],
+      where: 'category IN (?, ?)',
+      whereArgs: ['sales', 'operations'],
+      orderBy: 'id ASC',
+    );
+
+    Future<double> balanceFor(String code, {String partyType = '', int? partyId}) async {
+      final accountId = await AccountingEngine.accountId(db, code);
+      final clauses = <String>['account_id = ?'];
+      final args = <Object?>[accountId];
+      if (partyType.isNotEmpty) {
+        clauses.add('party_type = ?');
+        args.add(partyType);
+      }
+      if (partyId != null) {
+        clauses.add('party_id = ?');
+        args.add(partyId);
+      }
+      final rows = await db.rawQuery(
+        'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE ' +
+          clauses.join(' AND '),
+        args,
+      );
+      return (rows.first['balance'] as num).toDouble();
+    }
+
+    for (final record in records) {
+      final sourceId = record['id'] as int;
+      final category = (record['category'] ?? '').toString();
+      final sourceType = category == 'sales' ? 'sale' : null;
+      final data = _decode(record['data']);
+      final operation = _text(data, 'نوع عملیات');
+      final isPurchase = category == 'operations' && operation == 'خرید کالا';
+      final journalType = category == 'sales' ? 'sale' : isPurchase ? 'purchase' : 'operation';
+      final exists = await db.query(
+        'journal_entries',
+        columns: ['id'],
+        where: 'source_type = ? AND source_id = ?',
+        whereArgs: [journalType, sourceId.toString()],
+        limit: 1,
+      );
+      if (exists.isNotEmpty) continue;
+
+      final date = DateTime.tryParse(_text(data, 'تاریخ میلادی')) ??
+          DateTime.tryParse(_text(data, 'تاریخ')) ??
+          DateTime.tryParse((record['created_at'] ?? '').toString()) ??
+          DateTime.now();
+      final lines = <JournalLineInput>[];
+
+      if (category == 'sales') {
+        final gross = _number(data, 'مبلغ کل');
+        final discount = _number(data, 'تخفیف');
+        final tax = _number(data, 'مبلغ مالیات');
+        final received = _number(data, 'مبلغ دریافتی');
+        final deposit = _number(data, 'بیعانه تخصیص‌یافته');
+        final total = gross - discount + tax;
+        if (gross < 0 || discount < 0 || tax < 0 || received < 0 ||
+            deposit < 0 || discount > gross || deposit > total + 0.01) {
+          throw StateError('مبالغ فاکتور قدیمی شماره ' +
+            _text(data, 'شماره فاکتور') + ' معتبر نیست؛ مهاجرت حسابداری متوقف شد.');
+        }
+        final customerIdValue = int.tryParse(_text(data, 'شناسه مشتری'));
+        final method = _text(data, 'روش پرداخت');
+        if (received > 0) {
+          final cashCode = method == 'چک' ? '1020'
+              : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, cashCode),
+            debit: received,
+            memo: 'دریافت فاکتور قدیمی ' + _text(data, 'شماره فاکتور'),
+          ));
+        }
+        if (deposit > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '2010'),
+            debit: deposit,
+            partyType: 'customer',
+            partyId: customerIdValue,
+            memo: 'مصرف بیعانه در فاکتور قدیمی',
+          ));
+        }
+        final settled = received + deposit;
+        if (settled < total - 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '1100'),
+            debit: total - settled,
+            partyType: 'customer',
+            partyId: customerIdValue,
+            memo: 'مانده فاکتور قدیمی',
+          ));
+        } else if (settled > total + 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '2010'),
+            credit: settled - total,
+            partyType: 'customer',
+            partyId: customerIdValue,
+            memo: 'اعتبار مازاد فاکتور قدیمی',
+          ));
+        }
+        if (gross > 0) {
+          final productId = _text(data, 'شناسه کالای انبار');
+          final revenueCode = productId.isEmpty && _text(data, 'کالای انبار').isEmpty
+              ? '4010' : '4000';
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, revenueCode),
+            credit: gross,
+            memo: 'درآمد فاکتور قدیمی ' + _text(data, 'شماره فاکتور'),
+          ));
+        }
+        if (discount > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '4110'),
+            debit: discount,
+            memo: 'تخفیف فاکتور قدیمی',
+          ));
+        }
+        if (tax > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '2200'),
+            credit: tax,
+            memo: 'مالیات فاکتور قدیمی',
+          ));
+        }
+      } else if (isPurchase) {
+        final total = _number(data, 'مبلغ');
+        final paid = _number(data, 'مبلغ پرداخت‌شده');
+        if (total <= 0 || paid < 0 || paid > total + 0.01) {
+          throw StateError('مبلغ خرید قدیمی شماره ' + sourceId.toString() +
+            ' معتبر نیست؛ مهاجرت حسابداری متوقف شد.');
+        }
+        final supplierName = _text(data, 'نام شخص');
+        final supplierIdValue = int.tryParse(_text(data, 'شناسه فروشنده')) ??
+            await ensureSupplier(db, supplierName);
+        final method = _text(data, 'روش');
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: total,
+          memo: 'موجودی بابت خرید قدیمی ' + sourceId.toString(),
+        ));
+        if (paid > 0) {
+          final creditCode = method == 'چک' ? '2110'
+              : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, creditCode),
+            credit: paid,
+            memo: 'پرداخت خرید قدیمی به ' + supplierName,
+          ));
+        }
+        if (total - paid > 0.01) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '2000'),
+            credit: total - paid,
+            partyType: 'supplier',
+            partyId: supplierIdValue,
+            memo: 'بدهی خرید قدیمی به ' + supplierName,
+          ));
+        }
+        data['شناسه فروشنده'] = supplierIdValue.toString();
+        await db.update('records', {'data': jsonEncode(data)},
+          where: 'id = ?', whereArgs: [sourceId]);
+      } else if (category == 'operations') {
+        final partyName = _text(data, 'نام شخص');
+        final partyTypeLabel = _text(data, 'نوع طرف حساب').isEmpty
+            ? 'مشتری' : _text(data, 'نوع طرف حساب');
+        final amount = _number(data, 'مبلغ');
+        if (amount <= 0 || partyName.isEmpty) continue;
+        final customerIdValue = partyTypeLabel == 'مشتری'
+            ? (int.tryParse(_text(data, 'شناسه مشتری')) ??
+              await _findCustomerId(db, partyName))
+            : null;
+        final supplierIdValue = partyTypeLabel == 'فروشنده'
+            ? (int.tryParse(_text(data, 'شناسه فروشنده')) ??
+              await ensureSupplier(db, partyName))
+            : null;
+        final partyType = partyTypeLabel == 'مشتری' ? 'customer'
+            : partyTypeLabel == 'فروشنده' ? 'supplier' : '';
+        if (customerIdValue != null) data['شناسه مشتری'] = customerIdValue.toString();
+        if (supplierIdValue != null) data['شناسه فروشنده'] = supplierIdValue.toString();
+        final method = _text(data, 'روش');
+        final isReceipt = operation == 'دریافت وجه' || operation == 'ثبت بیعانه';
+        final isPayment = operation == 'پرداخت وجه';
+        final isDiscountGiven = operation == 'تخفیف دادن' || operation == 'تخفیف دادن به مشتری';
+        final isDiscountReceived = operation == 'تخفیف گرفتن' || operation == 'تخفیف گرفتن از فروشنده';
+        final isPartyOwes = operation == 'متفرقه شخص بدهکار';
+        final isWeOwe = operation == 'متفرقه شخص بستانکار';
+        final partyId = customerIdValue ?? supplierIdValue;
+
+        if (isReceipt) {
+          final cashCode = method == 'چک' ? '1020'
+              : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, cashCode),
+            debit: amount,
+            memo: 'دریافت قدیمی از ' + partyName,
+          ));
+          if (partyType == 'customer') {
+            final receivable = operation == 'ثبت بیعانه' ? 0.0
+                : (await balanceFor('1100', partyType: partyType, partyId: partyId))
+                    .clamp(0.0, amount).toDouble();
+            if (receivable > 0) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '1100'),
+                credit: receivable,
+                partyType: partyType,
+                partyId: partyId,
+                memo: 'تسویه دریافتنی قدیمی',
+              ));
+            }
+            if (amount - receivable > 0.001) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '2010'),
+                credit: amount - receivable,
+                partyType: partyType,
+                partyId: partyId,
+                memo: 'اعتبار / بیعانه قدیمی مشتری',
+              ));
+            }
+          } else if (partyType == 'supplier') {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '1110'),
+              credit: amount,
+              partyType: partyType,
+              partyId: partyId,
+              memo: 'دریافت از فروشنده',
+            ));
+          } else {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '4000'),
+              credit: amount,
+              memo: 'دریافت متفرقه قدیمی',
+            ));
+          }
+        } else if (isPayment) {
+          final cashCode = method == 'چک' ? '2110'
+              : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, cashCode),
+            credit: amount,
+            memo: 'پرداخت قدیمی به ' + partyName,
+          ));
+          if (partyType == 'supplier') {
+            final payable = (-(await balanceFor('2000', partyType: partyType, partyId: partyId)))
+                .clamp(0.0, amount).toDouble();
+            if (payable > 0) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '2000'),
+                debit: payable,
+                partyType: partyType,
+                partyId: partyId,
+                memo: 'کاهش بدهی فروشنده',
+              ));
+            }
+            if (amount - payable > 0.001) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '1110'),
+                debit: amount - payable,
+                partyType: partyType,
+                partyId: partyId,
+                memo: 'پیش‌پرداخت به فروشنده',
+              ));
+            }
+          } else if (partyType == 'customer') {
+            final credit = (-(await balanceFor('2010', partyType: partyType, partyId: partyId)))
+                .clamp(0.0, amount).toDouble();
+            if (credit > 0) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '2010'),
+                debit: credit,
+                partyType: partyType,
+                partyId: partyId,
+                memo: 'بازپرداخت اعتبار مشتری',
+              ));
+            }
+            if (amount - credit > 0.001) {
+              lines.add(JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, '6000'),
+                debit: amount - credit,
+                memo: 'پرداخت متفرقه به مشتری',
+              ));
+            }
+          } else {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '6000'),
+              debit: amount,
+              memo: 'هزینه پرداختی قدیمی',
+            ));
+          }
+        } else if (isDiscountGiven) {
+          final receivable = partyType == 'customer' && partyId != null
+              ? (await balanceFor('1100', partyType: partyType, partyId: partyId))
+                  .clamp(0.0, amount).toDouble() : 0.0;
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '4110'),
+            debit: amount,
+            memo: 'تخفیف قدیمی مشتری',
+          ));
+          if (receivable > 0) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '1100'),
+              credit: receivable,
+              partyType: partyType,
+              partyId: partyId,
+              memo: 'کاهش دریافتنی بابت تخفیف',
+            ));
+          }
+          if (amount - receivable > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '2010'),
+              credit: amount - receivable,
+              partyType: partyType,
+              partyId: partyId,
+              memo: 'اعتبار تخفیف مشتری',
+            ));
+          }
+        } else if (isDiscountReceived && partyType == 'supplier') {
+          final payable = (-(await balanceFor('2000', partyType: partyType, partyId: partyId)))
+              .clamp(0.0, amount).toDouble();
+          if (payable > 0) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '2000'),
+              debit: payable,
+              partyType: partyType,
+              partyId: partyId,
+              memo: 'کاهش بدهی بابت تخفیف فروشنده',
+            ));
+          }
+          if (amount - payable > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '1110'),
+              debit: amount - payable,
+              partyType: partyType,
+              partyId: partyId,
+              memo: 'طلب مازاد از فروشنده',
+            ));
+          }
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '6010'),
+            credit: amount,
+            memo: 'تخفیف خرید قدیمی',
+          ));
+        } else if (isPartyOwes) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, partyType == 'supplier' ? '1110' : '1100'),
+            debit: amount,
+            partyType: partyType,
+            partyId: partyId,
+            memo: 'ثبت بدهکاری قدیمی ' + partyName,
+          ));
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '4000'),
+            credit: amount,
+            memo: 'درآمد / طلب متفرقه قدیمی',
+          ));
+        } else if (isWeOwe) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, '6000'),
+            debit: amount,
+            memo: 'هزینه / بستانکاری متفرقه قدیمی',
+          ));
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(db, partyType == 'customer' ? '2010' : '2000'),
+            credit: amount,
+            partyType: partyType,
+            partyId: partyId,
+            memo: 'بستانکاری متفرقه قدیمی',
+          ));
+        }
+
+        if (partyId != null) {
+          await db.update('records', {'data': jsonEncode(data)},
+            where: 'id = ?', whereArgs: [sourceId]);
+        }
+      }
+
+      if (lines.length >= 2) {
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: (journalType == 'sale' ? 'MIG-SALE-' :
+              journalType == 'purchase' ? 'MIG-PUR-' : 'MIG-OP-') + sourceId.toString(),
+          occurredAt: date,
+          description: 'مهاجرت سند قدیمی ' + sourceId.toString(),
+          sourceType: journalType,
+          sourceId: sourceId.toString(),
+          lines: lines,
+        );
+      }
+    }
+  }
+
+  static Future<int?> _findCustomerId(DatabaseExecutor db, String customerName) async {
+    if (customerName.trim().isEmpty) return null;
+    final rows = await db.query(
+      'customers',
+      columns: ['id'],
+      where: "TRIM(first_name || ' ' || last_name) = ?",
+      whereArgs: [customerName.trim()],
+      limit: 2,
+    );
+    return rows.length == 1 ? rows.first['id'] as int : null;
+  }
+
   /// Synchronizes editable legacy records with normalized tables.
   static Future<void> updateLegacyRecord(
     DatabaseExecutor db,
@@ -704,15 +1112,38 @@ class AppDatabaseSchema {
     } else if (category == 'repairs') {
       _assertNumeric(data, ['اجرت']);
       final customerName = _text(data, 'نام مشتری');
-      final matches = await db.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [customerName],
-        limit: 2,
-      );
+      final explicitCustomerId = int.tryParse(_text(data, 'شناسه مشتری'));
+      int? repairCustomerId;
+      if (explicitCustomerId != null) {
+        final selected = await db.query(
+          'customers',
+          columns: ['id', 'first_name', 'last_name'],
+          where: 'id = ?',
+          whereArgs: [explicitCustomerId],
+          limit: 1,
+        );
+        if (selected.isEmpty) throw StateError('پرونده مشتری انتخاب‌شده برای پذیرش تعمیر پیدا نشد.');
+        final selectedName = ((selected.first['first_name'] ?? '').toString() + ' ' +
+          (selected.first['last_name'] ?? '').toString()).trim();
+        if (selectedName != customerName) {
+          throw StateError('نام مشتری پذیرش با پرونده انتخاب‌شده مطابقت ندارد.');
+        }
+        repairCustomerId = explicitCustomerId;
+      } else {
+        repairCustomerId = await _findCustomerId(db, customerName);
+        final matches = await db.query(
+          'customers',
+          columns: ['id'],
+          where: "TRIM(first_name || ' ' || last_name) = ?",
+          whereArgs: [customerName],
+          limit: 2,
+        );
+        if (matches.length > 1) {
+          throw StateError('نام مشتری پذیرش تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.');
+        }
+      }
       await db.insert('repairs', {
-        'customer_id': matches.length == 1 ? matches.first['id'] : null,
+        'customer_id': repairCustomerId,
         'customer_name_snapshot': customerName,
         'device_type': _text(data, 'نوع دستگاه'),
         'problem_description': _text(data, 'شرح عیب'),
