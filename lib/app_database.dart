@@ -288,6 +288,59 @@ class AppDatabase {
     return double.tryParse(_normalizeDigits(value?.toString() ?? '')) ?? 0;
   }
 
+  static Future<int?> _insertOpeningStockJournal({
+    required DatabaseExecutor db,
+    required int productId,
+    required int totalCost,
+    required String occurredAt,
+  }) async {
+    if (totalCost <= 0) return null;
+
+    final idempotencyKey = 'opening-stock-journal-' + productId.toString();
+    final description = 'سند افتتاحیه موجودی کالای شماره ' + productId.toString();
+    final payload = jsonEncode({
+      'entryDate': occurredAt,
+      'description': description,
+      'idempotencyKey': idempotencyKey,
+      'referenceType': 'opening_stock',
+      'referenceId': productId.toString(),
+      'lines': [
+        {'accountCode': '1200', 'debit': totalCost, 'credit': 0},
+        {'accountCode': '3000', 'debit': 0, 'credit': totalCost},
+      ],
+    });
+    final now = DateTime.now().toIso8601String();
+    final entryId = await db.insert('journal_entries', {
+      'entry_date': occurredAt,
+      'description': description,
+      'reference_type': 'opening_stock',
+      'reference_id': productId.toString(),
+      'idempotency_key': idempotencyKey,
+      'payload_json': payload,
+      'reversal_of_id': null,
+      'created_at': now,
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': entryId,
+      'line_no': 1,
+      'account_code': '1200',
+      'debit': totalCost,
+      'credit': 0,
+      'party_id': null,
+      'memo': 'ارزش موجودی افتتاحیه',
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': entryId,
+      'line_no': 2,
+      'account_code': '3000',
+      'debit': 0,
+      'credit': totalCost,
+      'party_id': null,
+      'memo': 'مانده افتتاحیه سرمایه',
+    });
+    return entryId;
+  }
+
   static Future<void> _migrateOpeningStock(DatabaseExecutor db) async {
     final products = await db.query(
       'products',
@@ -306,11 +359,19 @@ class AppDatabase {
       final productId = product['id'] as int;
       final occurredAt = product['created_at']?.toString() ??
           DateTime.fromMillisecondsSinceEpoch(0).toIso8601String();
+      final totalCost = (quantity * unitCost).round();
+      final journalEntryId = await _insertOpeningStockJournal(
+        db: db,
+        productId: productId,
+        totalCost: totalCost,
+        occurredAt: occurredAt,
+      );
       final payload = jsonEncode({
         'productId': productId,
         'type': 'opening_balance',
         'quantityDelta': quantity,
         'unitCost': unitCost,
+        'totalCost': totalCost,
         'occurredAt': occurredAt,
       });
 
@@ -321,13 +382,13 @@ class AppDatabase {
           'movement_type': 'opening_balance',
           'quantity_delta': quantity,
           'unit_cost': unitCost,
-          'total_cost': (quantity * unitCost).round(),
+          'total_cost': totalCost,
           'occurred_at': occurredAt,
           'reference_type': 'database_migration',
           'reference_id': productId.toString(),
           'idempotency_key': 'migration-opening-product-' + productId.toString(),
           'payload_json': payload,
-          'journal_entry_id': null,
+          'journal_entry_id': journalEntryId,
           'created_at': DateTime.now().toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
@@ -386,11 +447,19 @@ class AppDatabase {
           throw ArgumentError('موجودی و بهای تمام‌شده کالا نمی‌تواند منفی باشد');
         }
         if (quantity > 0) {
+          final totalCost = (quantity * unitCost).round();
+          final journalEntryId = await _insertOpeningStockJournal(
+            db: txn,
+            productId: id,
+            totalCost: totalCost,
+            occurredAt: now,
+          );
           final payload = jsonEncode({
             'productId': id,
             'type': 'opening_balance',
             'quantityDelta': quantity,
             'unitCost': unitCost,
+            'totalCost': totalCost,
             'occurredAt': now,
           });
           await txn.insert('inventory_movements', {
@@ -398,13 +467,13 @@ class AppDatabase {
             'movement_type': 'opening_balance',
             'quantity_delta': quantity,
             'unit_cost': unitCost,
-            'total_cost': (quantity * unitCost).round(),
+            'total_cost': totalCost,
             'occurred_at': now,
             'reference_type': 'product_creation',
             'reference_id': id.toString(),
             'idempotency_key': 'product-opening-' + id.toString(),
             'payload_json': payload,
-            'journal_entry_id': null,
+            'journal_entry_id': journalEntryId,
             'created_at': now,
           });
         }
