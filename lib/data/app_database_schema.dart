@@ -1060,17 +1060,40 @@ class AppDatabaseSchema {
       );
       if (repairRows.isEmpty) throw StateError('پذیرش تعمیر برای ویرایش پیدا نشد.');
       final customerName = _text(item, 'نام مشتری');
-      final matches = await db.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [customerName],
-        limit: 2,
-      );
+      final explicitCustomerId = int.tryParse(_text(item, 'شناسه مشتری'));
+      int? repairCustomerId;
+      if (explicitCustomerId != null) {
+        final selected = await db.query(
+          'customers',
+          columns: ['id', 'first_name', 'last_name'],
+          where: 'id = ?',
+          whereArgs: [explicitCustomerId],
+          limit: 1,
+        );
+        if (selected.isEmpty) throw StateError('پرونده مشتری انتخاب‌شده برای پذیرش تعمیر پیدا نشد.');
+        final selectedName = ((selected.first['first_name'] ?? '').toString() + ' ' +
+          (selected.first['last_name'] ?? '').toString()).trim();
+        if (selectedName != customerName) {
+          throw StateError('نام مشتری با پرونده انتخاب‌شده مطابقت ندارد.');
+        }
+        repairCustomerId = explicitCustomerId;
+      } else {
+        repairCustomerId = await _findCustomerId(db, customerName);
+        final matches = await db.query(
+          'customers',
+          columns: ['id'],
+          where: "TRIM(first_name || ' ' || last_name) = ?",
+          whereArgs: [customerName],
+          limit: 2,
+        );
+        if (matches.length > 1) {
+          throw StateError('نام مشتری تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.');
+        }
+      }
       await db.update(
         'repairs',
         {
-          'customer_id': matches.length == 1 ? matches.first['id'] : null,
+          'customer_id': repairCustomerId,
           'customer_name_snapshot': customerName,
           'device_type': _text(item, 'نوع دستگاه'),
           'problem_description': _text(item, 'شرح عیب'),
@@ -1292,7 +1315,11 @@ class AppDatabaseSchema {
         if (quantity > onHand + 0.000001) {
           throw StateError('موجودی کالا کافی نیست. موجودی فعلی: ' + onHand.toString());
         }
-        final unitCost = (product['purchase_price'] as num).toDouble();
+        final unitCost = await AccountingEngine.averageUnitCost(
+          db,
+          productId,
+          fallback: (product['purchase_price'] as num).toDouble(),
+        );
         productIsUsed = product['is_used'] == 1;
         costOfGoods = unitCost * quantity;
         await AccountingEngine.recordStockMovementInTransaction(
