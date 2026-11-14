@@ -3695,11 +3695,13 @@ class _ReportsPageState extends State<ReportsPage> {
   Jalali? _fromDate;
   Jalali? _toDate;
   late Future<List<Map<String, Object?>>> _recordsFuture;
+  late Future<Map<String, double>> _financialTotalsFuture;
 
   @override
   void initState() {
     super.initState();
     _recordsFuture = _loadRecords();
+    _financialTotalsFuture = _loadFinancialTotals();
   }
 
   Future<List<Map<String, Object?>>> _loadRecords() => DemoStore.database.query(
@@ -3707,6 +3709,68 @@ class _ReportsPageState extends State<ReportsPage> {
     columns: ['category', 'created_at', 'data'],
     orderBy: 'created_at DESC',
   );
+
+  Future<Map<String, double>> _loadFinancialTotals() async {
+    final where = <String>[];
+    final args = <Object?>[];
+    if (_fromDate != null) {
+      where.add('e.occurred_at >= ?');
+      args.add(_fromDate!.toDateTime().toIso8601String());
+    }
+    if (_toDate != null) {
+      where.add('e.occurred_at < ?');
+      args.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
+    }
+    final sqlWhere = where.isEmpty ? '' : 'WHERE ' + where.join(' AND ');
+    final accountRows = await DemoStore.database.rawQuery('''
+      SELECT a.code, a.type,
+        COALESCE(SUM(l.debit), 0) AS debit,
+        COALESCE(SUM(l.credit), 0) AS credit
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.entry_id
+      JOIN accounts a ON a.id = l.account_id
+      $sqlWhere
+      GROUP BY a.code, a.type
+    ''', args);
+    var income = 0.0;
+    var expenses = 0.0;
+    var costOfGoods = 0.0;
+    for (final row in accountRows) {
+      final code = row['code'].toString();
+      final type = row['type'].toString();
+      final debit = (row['debit'] as num).toDouble();
+      final credit = (row['credit'] as num).toDouble();
+      if (type == 'income') income += credit - debit;
+      if (type == 'expense') expenses += debit - credit;
+      if (code == '5000') costOfGoods += debit - credit;
+    }
+    final movementWhere = <String>["movement_type = 'purchase'"];
+    final movementArgs = <Object?>[];
+    if (_fromDate != null) {
+      movementWhere.add('occurred_at >= ?');
+      movementArgs.add(_fromDate!.toDateTime().toIso8601String());
+    }
+    if (_toDate != null) {
+      movementWhere.add('occurred_at < ?');
+      movementArgs.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
+    }
+    final purchaseRows = await DemoStore.database.rawQuery(
+      'SELECT COALESCE(SUM(total_cost), 0) AS total FROM stock_movements WHERE ' + movementWhere.join(' AND '),
+      movementArgs,
+    );
+    final stockRows = await DemoStore.database.rawQuery(
+      'SELECT COALESCE(SUM(quantity * purchase_price), 0) AS total FROM products',
+    );
+    return {
+      'salesNet': income,
+      'expenses': expenses,
+      'costOfGoods': costOfGoods,
+      'grossProfit': income - costOfGoods,
+      'netProfit': income - expenses,
+      'purchases': (purchaseRows.first['total'] as num).toDouble(),
+      'inventoryValue': (stockRows.first['total'] as num).toDouble(),
+    };
+  }
 
   Future<void> _chooseDate({required bool isStart}) async {
     final now = Jalali.now();
@@ -3730,6 +3794,7 @@ class _ReportsPageState extends State<ReportsPage> {
         _toDate = picked;
         if (_fromDate != null && _fromDate!.toDateTime().isAfter(picked.toDateTime())) _fromDate = picked;
       }
+      _financialTotalsFuture = _loadFinancialTotals();
     });
   }
 
@@ -3829,7 +3894,7 @@ class _ReportsPageState extends State<ReportsPage> {
             )),
             IconButton(
               tooltip: 'به‌روزرسانی',
-              onPressed: () => setState(() => _recordsFuture = _loadRecords()),
+              onPressed: () => setState(() { _recordsFuture = _loadRecords(); _financialTotalsFuture = _loadFinancialTotals(); }),
               icon: const Icon(Icons.refresh),
             ),
           ]),
@@ -3851,11 +3916,45 @@ class _ReportsPageState extends State<ReportsPage> {
                     OutlinedButton.icon(onPressed: () => _chooseDate(isStart: true), icon: const Icon(Icons.calendar_month), label: Text('از تاریخ: ${_dateLabel(_fromDate)}')),
                     OutlinedButton.icon(onPressed: () => _chooseDate(isStart: false), icon: const Icon(Icons.event), label: Text('تا تاریخ: ${_dateLabel(_toDate)}')),
                     Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; }),
+                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; _financialTotalsFuture = _loadFinancialTotals(); }),
                       icon: const Icon(Icons.filter_alt_off), label: const Text('حذف فیلتر تاریخ'),
                     )),
                   ]),
                 )),
+                FutureBuilder<Map<String, double>>(
+                  future: _financialTotalsFuture,
+                  builder: (context, financialSnapshot) {
+                    if (financialSnapshot.connectionState != ConnectionState.done) {
+                      return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
+                    }
+                    if (financialSnapshot.hasError) {
+                      return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('محاسبه گزارش مالی ناموفق بود: \${financialSnapshot.error}')));
+                    }
+                    final totals = financialSnapshot.data ?? const <String, double>{};
+                    String money(String key) => (totals[key] ?? 0).toStringAsFixed(0) + ' تومان';
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('گزارش مالی از دفتر حسابداری دوبل', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Text('فروش و درآمد خالص پس از برگشت و تخفیف: \${money('salesNet')}'),
+                            Text('خریدهای ثبت‌شده در گردش انبار: \${money('purchases')}'),
+                            Text('بهای تمام‌شده کالای فروش‌رفته: \${money('costOfGoods')}'),
+                            Text('سود ناخالص: \${money('grossProfit')}'),
+                            Text('هزینه‌ها: \${money('expenses')}'),
+                            Text('سود خالص: \${money('netProfit')}'),
+                            Text('ارزش فعلی موجودی انبار: \${money('inventoryValue')}'),
+                            const SizedBox(height: 6),
+                            const Text('توجه: محاسبات دفتر کل برای خریدها و فروش‌هایی است که با نسخهٔ جدید ثبت شده‌اند؛ اسناد قدیمی پیش از اتصال به دفتر دوبل، خودکار به سوابق حسابداری تبدیل نشده‌اند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 for (final entry in categories)
                   Card(child: ListTile(
                     leading: Icon(entry.$3), title: Text(entry.$1),
