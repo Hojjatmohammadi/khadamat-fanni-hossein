@@ -278,6 +278,50 @@ void main() {
     );
   });
 
+  test('schema v9 upgrade seeds stock count surplus and shortage accounts', () async {
+    final legacyPath = '${tempDir.path}/legacy_v9.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 9,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE accounts (
+              code TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              account_type TEXT NOT NULL,
+              normal_side TEXT NOT NULL,
+              is_system INTEGER NOT NULL DEFAULT 1
+            )
+          ''');
+          await db.insert('accounts', {
+            'code': '1000',
+            'name': 'صندوق',
+            'account_type': 'asset',
+            'normal_side': 'debit',
+            'is_system': 1,
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final upgraded = AppDatabase(databasePath: legacyPath);
+    final db = await upgraded.database;
+    final accounts = await db.query(
+      'accounts',
+      where: 'code IN (?, ?)',
+      whereArgs: ['4055', '5200'],
+      orderBy: 'code ASC',
+    );
+
+    expect(accounts.map((row) => row['code']), ['4055', '5200']);
+    expect(accounts.first['account_type'], 'income');
+    expect(accounts.last['account_type'], 'expense');
+    expect(await db.rawQuery('PRAGMA user_version'), isNotEmpty);
+    await upgraded.close();
+  });
+
   test('rejects unknown categories and empty records', () async {
     await expectLater(
       store.insert('unknown', {'عنوان': 'نمونه'}),
