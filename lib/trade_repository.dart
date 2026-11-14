@@ -906,6 +906,7 @@ class TradeRepository {
 
       final sourceDocumentId = int.tryParse(draft.referenceId ?? '');
       var effectiveCounterpartyId = draft.counterpartyId;
+      var effectiveCounterpartyName = draft.counterpartyName;
       if (draft.referenceId != null && sourceDocumentId == null) {
         throw ArgumentError('شناسه فاکتور مرتبط با دریافت یا پرداخت معتبر نیست');
       }
@@ -930,6 +931,8 @@ class TradeRepository {
         // A linked settlement always inherits the invoice party when the
         // caller omits it, so its journal line remains visible in the ledger.
         effectiveCounterpartyId ??= source['counterparty_id']?.toString();
+        final sourceName = source['counterparty_name']?.toString().trim() ?? '';
+        if (sourceName.isNotEmpty) effectiveCounterpartyName = sourceName;
         final paymentRows = await txn.rawQuery(
           'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
           'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
@@ -993,8 +996,8 @@ class TradeRepository {
         JournalEntryDraft(
           entryDate: draft.documentDate,
           description: isCustomerReceipt
-              ? 'دریافت از مشتری ${draft.counterpartyName.trim()}'
-              : 'پرداخت به فروشنده ${draft.counterpartyName.trim()}',
+              ? 'دریافت از مشتری ${effectiveCounterpartyName.trim()}'
+              : 'پرداخت به فروشنده ${effectiveCounterpartyName.trim()}',
           idempotencyKey: '${type}-journal-${draft.idempotencyKey}',
           referenceType: type,
           referenceId: draft.referenceId,
@@ -1006,7 +1009,7 @@ class TradeRepository {
         type: type,
         date: draft.documentDate,
         prefix: isCustomerReceipt ? 'RCV' : 'PAY',
-        counterpartyName: draft.counterpartyName,
+        counterpartyName: effectiveCounterpartyName,
         counterpartyId: effectiveCounterpartyId,
         subtotal: draft.amount,
         discount: 0,
