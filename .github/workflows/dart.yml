@@ -55,7 +55,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate Android launcher icon
-        run: dart run flutter_launcher_icons
+        run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
 
       - name: Run Flutter unit tests
         run: flutter test
