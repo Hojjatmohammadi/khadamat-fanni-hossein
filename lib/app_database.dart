@@ -422,7 +422,7 @@ class AppDatabase {
       final name = (decoded['نام مشتری'] ?? decoded['نام'] ?? '').toString().trim();
       if (name.isEmpty) continue;
       final id = 'customer:${row['id']}';
-      final normalized = name.toLowerCase().replaceAll(RegExp(r'\\s+'), ' ');
+      final normalized = name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
       await db.insert(
         'parties',
         {
