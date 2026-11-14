@@ -49,7 +49,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
       final selectedExpense = expenseAccounts.any((a) => a['code'] == _expenseAccount)
           ? _expenseAccount
           : expenseAccounts.first['code'] as String;
-      final ledgerAccounts = accounts.where((a) => a['account_type'] != 'expense' || true).toList();
+      final ledgerAccounts = accounts;
       final selectedLedger = ledgerAccounts.any((a) => a['code'] == _ledgerAccount)
           ? _ledgerAccount
           : accounts.isEmpty ? null : accounts.first['code'] as String;
