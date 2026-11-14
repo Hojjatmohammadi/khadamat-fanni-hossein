@@ -147,6 +147,7 @@ class AccountingEngine {
         original_category TEXT NOT NULL CHECK(original_category IN ('sales','operations')),
         original_source_id INTEGER NOT NULL,
         product_id INTEGER,
+        line_index INTEGER NOT NULL DEFAULT 0,
         quantity REAL NOT NULL DEFAULT 0 CHECK(quantity >= 0),
         amount REAL NOT NULL CHECK(amount > 0),
         reason TEXT NOT NULL DEFAULT '',
@@ -156,6 +157,15 @@ class AccountingEngine {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS document_returns_source_idx ON document_returns(original_category, original_source_id, occurred_at)');
+  }
+
+  /// Adds invoice-line identity for installations created before schema v12.
+  static Future<void> ensureReturnLineIndexColumn(DatabaseExecutor db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(document_returns)');
+    final names = columns.map((row) => row['name'].toString()).toSet();
+    if (!names.contains('line_index')) {
+      await db.execute('ALTER TABLE document_returns ADD COLUMN line_index INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   static Future<void> ensureDefaultAccounts(DatabaseExecutor db) async {
