@@ -847,6 +847,128 @@ class _ProductPageState extends State<ProductPage> {
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
+  Future<void> adjustProductStock(Map<String, String> product) async {
+    final productId = int.tryParse(product['__database_id'] ?? '');
+    if (productId == null) return;
+
+    final countedController =
+        TextEditingController(text: product['موجودی'] ?? '0');
+    final reasonController = TextEditingController();
+    final currentStock =
+        LocalizedNumber.parseDoubleOrZero(product['موجودی'] ?? '0');
+    final fallbackCost = LocalizedNumber.parseIntOrZero(
+      product['بهای تمام‌شده هر واحد'] ??
+          product['قیمت خرید هر واحد'] ??
+          '0',
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('انبارگردانی: ${product['نام کالا'] ?? 'کالا'}'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('موجودی فعلی دفتر: ${currentStock.toString()} عدد'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: countedController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'تعداد واقعی شمارش‌شده',
+                    helperText: 'عدد نهایی موجودی را وارد کنید، نه مقدار اختلاف را',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'علت اصلاح موجودی',
+                    hintText: 'مثلاً شمارش دوره‌ای یا ثبت کسری',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'اختلاف به‌صورت خودکار با میانگین بهای تمام‌شده موجودی ارزش‌گذاری و همراه سند حسابداری ثبت می‌شود.',
+                  style: TextStyle(fontSize: 11, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final counted =
+                    LocalizedNumber.tryParseDouble(countedController.text);
+                final reason = reasonController.text.trim();
+                if (counted == null || counted < 0 || reason.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تعداد واقعی و علت معتبر را وارد کنید'),
+                    ),
+                  );
+                  return;
+                }
+                if ((counted - currentStock).abs() < 0.0000001) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تعداد شمارش‌شده با دفتر برابر است و اصلاح لازم نیست'),
+                    ),
+                  );
+                  return;
+                }
+                try {
+                  await DemoStore.accounting.recordStockAdjustment(
+                    productId: productId,
+                    countedQuantity: counted,
+                    fallbackUnitCost: fallbackCost,
+                    occurredAt: DateTime.now().toIso8601String(),
+                    reason: reason,
+                    idempotencyKey:
+                        'stock-count-$productId-${DateTime.now().microsecondsSinceEpoch}',
+                  );
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext, true);
+                  }
+                } catch (error) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('انبارگردانی ثبت نشد: $error')),
+                    );
+                  }
+                }
+              },
+              child: const Text('ثبت اصلاح موجودی'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    countedController.dispose();
+    reasonController.dispose();
+    if (saved == true && mounted) {
+      await DemoStore.refreshProducts();
+      if (!mounted) return;
+      setState(() {});
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('انبارگردانی و سند حسابداری با موفقیت ثبت شد'),
+        ),
+      );
+    }
+  }
+
   Future<void> viewProductMovements(Map<String, String> product) async {
     final productId = int.tryParse(product['__database_id'] ?? '');
     if (productId == null) return;
@@ -1219,18 +1341,39 @@ class _ProductPageState extends State<ProductPage> {
                             ' • فروش: ${item['قیمت فروش'] ?? '0'} تومان',
                           ),
                           isThreeLine: true,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'گردش ورود و خروج کالا',
-                                onPressed: () => viewProductMovements(item),
-                                icon: const Icon(Icons.history),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'عملیات کالا',
+                            onSelected: (action) {
+                              switch (action) {
+                                case 'edit':
+                                  editProduct(item);
+                                case 'history':
+                                  viewProductMovements(item);
+                                case 'count':
+                                  adjustProductStock(item);
+                              }
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit_outlined),
+                                  title: Text('ویرایش مشخصات'),
+                                ),
                               ),
-                              IconButton(
-                                tooltip: 'ویرایش مشخصات کالا',
-                                onPressed: () => editProduct(item),
-                                icon: const Icon(Icons.edit_outlined),
+                              PopupMenuItem(
+                                value: 'history',
+                                child: ListTile(
+                                  leading: Icon(Icons.history),
+                                  title: Text('گردش ورود و خروج'),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'count',
+                                child: ListTile(
+                                  leading: Icon(Icons.fact_check_outlined),
+                                  title: Text('انبارگردانی و اصلاح موجودی'),
+                                ),
                               ),
                             ],
                           ),
