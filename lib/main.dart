@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'app_database.dart';
 import 'trade_repository.dart';
+import 'accounting_repository.dart';
+import 'financial_management_page.dart';
 import 'party_repository.dart';
 import 'check_repository.dart';
 import 'party_ledger_page.dart';
@@ -45,6 +47,7 @@ class HoseinApp extends StatelessWidget {
 class DemoStore {
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
+  static final AccountingRepository accounting = AccountingRepository(_database);
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
   static final products = <Map<String, String>>[];
@@ -141,7 +144,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -213,6 +216,7 @@ class _HomePageState extends State<HomePage> {
         onChanged: () => setState(() {}),
       ),
       const ReportsPage(),
+      FinancialManagementPage(repository: DemoStore.accounting),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -255,7 +259,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -343,7 +347,7 @@ class Dashboard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور'), (6, 'دفتر گردش اشخاص'), (7, 'مدیریت چک‌ها')])
+        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور'), (6, 'دفتر گردش اشخاص'), (7, 'مدیریت چک‌ها'), (9, 'دفتر روزنامه و هزینه‌ها')])
           Card(
             child: ListTile(
               title: Text(e.$2),
