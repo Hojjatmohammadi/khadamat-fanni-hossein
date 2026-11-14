@@ -3743,6 +3743,213 @@ class _OperationsPageState extends State<OperationsPage> {
   static const options = ['تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
+  Future<void> _postCheckStatusJournal(
+    DatabaseExecutor txn,
+    Map<String, Object?> check,
+    String oldStatus,
+    String nextStatus,
+    DateTime occurredAt,
+  ) async {
+    final direction = (check['direction'] ?? '').toString();
+    final checkId = check['id'] as int;
+    final amount = (check['amount'] as num).toDouble();
+    final sourceType = (check['source_type'] ?? '').toString();
+    final sourceId = (check['source_id'] ?? '').toString();
+    final partyType = (check['party_type'] ?? '').toString();
+    final partyId = check['party_id'] as int?;
+
+    final allowed = direction == 'received'
+        ? <String, Set<String>>{
+            'pending': {'deposited', 'cashed', 'bounced', 'cancelled'},
+            'deposited': {'cashed', 'bounced', 'cancelled'},
+            'cashed': {'bounced', 'cancelled'},
+          }
+        : <String, Set<String>>{
+            'pending': {'spent', 'bounced', 'cancelled'},
+            'spent': {'bounced', 'cancelled'},
+          };
+    if (!(allowed[oldStatus]?.contains(nextStatus) ?? false)) {
+      throw StateError('تغییر وضعیت انتخاب‌شده مجاز نیست. وضعیت‌های قبلی و نهایی قابل بازگشت نیستند.');
+    }
+
+    final lines = <JournalLineInput>[];
+    int account(String code) => throw StateError('حساب باید از پایگاه داده خوانده شود.');
+    Future<int> accountId(String code) => AccountingEngine.accountId(txn, code);
+    final isReceived = direction == 'received';
+
+    if (isReceived && nextStatus == 'cashed') {
+      lines.add(JournalLineInput(
+        accountId: await accountId('1010'),
+        debit: amount,
+        memo: 'وصول چک دریافتی شماره ' + (check['check_number'] ?? '').toString(),
+      ));
+      lines.add(JournalLineInput(
+        accountId: await accountId('1020'),
+        credit: amount,
+        memo: 'انتقال چک دریافتی به بانک',
+      ));
+    } else if (!isReceived && nextStatus == 'spent') {
+      lines.add(JournalLineInput(
+        accountId: await accountId('2110'),
+        debit: amount,
+        partyType: partyType,
+        partyId: partyId,
+        memo: 'تسویه چک پرداختی شماره ' + (check['check_number'] ?? '').toString(),
+      ));
+      lines.add(JournalLineInput(
+        accountId: await accountId('1010'),
+        credit: amount,
+        memo: 'کسر وجه بابت چک پرداختی',
+      ));
+    } else if (nextStatus == 'bounced' || nextStatus == 'cancelled') {
+      if (sourceType.isEmpty || sourceId.isEmpty) {
+        throw StateError('این چک از نسخهٔ قدیمی است و به سند اولیه متصل نیست؛ برای جلوگیری از ثبت حسابداری اشتباه، ابتدا سوابق آن باید تطبیق داده شود.');
+      }
+      final origin = await txn.query(
+        'journal_entries',
+        columns: ['id'],
+        where: 'source_type = ? AND source_id = ?',
+        whereArgs: [sourceType, sourceId],
+        limit: 1,
+      );
+      if (origin.isEmpty) {
+        throw StateError('سند حسابداری اصلی چک پیدا نشد؛ وضعیت تغییر نکرد.');
+      }
+      final originId = origin.first['id'] as int;
+      final originLines = await txn.rawQuery(
+        '''SELECT a.code, l.debit, l.credit, l.party_type, l.party_id
+           FROM journal_lines l
+           JOIN accounts a ON a.id = l.account_id
+           WHERE l.entry_id = ?
+           ORDER BY l.id''',
+        [originId],
+      );
+      final statusAccount = isReceived
+          ? (oldStatus == 'cashed' ? '1010' : '1020')
+          : (oldStatus == 'spent' ? '1010' : '2110');
+      if (isReceived) {
+        var remaining = amount;
+        if (sourceType == 'sale') {
+          final creditRows = originLines.where((row) =>
+            row['code'] == '2010' && (row['credit'] as num).toDouble() > 0).toList();
+          for (final row in creditRows) {
+            if (remaining <= 0.0001) break;
+            final value = (row['credit'] as num).toDouble().clamp(0, remaining);
+            lines.add(JournalLineInput(
+              accountId: await accountId('2010'),
+              debit: value,
+              partyType: 'customer',
+              partyId: partyId,
+              memo: 'برگشت اعتبار ناشی از چک برگشتی',
+            ));
+            remaining -= value;
+          }
+          if (remaining > 0.0001) {
+            final contra = partyType == 'customer' ? '1100' : '1110';
+            lines.add(JournalLineInput(
+              accountId: await accountId(contra),
+              debit: remaining,
+              partyType: partyType == 'customer' ? 'customer' : partyType,
+              partyId: partyId,
+              memo: 'ایجاد مجدد بدهی بابت چک برگشتی',
+            ));
+          }
+        } else {
+          var reversed = 0.0;
+          for (final row in originLines) {
+            final credit = (row['credit'] as num).toDouble();
+            final code = (row['code'] ?? '').toString();
+            if (credit <= 0 || ['1000','1010','1020','2110'].contains(code)) continue;
+            final value = credit.clamp(0, amount - reversed);
+            if (value <= 0.0001) continue;
+            lines.add(JournalLineInput(
+              accountId: await accountId(code),
+              debit: value,
+              partyType: (row['party_type'] ?? '').toString(),
+              partyId: row['party_id'] as int?,
+              memo: 'برگشت ثبت طرف حساب بابت چک برگشتی',
+            ));
+            reversed += value;
+            if (reversed >= amount - 0.0001) break;
+          }
+          if (reversed + 0.0001 < amount) {
+            final fallback = partyType == 'customer' || partyType == 'مشتری' ? '1100'
+                : partyType == 'supplier' || partyType == 'فروشنده' ? '1110' : '4000';
+            lines.add(JournalLineInput(
+              accountId: await accountId(fallback),
+              debit: amount - reversed,
+              partyType: partyType == 'مشتری' ? 'customer' : partyType,
+              partyId: partyId,
+              memo: 'اصلاح مانده طرف حساب بابت چک برگشتی',
+            ));
+          }
+        }
+        lines.add(JournalLineInput(
+          accountId: await accountId(statusAccount),
+          credit: amount,
+          memo: 'خروج چک دریافتی از چرخه وصول',
+        ));
+      } else {
+        var reversed = 0.0;
+        if (sourceType != 'purchase') {
+          for (final row in originLines) {
+            final debit = (row['debit'] as num).toDouble();
+            final code = (row['code'] ?? '').toString();
+            if (debit <= 0 || ['1000','1010','1020','2110'].contains(code)) continue;
+            final value = debit.clamp(0, amount - reversed);
+            if (value <= 0.0001) continue;
+            lines.add(JournalLineInput(
+              accountId: await accountId(statusAccount == '1010' ? code : '2110'),
+              debit: value,
+              partyType: (row['party_type'] ?? '').toString(),
+              partyId: row['party_id'] as int?,
+              memo: 'ابطال تعهد چک پرداختی',
+            ));
+            lines.add(JournalLineInput(
+              accountId: await accountId(code),
+              credit: value,
+              partyType: (row['party_type'] ?? '').toString(),
+              partyId: row['party_id'] as int?,
+              memo: 'بازگشت بدهی بابت چک برگشتی',
+            ));
+            reversed += value;
+            if (reversed >= amount - 0.0001) break;
+          }
+        } else {
+          final contra = statusAccount == '1010' ? '2000' : '2000';
+          lines.add(JournalLineInput(
+            accountId: await accountId(statusAccount),
+            debit: amount,
+            partyType: partyType,
+            partyId: partyId,
+            memo: 'برگشت وجه چک خرید پرداختی',
+          ));
+          lines.add(JournalLineInput(
+            accountId: await accountId(contra),
+            credit: amount,
+            partyType: 'supplier',
+            partyId: partyId,
+            memo: 'ایجاد مجدد بدهی خرید به فروشنده',
+          ));
+        }
+        if (sourceType != 'purchase' && reversed + 0.0001 < amount) {
+          throw StateError('مبلغ ردیف‌های سند اصلی با مبلغ چک برابر نیست؛ وضعیت تغییر نکرد.');
+        }
+      }
+    }
+
+    if (lines.isEmpty) return; // "deposited" is a custody status, not a bank settlement.
+    await AccountingEngine.postJournalInTransaction(
+      txn,
+      entryNumber: 'CHECK-' + checkId.toString() + '-' + nextStatus,
+      occurredAt: occurredAt,
+      description: 'تغییر وضعیت چک ' + (check['check_number'] ?? '').toString(),
+      sourceType: 'check_status',
+      sourceId: checkId.toString() + ':' + nextStatus,
+      lines: lines,
+    );
+  }
+
   Future<void> _showCheckBook() async {
     var checks = await DemoStore.database.query('checks_register', orderBy: 'due_date ASC, id ASC');
     if (!mounted) return;
@@ -3801,16 +4008,38 @@ class _OperationsPageState extends State<OperationsPage> {
                                       final id = checks[i]['id'] as int;
                                       final old = checks[i]['status'].toString();
                                       final now = DateTime.now().toIso8601String();
-                                      await DemoStore.database.transaction((txn) async {
-                                        await txn.update('checks_register', {'status': next}, where: 'id = ?', whereArgs: [id]);
-                                        await txn.insert('checks_history', {
-                                          'check_id': id,
-                                          'old_status': old,
-                                          'new_status': next,
-                                          'occurred_at': now,
-                                          'notes': 'تغییر وضعیت از دفتر چک‌ها',
+                                      try {
+                                        await DemoStore.database.transaction((txn) async {
+                                          final currentRows = await txn.query(
+                                            'checks_register',
+                                            where: 'id = ?',
+                                            whereArgs: [id],
+                                            limit: 1,
+                                          );
+                                          if (currentRows.isEmpty || currentRows.first['status'] != old) {
+                                            throw StateError('وضعیت چک تغییر کرده است؛ فهرست را تازه‌سازی کنید.');
+                                          }
+                                          await _postCheckStatusJournal(
+                                            txn, currentRows.first, old, next, DateTime.parse(now),
+                                          );
+                                          await txn.update('checks_register', {'status': next},
+                                            where: 'id = ?', whereArgs: [id]);
+                                          await txn.insert('checks_history', {
+                                            'check_id': id,
+                                            'old_status': old,
+                                            'new_status': next,
+                                            'occurred_at': now,
+                                            'notes': 'تغییر وضعیت همراه با ثبت دفتر کل',
+                                          });
                                         });
-                                      });
+                                      } catch (error) {
+                                        if (dialogContext.mounted) {
+                                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                            SnackBar(content: Text('تغییر وضعیت چک انجام نشد: $error')),
+                                          );
+                                        }
+                                        return;
+                                      }
                                       final refreshed = await DemoStore.database.query('checks_register', where: 'id = ?', whereArgs: [id], limit: 1);
                                       if (refreshed.isNotEmpty) refresh(() => checks[i] = refreshed.first);
                                     },
