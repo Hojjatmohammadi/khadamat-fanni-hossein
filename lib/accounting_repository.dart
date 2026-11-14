@@ -309,8 +309,8 @@ class AccountingRepository {
     final rows = await db.rawQuery('''
       SELECT a.code AS account_code, a.name AS account_name,
         a.account_type AS account_type,
-        COALESCE(SUM(l.debit), 0) AS total_debit,
-        COALESCE(SUM(l.credit), 0) AS total_credit
+        COALESCE(SUM(CASE WHEN e.id IS NOT NULL THEN l.debit ELSE 0 END), 0) AS total_debit,
+        COALESCE(SUM(CASE WHEN e.id IS NOT NULL THEN l.credit ELSE 0 END), 0) AS total_credit
       FROM accounts a
       LEFT JOIN journal_lines l ON l.account_code = a.code
       LEFT JOIN journal_entries e ON e.id = l.journal_entry_id$dateJoin
