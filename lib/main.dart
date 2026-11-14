@@ -4811,7 +4811,6 @@ class _ReportsPageState extends State<ReportsPage> {
                       DataCell(Text((row['credit_total'] as num).toStringAsFixed(0))),
                     ]),
                   DataRow(
-                    color: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
                     cells: [
                       const DataCell(Text('')),
                       const DataCell(Text('جمع کل', style: TextStyle(fontWeight: FontWeight.bold))),
@@ -4873,6 +4872,7 @@ class _ReportsPageState extends State<ReportsPage> {
             title: const Text('کارتکس و گردش تاریخی کالا'),
             content: SizedBox(
               width: 620,
+              height: 460,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
