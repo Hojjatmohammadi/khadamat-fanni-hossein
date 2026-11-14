@@ -1034,16 +1034,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
     return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
   }
 
-  Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, int? customerId}) async {
+  Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, bool asPayment = false, int? customerId}) async {
     final amount = TextEditingController(), note = TextEditingController();
     const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
     String method = methods.first;
     Jalali selectedDate = Jalali.now();
     final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
-        title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : 'ثبت دریافت از ' + customerName),
+        title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : asPayment ? 'ثبت پرداخت به ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : 'مبلغ دریافتی (تومان)')),
+          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : asPayment ? 'مبلغ پرداختی به مشتری (تومان)' : 'مبلغ دریافتی (تومان)')),
           DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
           OutlinedButton.icon(
             onPressed: () async {
@@ -1062,12 +1062,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
         ]),
         actions: [_horizontalDialogActions([
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
-          FilledButton(onPressed: () { if (_ledgerAmount(amount.text) <= 0) { ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ دریافت باید بیشتر از صفر باشد.'))); return; } Navigator.pop(d, true); }, child: Text(asDeposit ? 'ثبت بیعانه' : 'ثبت دریافت')),
+          FilledButton(onPressed: () { if (_ledgerAmount(amount.text) <= 0) { ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ دریافت باید بیشتر از صفر باشد.'))); return; } Navigator.pop(d, true); }, child: Text(asDeposit ? 'ثبت بیعانه' : asPayment ? 'ثبت پرداخت' : 'ثبت دریافت')),
         ])],
       )),
     ));
     if (saved == true) {
-      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'شناسه مشتری':customerId?.toString() ?? '', 'مبلغ':amount.text.trim(),'روش':method,'تاریخ':selectedDate.toDateTime().toIso8601String(),'توضیحات':note.text.trim()});
+      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : asPayment ? 'پرداخت وجه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'شناسه مشتری':customerId?.toString() ?? '', 'مبلغ':amount.text.trim(),'روش':method,'تاریخ':selectedDate.toDateTime().toIso8601String(),'توضیحات':note.text.trim()});
       if (mounted) { setState(() {}); widget.onChanged(); }
     }
     amount.dispose(); note.dispose();
@@ -1163,6 +1163,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         TextButton(onPressed: () => Navigator.pop(d,false), child: const Text('بستن')),
         OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, customerId: customerId); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت دریافت از مشتری')),
         OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, asDeposit: true, customerId: customerId); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.savings_outlined), label: const Text('ثبت بیعانه')),
+        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, asPayment: true, customerId: customerId); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت پرداخت به مشتری')),
         FilledButton.icon(onPressed: () => Navigator.pop(d,true), icon: const Icon(Icons.edit_outlined), label: const Text('ویرایش مشخصات')),
       ])],
     )));
