@@ -39,6 +39,8 @@ class _CheckPageState extends State<CheckPage> {
   List<Map<String, Object?>> _checks = [];
   List<Map<String, Object?>> _dueChecks = [];
   List<Map<String, Object?>> _documents = [];
+  List<Map<String, Object?>> _partyOptions = [];
+  String? _selectedPartyId;
 
   @override
   void initState() {
@@ -90,6 +92,9 @@ class _CheckPageState extends State<CheckPage> {
     try {
       final checks = await widget.checks.getChecks();
       final due = await widget.checks.getDueChecks();
+      final partyOptions = await widget.parties.getParties(
+        partyType: _direction == 'incoming' ? 'customer' : 'supplier',
+      );
       final docs = await widget.trades.getDocuments(
         type: _direction == 'incoming' ? 'sale' : 'purchase',
       );
@@ -106,6 +111,7 @@ class _CheckPageState extends State<CheckPage> {
         _checks = checks;
         _dueChecks = due;
         _documents = outstandingDocs;
+        _partyOptions = partyOptions;
       });
     } catch (error) {
       if (!mounted) return;
@@ -119,6 +125,7 @@ class _CheckPageState extends State<CheckPage> {
     setState(() {
       _direction = value;
       _sourceDocumentId = 0;
+      _selectedPartyId = null;
     });
     await _load();
   }
@@ -156,7 +163,7 @@ class _CheckPageState extends State<CheckPage> {
         PartyDraft(
           partyType: _direction == 'incoming' ? 'customer' : 'supplier',
           displayName: _party.text.trim(),
-          preferredId: sourcePartyId,
+          preferredId: sourcePartyId ?? _selectedPartyId,
         ),
       );
 
@@ -184,6 +191,7 @@ class _CheckPageState extends State<CheckPage> {
       _note.clear();
       setState(() {
         _sourceDocumentId = 0;
+        _selectedPartyId = null;
         _issueDate = DateTime.now();
         _dueDate = DateTime.now().add(const Duration(days: 7));
       });
@@ -427,11 +435,48 @@ class _CheckPageState extends State<CheckPage> {
               decoration: const InputDecoration(labelText: 'نام صاحب حساب / صادرکننده'),
             ),
             const SizedBox(height: 8),
+            if (_partyOptions.isNotEmpty)
+              DropdownButtonFormField<String>(
+                initialValue: _selectedPartyId,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'انتخاب از اشخاص ثبت‌شده (${_direction == 'incoming' ? 'مشتری' : 'فروشنده'})',
+                ),
+                items: [
+                  for (final party in _partyOptions)
+                    DropdownMenuItem(
+                      value: party['id'] as String,
+                      child: Text(
+                        party['display_name']?.toString() ?? '',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _selectedPartyId = value;
+                    if (value != null) {
+                      final selected = _partyOptions.firstWhere((p) => p['id'] == value);
+                      _party.text = selected['display_name']?.toString() ?? '';
+                    }
+                  });
+                },
+              ),
             TextField(
               controller: _party,
               decoration: InputDecoration(
                 labelText: _direction == 'incoming' ? 'نام مشتری' : 'نام فروشنده',
               ),
+              onChanged: (value) {
+                if (_selectedPartyId != null) {
+                  final selected = _partyOptions.firstWhere(
+                    (p) => p['id'] == _selectedPartyId,
+                  );
+                  if (value.trim() != selected['display_name']?.toString()) {
+                    setState(() => _selectedPartyId = null);
+                  }
+                }
+              },
             ),
             const SizedBox(height: 8),
             TextField(
@@ -476,6 +521,7 @@ class _CheckPageState extends State<CheckPage> {
                       (row) => row['id'] == selected,
                     );
                     _party.text = document['counterparty_name']?.toString() ?? '';
+                    _selectedPartyId = document['counterparty_id']?.toString();
                   }
                 });
               },
