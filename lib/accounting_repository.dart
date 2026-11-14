@@ -491,12 +491,14 @@ class AccountingRepository {
     final parsedDate = DateTime.tryParse(statementDate);
     if (parsedDate == null ||
         parsedDate.toIso8601String().substring(0, 10) != statementDate ||
-        statementBalance < 0 ||
         idempotencyKey.trim().isEmpty) {
       throw ArgumentError('تاریخ، مانده صورت‌حساب و شناسه تطبیق معتبر نیست');
     }
     if (accountCode != '1000' && accountCode != '1010') {
       throw ArgumentError('تطبیق فقط برای حساب صندوق یا بانک امکان‌پذیر است');
+    }
+    if (accountCode == '1000' && statementBalance < 0) {
+      throw ArgumentError('مانده صندوق نمی‌تواند منفی باشد');
     }
     final db = await _database.database;
     final account = await db.query('accounts',
