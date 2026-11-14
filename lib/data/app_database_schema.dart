@@ -640,14 +640,21 @@ class AppDatabaseSchema {
       _assertNumeric(data, ['کد کالا', 'قیمت خرید هر واحد', 'قیمت فروش', 'هزینه پست', 'هزینه باربری / حمل', 'سایر هزینه‌ها']);
       _assertNumeric(data, ['موجودی'], allowDecimal: unit != 'عدد');
       _assertNumeric(data, ['درصد ارزش افزوده'], allowDecimal: true);
-      await db.insert('products', {
+      final openingQuantity = _number(data, 'موجودی');
+      final initialUnitCost = _number(data, 'بهای تمام‌شده هر واحد') > 0
+          ? _number(data, 'بهای تمام‌شده هر واحد')
+          : _number(data, 'قیمت خرید هر واحد');
+      if (openingQuantity > 0 && initialUnitCost <= 0) {
+        throw StateError('برای موجودی اولیه، بهای خرید یا بهای تمام‌شده هر واحد را وارد کنید.');
+      }
+      final normalizedProductId = await db.insert('products', {
         'code': _text(data, 'کد کالا'),
         'name': _text(data, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(data, 'نام کالا'),
         'category': _text(data, 'گروه اصلی'),
         'subcategory': _text(data, 'زیرگروه'),
         'unit': unit,
-        'quantity': _number(data, 'موجودی'),
-        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
+        'quantity': openingQuantity,
+        'purchase_price': initialUnitCost,
         'sale_price': _number(data, 'قیمت فروش'),
         'is_used': _text(data, 'وضعیت کالا') == 'دست دوم' ? 1 : 0,
         // Image bytes remain in the legacy row until file-based image storage.
@@ -660,6 +667,40 @@ class AppDatabaseSchema {
         'created_at': createdAt,
         'legacy_source_id': sourceId,
       });
+      if (openingQuantity > 0) {
+        final openingValue = openingQuantity * initialUnitCost;
+        await db.insert('stock_movements', {
+          'product_id': normalizedProductId,
+          'movement_type': 'opening_balance',
+          'quantity_delta': openingQuantity,
+          'unit_cost': initialUnitCost,
+          'total_cost': openingValue,
+          'reference_type': 'stock_opening',
+          'reference_id': sourceId.toString(),
+          'occurred_at': createdAt,
+          'notes': 'موجودی اولیه هنگام ثبت کالا',
+        });
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: 'OPEN-STOCK-' + sourceId.toString(),
+          occurredAt: DateTime.tryParse(createdAt) ?? DateTime.now(),
+          description: 'ثبت موجودی اولیه کالا ' + _text(data, 'نام کالا'),
+          sourceType: 'stock_opening',
+          sourceId: sourceId.toString(),
+          lines: [
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '1200'),
+              debit: openingValue,
+              memo: 'موجودی اولیه انبار',
+            ),
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '3000'),
+              credit: openingValue,
+              memo: 'سرمایه اولیه موجودی',
+            ),
+          ],
+        );
+      }
     } else if (category == 'repairs') {
       _assertNumeric(data, ['اجرت']);
       final customerName = _text(data, 'نام مشتری');
