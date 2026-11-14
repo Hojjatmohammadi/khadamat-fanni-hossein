@@ -4902,8 +4902,8 @@ class _OperationsPageState extends State<OperationsPage> {
             .map((line) => Map<String, dynamic>.from(line as Map))
             .toList();
       } else {
-        final qty = _ledgerAmount(data['تعداد']);
-        final gross = _ledgerAmount(data['مبلغ کل']);
+        final qty = DemoStore._parseMoney((data['تعداد'] ?? '0').toString());
+        final gross = DemoStore._parseMoney((data['مبلغ کل'] ?? '0').toString());
         selectedInvoiceLines = [{
           'product_id': (data['شناسه کالای انبار'] ?? '').toString(),
           'description': (data['کالای انبار'] ?? data['شرح کالا/خدمت'] ?? '').toString(),
