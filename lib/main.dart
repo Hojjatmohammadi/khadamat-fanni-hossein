@@ -3205,6 +3205,20 @@ class ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<ProductPage> {
   final Set<String> _selectedProducts = {};
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scanProductSearch() async {
+    final code = await _scanBarcode(context);
+    if (code == null || !mounted) return;
+    _searchController.text = code;
+    setState(() {});
+  }
 
   Future<void> _deleteProducts(List<Map<String, String>> items) async {
     if (items.isEmpty || !await _confirmDelete(context, items.length)) return;
@@ -3826,6 +3840,32 @@ class _ProductPageState extends State<ProductPage> {
               label: const Text('واردکردن فهرست کالا از Excel'),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: TextField(
+              controller: _searchController,
+              textDirection: TextDirection.rtl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'جست‌وجوی نام یا بارکد کالا',
+                prefixIcon: IconButton(
+                  tooltip: 'اسکن بارکد برای جست‌وجو',
+                  icon: const Icon(Icons.qr_code_scanner),
+                  onPressed: _scanProductSearch,
+                ),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'پاک‌کردن جست‌وجو',
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      ),
+              ),
+            ),
+          ),
           if (_selectedProducts.isNotEmpty)
             Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -3842,7 +3882,13 @@ class _ProductPageState extends State<ProductPage> {
             children: [
               if (DemoStore.products.isEmpty)
                 const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
-              for (final item in DemoStore.products.reversed)
+              for (final item in DemoStore.products.reversed.where((item) {
+                final query = _searchController.text.trim().toLowerCase();
+                if (query.isEmpty) return true;
+                final name = (item['نام کالا'] ?? '').toLowerCase();
+                final code = (item['کد کالا'] ?? '').toLowerCase();
+                return name.contains(query) || code.contains(query);
+              }))
                 Card(child: ListTile(
                   leading: AppSettings.productImageMode == 'عدم نمایش عکس کالا'
                       ? null
