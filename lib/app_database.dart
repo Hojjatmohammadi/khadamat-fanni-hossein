@@ -620,7 +620,7 @@ class AppDatabase {
         'sale' || 'customer_return' || 'customer_receipt' => 'customer',
         _ => 'other',
       };
-      final normalized = name.toLowerCase().replaceAll(RegExp(r'\\s+'), ' ');
+      final normalized = name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
       await db.insert(
         'parties',
         {
