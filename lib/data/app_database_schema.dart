@@ -782,21 +782,35 @@ class AppDatabaseSchema {
           memo: 'دریافت فاکتور ' + invoiceNumber,
         ));
       }
-      if (received < total) {
-        lines.add(JournalLineInput(
-          accountId: await AccountingEngine.accountId(db, '1100'),
-          debit: total - received,
-          partyType: 'customer',
-          partyId: customerIdValue,
-          memo: 'مانده فاکتور ' + invoiceNumber,
-        ));
-      } else if (received > total) {
+      final depositApplied = _number(data, 'بیعانه تخصیص‌یافته');
+      if (depositApplied < 0 || depositApplied > total + 0.01) {
+        throw StateError('مبلغ بیعانه تخصیص‌یافته به فاکتور نامعتبر است.');
+      }
+      if (depositApplied > 0) {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(db, '2010'),
-          credit: received - total,
+          debit: depositApplied,
           partyType: 'customer',
           partyId: customerIdValue,
-          memo: 'اعتبار مازاد پرداخت مشتری در فاکتور ' + invoiceNumber,
+          memo: 'مصرف اعتبار / بیعانه مشتری در فاکتور ' + invoiceNumber,
+        ));
+      }
+      final settledTotal = received + depositApplied;
+      if (settledTotal < total) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1100'),
+          debit: total - settledTotal,
+          partyType: 'customer',
+          partyId: customerIdValue,
+          memo: 'مانده فاکتور پس از تخصیص بیعانه ' + invoiceNumber,
+        ));
+      } else if (settledTotal > total) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2010'),
+          credit: settledTotal - total,
+          partyType: 'customer',
+          partyId: customerIdValue,
+          memo: 'اعتبار مازاد مشتری در فاکتور ' + invoiceNumber,
         ));
       }
       if (gross > 0) {
