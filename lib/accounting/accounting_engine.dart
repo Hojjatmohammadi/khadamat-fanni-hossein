@@ -368,6 +368,31 @@ class AccountingEngine {
     return id;
   }
 
+  /// Calculates moving weighted-average cost from immutable stock movements.
+  /// Product master purchase_price is only a fallback for legacy rows without
+  /// movement history and is not allowed to rewrite historical unit costs.
+  static Future<double> averageUnitCost(
+    DatabaseExecutor db,
+    int productId, {
+    double fallback = 0,
+  }) async {
+    final rows = await db.rawQuery(
+      '''SELECT
+           COALESCE(SUM(quantity_delta), 0) AS quantity,
+           COALESCE(SUM(CASE WHEN quantity_delta >= 0
+             THEN total_cost ELSE -total_cost END), 0) AS value
+         FROM stock_movements
+         WHERE product_id = ?''',
+      [productId],
+    );
+    final quantity = (rows.first['quantity'] as num).toDouble();
+    final value = (rows.first['value'] as num).toDouble();
+    if (quantity > 0.000001 && value >= 0 && value.isFinite) {
+      return value / quantity;
+    }
+    return fallback.isFinite && fallback >= 0 ? fallback : 0;
+  }
+
   static Future<List<Map<String, Object?>>> stockCardex(
     DatabaseExecutor db, int productId, {DateTime? from, DateTime? to}
   ) async {
