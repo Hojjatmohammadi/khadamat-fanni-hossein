@@ -82,30 +82,30 @@ jobs:
               if "isCoreLibraryDesugaringEnabled" not in s:
                   if "compileOptions {" not in s:
                       raise SystemExit("compileOptions block not found")
-                  s = s.replace("compileOptions {", "compileOptions {\\n        isCoreLibraryDesugaringEnabled = true", 1)
+                  s = s.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true", 1)
               if "multiDexEnabled" not in s:
                   if "defaultConfig {" not in s:
                       raise SystemExit("defaultConfig block not found")
-                  s = s.replace("defaultConfig {", "defaultConfig {\\n        multiDexEnabled = true", 1)
+                  s = s.replace("defaultConfig {", "defaultConfig {\n        multiDexEnabled = true", 1)
               if "coreLibraryDesugaring(" not in s:
                   if "dependencies {" in s:
-                      s = s.replace("dependencies {", 'dependencies {\\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")', 1)
+                      s = s.replace("dependencies {", 'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")', 1)
                   else:
-                      s += '\\ndependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4") }\\n'
+                      s += '\ndependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4") }\n'
           else:
               if "coreLibraryDesugaringEnabled" not in s:
                   if "compileOptions {" not in s:
                       raise SystemExit("compileOptions block not found")
-                  s = s.replace("compileOptions {", "compileOptions {\\n        coreLibraryDesugaringEnabled true", 1)
+                  s = s.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true", 1)
               if "multiDexEnabled" not in s:
                   if "defaultConfig {" not in s:
                       raise SystemExit("defaultConfig block not found")
-                  s = s.replace("defaultConfig {", "defaultConfig {\\n        multiDexEnabled true", 1)
+                  s = s.replace("defaultConfig {", "defaultConfig {\n        multiDexEnabled true", 1)
               if "coreLibraryDesugaring " not in s:
                   if "dependencies {" in s:
-                      s = s.replace("dependencies {", "dependencies {\\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'", 1)
+                      s = s.replace("dependencies {", "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'", 1)
                   else:
-                      s += "\\ndependencies { coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4' }\\n"
+                      s += "\ndependencies { coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4' }\n"
           path.write_text(s)
           PY
 
