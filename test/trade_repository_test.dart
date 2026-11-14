@@ -244,6 +244,7 @@ void main() {
     );
     await trades.recordCustomerReturn(returnDraft);
     expect(await store.getStockOnHand(productId), 8);
+    expect(await trades.getOutstandingAmount(saleId), 4400);
 
     expect((await accountTotals('4050'))['total_debit'], 4000);
     expect((await accountTotals('2100'))['total_debit'], 400);
@@ -303,6 +304,7 @@ void main() {
     );
     expect(returnId, greaterThan(0));
     expect(await store.getStockOnHand(productId), 8);
+    expect(await trades.getOutstandingAmount(purchaseId), 8800);
 
     expect((await accountTotals('2000'))['total_debit'], 2200);
     expect((await accountTotals('1200'))['total_credit'], 2000);
