@@ -146,8 +146,8 @@ void main() {
     expect(rows.single['difference'], 0);
 
     final db = await database.database;
-    expect(
-      () => db.update('bank_reconciliations', {'note': 'تغییر غیرمجاز'},
+    await expectLater(
+      db.update('bank_reconciliations', {'note': 'تغییر غیرمجاز'},
         where: 'id = ?', whereArgs: [matching]),
       throwsA(anything),
     );
