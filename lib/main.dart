@@ -354,7 +354,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 8,
+      version: 9,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -394,6 +394,9 @@ class DemoStore {
         if (oldVersion < 8) {
           await AccountingEngine.createTables(db);
           await AccountingEngine.ensureDefaultAccounts(db);
+        }
+        if (oldVersion < 9) {
+          await AppDatabaseSchema.migrateSupplierPartyIds(db);
         }
       },
     );
@@ -689,29 +692,52 @@ class DemoStore {
       throw StateError('نام طرف حساب و مبلغ معتبر برای ثبت سند مالی لازم است.');
     }
     final method = (item['روش'] ?? 'نقدی').trim();
-    final isReceipt = operation == 'دریافت وجه';
+    final isDeposit = operation == 'ثبت بیعانه';
+    final isReceipt = operation == 'دریافت وجه' || isDeposit;
     final isPayment = operation == 'پرداخت وجه';
     final isDiscountGiven = operation == 'تخفیف دادن' || operation == 'تخفیف دادن به مشتری';
     final isDiscountReceived = operation == 'تخفیف گرفتن' || operation == 'تخفیف گرفتن از فروشنده';
     final isPartyOwes = operation == 'متفرقه شخص بدهکار';
     final isWeOwe = operation == 'متفرقه شخص بستانکار';
     if (!isReceipt && !isPayment && !isDiscountGiven && !isDiscountReceived &&
-        !isPartyOwes && !isWeOwe) {
+        !isPartyOwes && !isWeOwe && !isDeposit) {
       throw StateError('نوع عملیات مالی پشتیبانی نمی‌شود: ' + operation);
     }
 
     int? partyId;
     if (partyType == 'مشتری') {
-      final people = await txn.query(
-        'customers',
-        columns: ['id'],
-        where: "TRIM(first_name || ' ' || last_name) = ?",
-        whereArgs: [partyName],
-        limit: 2,
-      );
-      if (people.length == 1) partyId = people.first['id'] as int;
+      final selectedCustomerId = int.tryParse((item['شناسه مشتری'] ?? '').trim());
+      if (selectedCustomerId != null) {
+        final selected = await txn.query('customers', columns: ['id'],
+          where: 'id = ?', whereArgs: [selectedCustomerId], limit: 1);
+        if (selected.isEmpty) throw StateError('پرونده مشتری انتخاب‌شده پیدا نشد.');
+        partyId = selectedCustomerId;
+      } else {
+        final people = await txn.query(
+          'customers',
+          columns: ['id'],
+          where: "TRIM(first_name || ' ' || last_name) = ?",
+          whereArgs: [partyName],
+          limit: 2,
+        );
+        if (people.length == 1) partyId = people.first['id'] as int;
+        if (people.length > 1) {
+          throw StateError('این نام برای چند مشتری ثبت شده است؛ پرونده دقیق مشتری را انتخاب کنید.');
+        }
+      }
+      item['شناسه مشتری'] = partyId?.toString() ?? '';
+    } else if (partyType == 'فروشنده') {
+      final selectedSupplierId = int.tryParse((item['شناسه فروشنده'] ?? '').trim());
+      if (selectedSupplierId != null) {
+        final selected = await txn.query('suppliers', columns: ['id'],
+          where: 'id = ?', whereArgs: [selectedSupplierId], limit: 1);
+        if (selected.isEmpty) throw StateError('پرونده فروشنده انتخاب‌شده پیدا نشد.');
+        partyId = selectedSupplierId;
+      } else {
+        partyId = await AppDatabaseSchema.ensureSupplier(txn, partyName);
+      }
+      item['شناسه فروشنده'] = partyId.toString();
     }
-    item['شناسه مشتری'] = partyId?.toString() ?? '';
     item['تاریخ میلادی'] = occurredAt.toIso8601String();
 
     Future<double> balanceFor(String code, {String type = '', int? id}) async {
@@ -734,6 +760,9 @@ class DemoStore {
     }
 
     // A received cheque is a receivable asset (1020); an issued cheque is a payable liability (2110).
+    if (isDeposit && partyType != 'مشتری') {
+      throw StateError('بیعانه فقط برای مشتری قابل ثبت است.');
+    }
     final cashCode = method == 'چک'
         ? (isReceipt ? '1020' : '2110')
         : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
@@ -785,7 +814,7 @@ class DemoStore {
         memo: 'دریافت وجه از ' + partyName,
       ));
       if (partyType == 'مشتری') {
-        final receivable = partyId == null ? 0.0
+        final receivable = isDeposit || partyId == null ? 0.0
             : (await balanceFor('1100', type: 'customer', id: partyId)).clamp(0.0, amount).toDouble();
         if (receivable > 0) {
           lines.add(JournalLineInput(
@@ -809,6 +838,8 @@ class DemoStore {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '1110'),
           credit: amount,
+          partyType: 'supplier',
+          partyId: partyId,
           memo: 'دریافت وجه از فروشنده ' + partyName,
         ));
       } else {
@@ -825,11 +856,13 @@ class DemoStore {
         memo: 'پرداخت وجه به ' + partyName,
       );
       if (partyType == 'فروشنده') {
-        final payable = (-(await balanceFor('2000'))).clamp(0.0, amount).toDouble();
+        final payable = partyId == null ? 0.0 : (-(await balanceFor('2000', type: 'supplier', id: partyId))).clamp(0.0, amount).toDouble();
         if (payable > 0) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '2000'),
             debit: payable,
+            partyType: 'supplier',
+            partyId: partyId,
             memo: 'کاهش بدهی فروشنده ' + partyName,
           ));
         }
@@ -837,6 +870,8 @@ class DemoStore {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '1110'),
             debit: amount - payable,
+            partyType: 'supplier',
+            partyId: partyId,
             memo: 'پیش‌پرداخت به فروشنده ' + partyName,
           ));
         }
@@ -895,7 +930,7 @@ class DemoStore {
         ));
       }
     } else if (isDiscountReceived) {
-      final payable = (-(await balanceFor('2000'))).clamp(0.0, amount).toDouble();
+      final payable = partyId == null ? 0.0 : (-(await balanceFor('2000', type: 'supplier', id: partyId))).clamp(0.0, amount).toDouble();
       if (payable > 0) {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '2000'),
