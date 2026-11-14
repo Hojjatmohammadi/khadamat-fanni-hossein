@@ -462,7 +462,7 @@ class DemoStore {
             whereArgs: [productId], limit: 1);
           if (productRows.isNotEmpty) productSnapshot = productRows.first;
         }
-        final number = 'PUR-<escape>:</escape>' + sourceId.toString().padLeft(6, '0');
+        final number = 'PUR-' + sourceId.toString().padLeft(6, '0');
         await db.insert('purchase_archive', {
           'legacy_source_id': sourceId,
           'purchase_number': number,
