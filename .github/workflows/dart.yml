@@ -52,6 +52,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Align Android plugin compile SDKs
+        run: |
+          # Some Flutter plugins still declare API 34 in their own Android
+          # Gradle files. Raise those module settings to match the app API.
+          find "$HOME/.pub-cache/hosted/pub.dev" -path '*/android/build.gradle*' -type f \
+            -exec sed -i -E \
+            -e 's/(compileSdkVersion|compileSdk)[[:space:]]*(=)?[[:space:]]*34/\1\2 36/g' {} +
+
       - name: Analyze Flutter code
         run: flutter analyze --no-fatal-infos lib
 
