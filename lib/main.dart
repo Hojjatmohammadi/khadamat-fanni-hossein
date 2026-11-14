@@ -4521,7 +4521,7 @@ class OperationsPage extends StatefulWidget {
 }
 
 class _OperationsPageState extends State<OperationsPage> {
-  static const options = ['ثبت هزینه', 'تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  static const options = ['ثبت هزینه', 'ثبت بیعانه', 'تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
   Future<void> _postCheckStatusJournal(
@@ -5307,7 +5307,7 @@ class _OperationsPageState extends State<OperationsPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (op != 'ثبت هزینه') DropdownButtonFormField<String>(
+                    if (op != 'ثبت هزینه' && op != 'ثبت بیعانه') DropdownButtonFormField<String>(
                       value: partyType,
                       decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
                       items: const [
