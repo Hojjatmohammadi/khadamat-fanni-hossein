@@ -75,6 +75,7 @@ class _CheckPageState extends State<CheckPage> {
       };
 
   String _dueLabel(String rawDate) {
+    final today = DateTime.now();
     final due = DateTime.parse(rawDate);
     final a = DateTime(today.year, today.month, today.day);
     final b = DateTime(due.year, due.month, due.day);
@@ -366,7 +367,6 @@ class _CheckPageState extends State<CheckPage> {
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: RefreshIndicator(
