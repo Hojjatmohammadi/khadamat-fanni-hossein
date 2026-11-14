@@ -51,6 +51,8 @@ class _ReportsPageState extends State<ReportsPage> {
         'stock' => await _repository.getInventoryMovements(from: _from, to: _to),
         'profit' => await _repository.getProfitAndLoss(from: _from, to: _to),
         'item_profit' => await _repository.getItemProfit(from: _from, to: _to),
+        'expenses' => await _repository.getExpenses(from: _from, to: _to),
+        'repair_income' => await _repository.getRepairServiceRevenue(from: _from, to: _to),
         _ => await _repository.getTradeDocuments(
               from: _from,
               to: _to,
@@ -122,6 +124,17 @@ class _ReportsPageState extends State<ReportsPage> {
             IntCellValue((row['total_debit'] as num).toInt()),
             IntCellValue((row['total_credit'] as num).toInt()),
             IntCellValue((row['balance'] as num).toInt()),
+          ]);
+        }
+      } else if (_report == 'expenses' || _report == 'repair_income') {
+        sheet.appendRow([TextCellValue('تاریخ'), TextCellValue('شرح'), TextCellValue('کد حساب'), TextCellValue('نام حساب'), TextCellValue('مبلغ')]);
+        for (final row in _rows) {
+          sheet.appendRow([
+            TextCellValue(row['entry_date']?.toString() ?? ''),
+            TextCellValue(row['description']?.toString() ?? ''),
+            TextCellValue(row['account_code']?.toString() ?? ''),
+            TextCellValue(row['account_name']?.toString() ?? ''),
+            IntCellValue((row['amount'] as num).toInt()),
           ]);
         }
       } else if (_report == 'item_profit') {
@@ -208,6 +221,8 @@ class _ReportsPageState extends State<ReportsPage> {
         'stock' => 'گزارش کاردکس و گردش انبار',
         'profit' => 'گزارش سود و زیان',
         'item_profit' => 'گزارش سود هر کالا',
+        'expenses' => 'گزارش هزینه‌های ثبت‌شده',
+        'repair_income' => 'گزارش درآمد خدمات تعمیر',
         _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
       };
       y += drawText('خدمات فنی حسین', size: 40, bold: true) + 12;
@@ -218,7 +233,9 @@ class _ReportsPageState extends State<ReportsPage> {
 
       final lines = <String>[];
       for (final row in _rows.take(27)) {
-        if (_report == 'profit') {
+        if (_report == 'expenses' || _report == 'repair_income') {
+          lines.add("\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان");
+        } else if (_report == 'profit') {
           lines.add("${row['account_code']} - ${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: ${_money(row['balance'])} تومان");
         } else if (_report == 'item_profit') {
           lines.add("${row['product_name']} | فروش: ${_money(row['net_revenue'])} | بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}");
@@ -272,6 +289,8 @@ class _ReportsPageState extends State<ReportsPage> {
       'stock' => _rows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
       'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
       'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
+      'expenses' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
+      'repair_income' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
       _ => _rows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt()),
     };
     return ListView(
@@ -299,6 +318,8 @@ class _ReportsPageState extends State<ReportsPage> {
             DropdownMenuItem(value: 'stock', child: Text('کاردکس و گردش انبار')),
             DropdownMenuItem(value: 'profit', child: Text('سود و زیان حسابداری')),
             DropdownMenuItem(value: 'item_profit', child: Text('سود هر کالا')),
+            DropdownMenuItem(value: 'expenses', child: Text('هزینه‌های ثبت‌شده')),
+            DropdownMenuItem(value: 'repair_income', child: Text('درآمد خدمات تعمیر')),
           ],
           onChanged: (value) { if (value != null) setState(() { _report = value; }); _load(); },
         ),
@@ -346,7 +367,11 @@ class _ReportsPageState extends State<ReportsPage> {
               ? 'خالص تغییر موجودی در بازه: $total'
               : _report == 'documents'
                   ? 'جمع مبلغ اسناد: ${_money(total)} تومان'
-                  : 'سود خالص/ناخالص گزارش: ${_money(total)} تومان'),
+                  : _report == 'expenses'
+                      ? 'جمع هزینه‌ها: ${_money(total)} تومان'
+                      : _report == 'repair_income'
+                          ? 'جمع درآمد خدمات: ${_money(total)} تومان'
+                          : 'سود خالص/ناخالص گزارش: ${_money(total)} تومان'),
         )),
         if (_loading) const Center(child: Padding(
           padding: EdgeInsets.all(20), child: CircularProgressIndicator(),
@@ -367,6 +392,13 @@ class _ReportsPageState extends State<ReportsPage> {
               subtitle: Text(row['account_type'] == 'income' ? 'درآمد' : 'هزینه'),
               trailing: Text('${_money(row['balance'])} تومان'),
             )),
+        if (_report == 'expenses' || _report == 'repair_income')
+          for (final row in _rows)
+            Card(child: ListTile(
+              title: Text(row['description']?.toString() ?? ''),
+              subtitle: Text('${row['entry_date']} • ${row['account_name']}'),
+              trailing: Text('${_money(row['amount'])} تومان'),
+            )),
         if (_report == 'item_profit')
           for (final row in _rows)
             Card(child: ListTile(
@@ -383,7 +415,7 @@ class _ReportsPageState extends State<ReportsPage> {
             )),
         const SizedBox(height: 12),
         const Text(
-          'گزارش سود و زیان از اسناد حسابداری ثبت‌شده و برگشت‌های حسابداری محاسبه می‌شود. سود هر کالا بر پایه فروش خالص، برگشت مشتری و بهای تمام‌شده ثبت‌شده در ردیف فاکتور است. هزینه‌های عملیاتی فقط در صورت ثبت در حساب‌های درآمد/هزینه دفترکل لحاظ می‌شوند.',
+          'گزارش سود و زیان از دفترکل ثبت‌شده محاسبه می‌شود. هزینه‌ها از بدهکار حساب هزینه و درآمد خدمات تعمیر از بستانکار حساب درآمد خدمات خوانده می‌شود؛ بنابراین پرداخت بعدی هزینه یا دریافت طلب مشتری دوباره شمرده نمی‌شود. سود هر کالا نیز برگشت مشتری و بهای تمام‌شده ثبت‌شده را لحاظ می‌کند.',
           style: TextStyle(fontSize: 12, color: Colors.black54),
         ),
       ],
