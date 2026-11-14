@@ -1362,6 +1362,8 @@ class DemoStore {
       throw ArgumentError('اطلاعات خرید، تعداد، بهای تمام‌شده، فروشنده یا مبلغ پرداخت معتبر نیست.');
     }
     await _db!.transaction((txn) async {
+      final supplierId = await AppDatabaseSchema.ensureSupplier(txn, supplier);
+      operation['شناسه فروشنده'] = supplierId.toString();
       final productRecordId = await txn.insert('records', {
         'category': 'products',
         'data': jsonEncode(product),
@@ -1416,7 +1418,8 @@ class DemoStore {
           txn,
           checkNumber: operation['شماره چک'] ?? '',
           direction: 'issued',
-          partyType: 'فروشنده',
+          partyType: 'supplier',
+          partyId: supplierId,
           partyName: supplier,
           amount: paid,
           issueDate: DateTime.tryParse(operation['تاریخ'] ?? '') ?? DateTime.parse(createdAt),
@@ -1448,6 +1451,7 @@ class DemoStore {
           accountId: await AccountingEngine.accountId(txn, '2000'),
           credit: total - paid,
           partyType: 'supplier',
+          partyId: supplierId,
           memo: 'بدهی خرید به ' + supplier,
         ));
       }
