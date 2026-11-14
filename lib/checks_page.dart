@@ -77,8 +77,8 @@ class _CheckPageState extends State<CheckPage> {
   String _dueLabel(String rawDate) {
     final today = DateTime.now();
     final due = DateTime.parse(rawDate);
-    final a = DateTime(today.year, today.month, today.day);
-    final b = DateTime(due.year, due.month, due.day);
+    final a = DateTime.utc(today.year, today.month, today.day);
+    final b = DateTime.utc(due.year, due.month, due.day);
     final days = b.difference(a).inDays;
     if (days < 0) return 'معوق ${-days} روز';
     if (days == 0) return 'سررسید امروز';
