@@ -2235,7 +2235,20 @@ class _SettingsPageState extends State<SettingsPage> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مالیات و تخفیف باید بین صفر تا ۱۰۰ و شماره فاکتور عدد مثبت باشد.')));
         return false;
       }
-      if (pinEnabled && !RegExp(r'^\d{4,8}
+      if (pinEnabled && !RegExp(r'^[0-9]{4,8}$').hasMatch(pinCode.text)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('برای قفل برنامه یک PIN چهار تا هشت رقمی وارد کنید.')));
+        return false;
+      }
+      AppSettings.appName = appName.text.trim().isEmpty ? storeName.text.trim() : appName.text.trim();
+      AppSettings.currency = currency;
+      AppSettings.vatPercent = vat;
+      AppSettings.defaultDiscountPercent = discount;
+      AppSettings.invoicePrefix = invoicePrefix.text.trim().replaceAll(RegExp(r'\s+'), '');
+      AppSettings.nextInvoiceNumber = sequence;
+      AppSettings.pinEnabled = pinEnabled;
+      AppSettings.pinCode = pinEnabled ? pinCode.text : '';
+      await AppSettings.save(
+        newStoreName: storeName.text,
         newManagerName: managerName.text,
         newPhone: phone.text,
         newAddress: address.text,
