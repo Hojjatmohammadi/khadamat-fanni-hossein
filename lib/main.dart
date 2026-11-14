@@ -1038,12 +1038,26 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final amount = TextEditingController(), note = TextEditingController();
     const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
     String method = methods.first;
+    Jalali selectedDate = Jalali.now();
     final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
         title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : 'مبلغ دریافتی (تومان)')),
           DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final picked = await showPersianDatePicker(
+                context: d, initialDate: selectedDate,
+                firstDate: Jalali(1300, 1, 1), lastDate: Jalali(1500, 12, 29),
+                locale: const Locale('fa', 'IR'), textDirection: TextDirection.rtl,
+                helpText: 'تاریخ دریافت / بیعانه', cancelText: 'انصراف', confirmText: 'تأیید',
+              );
+              if (picked != null) refresh(() => selectedDate = picked);
+            },
+            icon: const Icon(Icons.calendar_month),
+            label: Text('تاریخ: ${selectedDate.formatCompactDate()}'),
+          ),
           TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات / شماره پیگیری / شماره چک')),
         ]),
         actions: [_horizontalDialogActions([
@@ -1053,7 +1067,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       )),
     ));
     if (saved == true) {
-      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'شناسه مشتری':customerId?.toString() ?? '', 'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
+      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'شناسه مشتری':customerId?.toString() ?? '', 'مبلغ':amount.text.trim(),'روش':method,'تاریخ':selectedDate.toDateTime().toIso8601String(),'توضیحات':note.text.trim()});
       if (mounted) { setState(() {}); widget.onChanged(); }
     }
     amount.dispose(); note.dispose();
@@ -1095,7 +1109,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
         if (partyType != 'مشتری') continue;
       }
-      final date = DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
+      final date = DateTime.tryParse((data['تاریخ'] ?? '').toString()) ?? DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
       double debit = 0, credit = 0; String desc = '', method = '';
       if (record['category'] == 'sales') {
         final gross = _ledgerAmount(data['مبلغ کل']);
