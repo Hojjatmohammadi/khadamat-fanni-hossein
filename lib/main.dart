@@ -884,9 +884,28 @@ class _SimpleListPageState extends State<SimpleListPage> {
       }
       if (widget.title == 'فاکتور فروش') {
         final linkedRepairId = (item['پذیرش تعمیر مرتبط'] ?? '').trim();
-        if (linkedRepairId.isNotEmpty && !repairOptions.containsKey(linkedRepairId)) {
-          ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش تعمیر انتخاب‌شده معتبر نیست.')));
-          return;
+        if (linkedRepairId.isNotEmpty) {
+          if (!repairOptions.containsKey(linkedRepairId)) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش تعمیر انتخاب‌شده معتبر نیست.')));
+            return;
+          }
+          final linkedRows = await DemoStore.database.query('records',
+            columns: ['data'], where: 'id = ? AND category = ?', whereArgs: [int.tryParse(linkedRepairId), 'repairs'], limit: 1);
+          if (linkedRows.isEmpty) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('سند پذیرش تعمیر پیدا نشد.')));
+            return;
+          }
+          final linkedData = jsonDecode(linkedRows.first['data'] as String) as Map;
+          if ((linkedData['نام مشتری'] ?? '').toString().trim() != (item['نام مشتری'] ?? '').trim()) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش انتخاب‌شده متعلق به این مشتری نیست.')));
+            return;
+          }
+          final repairWage = _ledgerAmount(linkedData['اجرت']);
+          final invoiceGross = _ledgerAmount(item['مبلغ کل']);
+          if (invoiceGross + 0.001 < repairWage) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('مبلغ کل فاکتور باید اجرت ثبت‌شده تعمیر را هم پوشش دهد: ' + repairWage.toStringAsFixed(0) + ' تومان.')));
+            return;
+          }
         }
         if (existing == null) {
           final customerName = (item['نام مشتری'] ?? '').trim();
