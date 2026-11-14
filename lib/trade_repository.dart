@@ -655,6 +655,18 @@ class TradeRepository {
       if (source['document_type'] != requiredSourceType) {
         throw StateError('نوع فاکتور مبدا با نوع برگشت سازگار نیست');
       }
+      if (draft.counterpartyId != null &&
+          source['counterparty_id'] != null &&
+          draft.counterpartyId != source['counterparty_id']) {
+        throw StateError('شخص انتخاب‌شده با شخص فاکتور مبدا یکسان نیست');
+      }
+      // Keep returns attached to the original customer/supplier ledger.
+      final effectiveCounterpartyId =
+          draft.counterpartyId ?? source['counterparty_id']?.toString();
+      final effectiveCounterpartyName =
+          source['counterparty_name']?.toString().trim().isNotEmpty == true
+              ? source['counterparty_name']!.toString()
+              : draft.counterpartyName;
 
       final prepared = <Map<String, Object?>>[];
       var baseTotal = 0;
@@ -731,7 +743,7 @@ class TradeRepository {
           lines.add(JournalLineDraft(
             accountCode: '1100',
             credit: settlement,
-            partyId: draft.counterpartyId,
+            partyId: effectiveCounterpartyId,
           ));
         }
         if (lines.isNotEmpty) {
@@ -755,8 +767,8 @@ class TradeRepository {
         type: type,
         date: draft.documentDate,
         prefix: isCustomerReturn ? 'SRT' : 'PRT',
-        counterpartyName: draft.counterpartyName,
-        counterpartyId: draft.counterpartyId,
+        counterpartyName: effectiveCounterpartyName,
+        counterpartyId: effectiveCounterpartyId,
         subtotal: baseTotal,
         discount: 0,
         charges: 0,
@@ -834,7 +846,7 @@ class TradeRepository {
                 JournalLineDraft(
                   accountCode: '2000',
                   debit: supplierReturnAmount,
-                  partyId: draft.counterpartyId,
+                  partyId: effectiveCounterpartyId,
                 ),
                 if (costAmount > 0)
                   JournalLineDraft(accountCode: '1200', credit: costAmount),
@@ -914,6 +926,10 @@ class TradeRepository {
             draft.counterpartyId != source['counterparty_id']) {
           throw StateError('شخص انتخاب‌شده با شخص فاکتور یکسان نیست');
         }
+        // A linked settlement always inherits the invoice party when the
+        // caller omits it, so its journal line remains visible in the ledger.
+        final effectiveCounterpartyId =
+            draft.counterpartyId ?? source['counterparty_id']?.toString();
         final paymentRows = await txn.rawQuery(
           'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
           'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
@@ -958,14 +974,14 @@ class TradeRepository {
               JournalLineDraft(
                 accountCode: '1100',
                 credit: draft.amount,
-                partyId: draft.counterpartyId,
+                partyId: effectiveCounterpartyId,
               ),
             ]
           : [
               JournalLineDraft(
                 accountCode: '2000',
                 debit: draft.amount,
-                partyId: draft.counterpartyId,
+                partyId: effectiveCounterpartyId,
               ),
               JournalLineDraft(
                 accountCode: draft.cashAccountCode,
@@ -991,7 +1007,7 @@ class TradeRepository {
         date: draft.documentDate,
         prefix: isCustomerReceipt ? 'RCV' : 'PAY',
         counterpartyName: draft.counterpartyName,
-        counterpartyId: draft.counterpartyId,
+        counterpartyId: effectiveCounterpartyId,
         subtotal: draft.amount,
         discount: 0,
         charges: 0,
