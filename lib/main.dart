@@ -2722,7 +2722,7 @@ class _ReportsPageState extends State<ReportsPage> {
     future: _recordsFuture,
     builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: \${snapshot.error}'));
+      if (snapshot.hasError) return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: ${snapshot.error}'));
       final all = snapshot.data ?? const <Map<String, Object?>>[];
       final filtered = all.where(_inRange).toList();
       int count(String category) => filtered.where((r) => r['category'] == category).length;
@@ -2765,8 +2765,8 @@ class _ReportsPageState extends State<ReportsPage> {
                   padding: const EdgeInsets.all(12),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     const Text('فیلتر زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold)),
-                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: true), icon: const Icon(Icons.calendar_month), label: Text('از تاریخ: \${_dateLabel(_fromDate)}')),
-                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: false), icon: const Icon(Icons.event), label: Text('تا تاریخ: \${_dateLabel(_toDate)}')),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: true), icon: const Icon(Icons.calendar_month), label: Text('از تاریخ: ${_dateLabel(_fromDate)}')),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: false), icon: const Icon(Icons.event), label: Text('تا تاریخ: ${_dateLabel(_toDate)}')),
                     Align(alignment: Alignment.centerLeft, child: TextButton.icon(
                       onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; }),
                       icon: const Icon(Icons.filter_alt_off), label: const Text('حذف فیلتر تاریخ'),
@@ -2794,7 +2794,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       ])),
                   ]),
                 )),
-                Text('تعداد کل اسناد در بازه: \${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('تعداد کل اسناد در بازه: ${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 const Text('تاریخ‌های انتخابی شمسی هستند؛ در صورت نبود تاریخ معتبر در فرم، زمان ثبت سند مبنا قرار می‌گیرد.', style: TextStyle(fontSize: 12, color: Colors.black54)),
               ]),
