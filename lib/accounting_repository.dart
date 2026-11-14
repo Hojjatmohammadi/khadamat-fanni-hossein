@@ -478,6 +478,85 @@ class AccountingRepository {
     ));
   }
 
+
+  /// Snapshot the difference between the bank statement and the book balance.
+  /// A positive difference means the statement balance is higher than the books.
+  Future<int> createBankReconciliation({
+    required String accountCode,
+    required String statementDate,
+    required int statementBalance,
+    String? note,
+    required String idempotencyKey,
+  }) async {
+    final parsedDate = DateTime.tryParse(statementDate);
+    if (parsedDate == null ||
+        parsedDate.toIso8601String().substring(0, 10) != statementDate ||
+        statementBalance < 0 ||
+        idempotencyKey.trim().isEmpty) {
+      throw ArgumentError('تاریخ، مانده صورت‌حساب و شناسه تطبیق معتبر نیست');
+    }
+    if (accountCode != '1000' && accountCode != '1010') {
+      throw ArgumentError('تطبیق فقط برای حساب صندوق یا بانک امکان‌پذیر است');
+    }
+    final db = await _database.database;
+    final account = await db.query('accounts',
+      columns: ['code', 'account_type'],
+      where: 'code = ?', whereArgs: [accountCode], limit: 1);
+    if (account.isEmpty || account.single['account_type'] != 'asset') {
+      throw ArgumentError('حساب صندوق یا بانک معتبر نیست');
+    }
+    final balanceRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(l.debit), 0) AS debit,
+        COALESCE(SUM(l.credit), 0) AS credit
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.journal_entry_id
+      WHERE l.account_code = ? AND e.entry_date <= ?
+    ''', [accountCode, statementDate]);
+    final bookBalance = (balanceRows.single['debit'] as num).toInt() -
+        (balanceRows.single['credit'] as num).toInt();
+    final difference = statementBalance - bookBalance;
+    final payload = jsonEncode({
+      'accountCode': accountCode,
+      'statementDate': statementDate,
+      'statementBalance': statementBalance,
+      'bookBalance': bookBalance,
+      'difference': difference,
+      'note': note?.trim(),
+      'idempotencyKey': idempotencyKey,
+    });
+    return db.transaction((txn) async {
+      final duplicate = await txn.query('bank_reconciliations',
+        where: 'idempotency_key = ?', whereArgs: [idempotencyKey], limit: 1);
+      if (duplicate.isNotEmpty) {
+        if (duplicate.single['payload_json'] == payload) {
+          return duplicate.single['id'] as int;
+        }
+        throw StateError('شناسه تطبیق قبلاً برای اطلاعات دیگری استفاده شده است');
+      }
+      return txn.insert('bank_reconciliations', {
+        'account_code': accountCode,
+        'statement_date': statementDate,
+        'statement_balance': statementBalance,
+        'book_balance': bookBalance,
+        'difference': difference,
+        'note': note?.trim(),
+        'idempotency_key': idempotencyKey,
+        'payload_json': payload,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    });
+  }
+
+  Future<List<Map<String, Object?>>> getBankReconciliations({
+    String? accountCode,
+  }) async {
+    final db = await _database.database;
+    return db.query('bank_reconciliations',
+      where: accountCode == null ? null : 'account_code = ?',
+      whereArgs: accountCode == null ? null : [accountCode],
+      orderBy: 'statement_date DESC, id DESC');
+  }
+
   Future<List<Map<String, Object?>>> getAccounts() async {
     final db = await _database.database;
     return db.query('accounts', orderBy: 'code ASC');
