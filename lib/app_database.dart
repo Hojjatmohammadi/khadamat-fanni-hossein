@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -35,6 +35,8 @@ class AppDatabase {
     {'code': '4100', 'name': 'درآمد خدمات تعمیر', 'type': 'income', 'side': 'credit'},
     {'code': '5000', 'name': 'بهای تمام‌شده کالای فروش‌رفته', 'type': 'expense', 'side': 'debit'},
     {'code': '5100', 'name': 'هزینه قطعات مصرفی تعمیر', 'type': 'expense', 'side': 'debit'},
+    {'code': '4055', 'name': 'مازاد انبارگردانی', 'type': 'income', 'side': 'credit'},
+    {'code': '5200', 'name': 'کسری و ضایعات موجودی کالا', 'type': 'expense', 'side': 'debit'},
     {'code': '6000', 'name': 'هزینه‌های جاری', 'type': 'expense', 'side': 'debit'},
     {'code': '6100', 'name': 'اجاره و شارژ', 'type': 'expense', 'side': 'debit'},
     {'code': '6200', 'name': 'آب، برق، گاز و تلفن', 'type': 'expense', 'side': 'debit'},
@@ -96,6 +98,15 @@ class AppDatabase {
           // the unused multi-device synchronization tables from older builds.
           await db.execute('DROP TABLE IF EXISTS sync_conflicts');
           await db.execute('DROP TABLE IF EXISTS sync_outbox');
+        }
+        if (oldVersion < 10) {
+          // Older minimal migration fixtures may not have an accounts table.
+          final accountTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'accounts'",
+          );
+          if (accountTables.isNotEmpty) {
+            await _seedAccounts(db);
+          }
         }
       },
     );
