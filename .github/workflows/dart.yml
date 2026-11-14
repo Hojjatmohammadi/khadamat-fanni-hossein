@@ -49,7 +49,7 @@ jobs:
 
       - name: Add app permissions and speech recognition query
         run: |
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_CONTACTS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="sms" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="tel" />\n        </intent>\n    </queries>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_CONTACTS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="sms" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="tel" />\n        </intent>\n    </queries>' android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
@@ -67,6 +67,47 @@ jobs:
           find "$HOME/.pub-cache/hosted/pub.dev" -path '*/android/build.gradle*' -type f \
             -exec sed -i -E \
             -e 's/(compileSdkVersion|compileSdk)[[:space:]]*(=)?[[:space:]]*34/\1\2 36/g' {} +
+
+      - name: Enable Java API desugaring for notifications
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          kts = Path("android/app/build.gradle.kts")
+          groovy = Path("android/app/build.gradle")
+          path = kts if kts.exists() else groovy
+          if not path.exists():
+              raise SystemExit("Android app Gradle file not found")
+          s = path.read_text()
+          if path.suffix == ".kts":
+              if "isCoreLibraryDesugaringEnabled" not in s:
+                  if "compileOptions {" not in s:
+                      raise SystemExit("compileOptions block not found")
+                  s = s.replace("compileOptions {", "compileOptions {\\n        isCoreLibraryDesugaringEnabled = true", 1)
+              if "multiDexEnabled" not in s:
+                  if "defaultConfig {" not in s:
+                      raise SystemExit("defaultConfig block not found")
+                  s = s.replace("defaultConfig {", "defaultConfig {\\n        multiDexEnabled = true", 1)
+              if "coreLibraryDesugaring(" not in s:
+                  if "dependencies {" in s:
+                      s = s.replace("dependencies {", 'dependencies {\\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")', 1)
+                  else:
+                      s += '\\ndependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4") }\\n'
+          else:
+              if "coreLibraryDesugaringEnabled" not in s:
+                  if "compileOptions {" not in s:
+                      raise SystemExit("compileOptions block not found")
+                  s = s.replace("compileOptions {", "compileOptions {\\n        coreLibraryDesugaringEnabled true", 1)
+              if "multiDexEnabled" not in s:
+                  if "defaultConfig {" not in s:
+                      raise SystemExit("defaultConfig block not found")
+                  s = s.replace("defaultConfig {", "defaultConfig {\\n        multiDexEnabled true", 1)
+              if "coreLibraryDesugaring " not in s:
+                  if "dependencies {" in s:
+                      s = s.replace("dependencies {", "dependencies {\\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'", 1)
+                  else:
+                      s += "\\ndependencies { coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4' }\\n"
+          path.write_text(s)
+          PY
 
       - name: Analyze Flutter code
         run: flutter analyze --no-fatal-infos lib
