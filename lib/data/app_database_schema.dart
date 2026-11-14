@@ -1337,9 +1337,25 @@ class AppDatabaseSchema {
           throw StateError('تعداد یا مبلغ یکی از ردیف‌های فاکتور نامعتبر است.');
         }
         computedLineGross += lineTotal;
-        final productId = int.tryParse((rawLine['product_id'] ?? '').toString());
+        var productId = int.tryParse((rawLine['product_id'] ?? '').toString());
         final lineDescription = (rawLine['description'] ?? '').toString().trim();
         final lineUnit = (rawLine['unit'] ?? 'عدد').toString();
+        if (productId == null && structuredLinesJson.isEmpty &&
+            _text(data, 'کالای انبار').trim().isNotEmpty) {
+          final legacyProductRows = await db.query(
+            'products',
+            columns: ['id'],
+            where: 'name = ?',
+            whereArgs: [_text(data, 'کالای انبار').trim()],
+            limit: 2,
+          );
+          if (legacyProductRows.length > 1) {
+            throw StateError('نام کالای فاکتور قدیمی تکراری است؛ پیش از مهاجرت باید شناسه کالا تعیین شود.');
+          }
+          if (legacyProductRows.length == 1) {
+            productId = legacyProductRows.first['id'] as int;
+          }
+        }
         if (productId != null) {
           final matches = await db.query(
             'products',
