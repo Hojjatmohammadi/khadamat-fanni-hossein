@@ -579,6 +579,62 @@ class AccountingRepository {
     );
   }
 
+  /// Records labour/service revenue from a repair as one balanced journal entry.
+  /// Any unpaid amount remains in customer receivables; it is not counted again
+  /// when a later receipt is recorded.
+  Future<int> recordRepairServiceIncome({
+    required String serviceDate,
+    required String description,
+    required int amount,
+    required int paidAmount,
+    required String cashAccountCode,
+    required String idempotencyKey,
+    String? customerId,
+  }) async {
+    if (DateTime.tryParse(serviceDate) == null ||
+        description.trim().isEmpty ||
+        amount <= 0 ||
+        paidAmount < 0 ||
+        paidAmount > amount ||
+        idempotencyKey.trim().isEmpty) {
+      throw ArgumentError('تاریخ، شرح، مبلغ خدمت و مبلغ دریافتی معتبر نیست');
+    }
+    if (cashAccountCode != '1000' && cashAccountCode != '1010') {
+      throw ArgumentError('حساب دریافت باید صندوق یا بانک باشد');
+    }
+    final lines = <JournalLineDraft>[];
+    if (paidAmount > 0) {
+      lines.add(JournalLineDraft(
+        accountCode: cashAccountCode,
+        debit: paidAmount,
+        memo: description.trim(),
+      ));
+    }
+    final receivable = amount - paidAmount;
+    if (receivable > 0) {
+      lines.add(JournalLineDraft(
+        accountCode: '1100',
+        debit: receivable,
+        partyId: customerId,
+        memo: description.trim(),
+      ));
+    }
+    lines.add(JournalLineDraft(
+      accountCode: '4100',
+      credit: amount,
+      partyId: customerId,
+      memo: description.trim(),
+    ));
+    return postJournalEntry(JournalEntryDraft(
+      entryDate: serviceDate,
+      description: 'درآمد خدمات تعمیر: ${description.trim()}',
+      idempotencyKey: idempotencyKey,
+      referenceType: 'repair_service',
+      referenceId: idempotencyKey,
+      lines: lines,
+    ));
+  }
+
   /// Expense is posted immediately as a balanced, immutable journal entry.
   Future<int> recordExpense({
     required String expenseDate,
