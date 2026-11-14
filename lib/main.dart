@@ -967,6 +967,8 @@ class DemoStore {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '2000'),
           debit: payable,
+          partyType: 'supplier',
+          partyId: partyId,
           memo: 'کاهش بدهی بابت تخفیف فروشنده ' + partyName,
         ));
       }
@@ -974,6 +976,8 @@ class DemoStore {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '1110'),
           debit: amount - payable,
+          partyType: 'supplier',
+          partyId: partyId,
           memo: 'طلب مازاد تخفیف از فروشنده ' + partyName,
         ));
       }
@@ -4029,7 +4033,9 @@ class _OperationsPageState extends State<OperationsPage> {
     final amount = (check['amount'] as num).toDouble();
     final sourceType = (check['source_type'] ?? '').toString();
     final sourceId = (check['source_id'] ?? '').toString();
-    final partyType = (check['party_type'] ?? '').toString();
+    final rawPartyType = (check['party_type'] ?? '').toString();
+    final partyType = rawPartyType == 'مشتری' ? 'customer'
+        : rawPartyType == 'فروشنده' ? 'supplier' : rawPartyType;
     final partyId = check['party_id'] as int?;
 
     final allowed = direction == 'received'
