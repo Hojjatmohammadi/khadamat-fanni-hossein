@@ -830,9 +830,6 @@ class _RepairPageState extends State<RepairPage> {
               ),
               FilledButton(
                 onPressed: () async {
-                  final repair = repairOptions.firstWhere(
-                    (item) => item['__database_id'] == selectedRepairId.toString(),
-                  );
                   final quantity = double.tryParse(quantityController.text.trim());
                   if (selectedRepairId == null ||
                       selectedProductId == null ||
@@ -843,6 +840,9 @@ class _RepairPageState extends State<RepairPage> {
                     );
                     return;
                   }
+                  final repair = repairOptions.firstWhere(
+                    (item) => item['__database_id'] == selectedRepairId.toString(),
+                  );
                   try {
                     await DemoStore.trades.recordRepairConsumption(
                       documentDate: DateTime.now().toIso8601String().split('T').first,
@@ -1426,6 +1426,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
           const Divider(height: 24),
           TextField(
             controller: _discountController,
+            onChanged: (_) => setState(() {}),
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(labelText: 'تخفیف کل (تومان)'),
           ),
@@ -1440,6 +1441,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
           if (!_vatExempt)
             TextField(
               controller: _vatRateController,
+              onChanged: (_) => setState(() {}),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(labelText: 'درصد ارزش افزوده'),
             ),
@@ -1447,18 +1449,21 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             const SizedBox(height: 10),
             TextField(
               controller: _shippingController,
+              onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'هزینه پست'),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _freightController,
+              onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'هزینه باربری / حمل'),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _otherCostController,
+              onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید'),
             ),
