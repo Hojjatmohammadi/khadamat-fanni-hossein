@@ -2186,6 +2186,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       if (existing == null && field == 'کد پستی در فاکتور') value = AppSettings.postalCode;
       return TextEditingController(text: value);
     }).toList();
+    final extraInvoiceLines = <Map<String, String>>[];
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
     final repairCustomerRows = await DemoStore.database.query(
       'customers',
@@ -2225,15 +2226,201 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final inventoryOptions = widget.title == 'فاکتور فروش'
         ? await DemoStore.database.query(
             'products',
-            columns: ['id', 'name', 'quantity', 'unit', 'is_used'],
+            columns: ['id', 'name', 'quantity', 'unit', 'is_used', 'sale_price'],
             orderBy: 'name COLLATE NOCASE ASC',
           )
         : <Map<String, Object?>>[];
+
+    Future<void> addAdditionalInvoiceLine() async {
+      final descriptionController = TextEditingController();
+      final quantityController = TextEditingController(text: '1');
+      final unitPriceController = TextEditingController();
+      String selectedProductId = '';
+      final line = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (lineContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (lineContext, refreshLine) => AlertDialog(
+              title: const Text('افزودن ردیف کالا یا خدمت'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: selectedProductId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'نوع ردیف',
+                          helperText: 'برای قطعه، کالا را از انبار انتخاب کنید؛ برای خدمت، گزینه اول را بگذارید.',
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(value: '', child: Text('خدمت / اجرت')),
+                          ...inventoryOptions.map((product) => DropdownMenuItem<String>(
+                            value: product['id'].toString(),
+                            child: Text(
+                              (product['name'] ?? '').toString() + ' • موجودی: ' +
+                                (product['quantity'] ?? 0).toString(),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )),
+                        ],
+                        onChanged: (value) {
+                          selectedProductId = value ?? '';
+                          if (selectedProductId.isNotEmpty) {
+                            final product = inventoryOptions.firstWhere(
+                              (row) => row['id'].toString() == selectedProductId,
+                            );
+                            descriptionController.text = (product['name'] ?? '').toString();
+                            unitPriceController.text = (product['sale_price'] ?? 0).toString();
+                          }
+                          refreshLine(() {});
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: descriptionController,
+                        decoration: const InputDecoration(labelText: 'شرح کالا یا خدمت'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: quantityController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: const InputDecoration(labelText: 'تعداد'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: unitPriceController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: const InputDecoration(labelText: 'قیمت واحد'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [_horizontalDialogActions([
+                TextButton(
+                  onPressed: () => Navigator.pop(lineContext),
+                  child: const Text('انصراف'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final quantity = _ledgerAmount(quantityController.text);
+                    final unitPrice = _ledgerAmount(unitPriceController.text);
+                    if (quantity <= 0 || unitPrice <= 0) {
+                      ScaffoldMessenger.of(lineContext).showSnackBar(
+                        const SnackBar(content: Text('تعداد و قیمت واحد باید بیشتر از صفر باشد.')),
+                      );
+                      return;
+                    }
+                    final selected = selectedProductId.isEmpty
+                        ? null
+                        : inventoryOptions.firstWhere(
+                            (row) => row['id'].toString() == selectedProductId,
+                          );
+                    final description = selected == null
+                        ? descriptionController.text.trim()
+                        : (selected['name'] ?? '').toString();
+                    if (description.isEmpty) {
+                      ScaffoldMessenger.of(lineContext).showSnackBar(
+                        const SnackBar(content: Text('شرح خدمت را وارد کنید.')),
+                      );
+                      return;
+                    }
+                    Navigator.pop(lineContext, {
+                      'kind': selected == null ? 'service' : 'product',
+                      'product_id': selectedProductId,
+                      'description': description,
+                      'unit': selected == null ? 'خدمت' : (selected['unit'] ?? 'عدد').toString(),
+                      'quantity': quantity.toString(),
+                      'unit_price': unitPrice.toString(),
+                      'line_total': (quantity * unitPrice).toStringAsFixed(0),
+                      'is_used': selected != null && selected['is_used'] == 1 ? '1' : '0',
+                    });
+                  },
+                  child: const Text('افزودن ردیف'),
+                ),
+              ])],
+            ),
+          ),
+        ),
+      );
+      descriptionController.dispose();
+      quantityController.dispose();
+      unitPriceController.dispose();
+      if (line != null) {
+        extraInvoiceLines.add(line);
+      }
+    }
 
     Future<void> saveForm(BuildContext dialogContext) async {
       final item = <String, String>{};
       for (int i = 0; i < widget.fields.length; i++) {
         item[widget.fields[i]] = controllers[i].text.trim();
+      }
+      if (widget.title == 'فاکتور فروش' && extraInvoiceLines.isNotEmpty) {
+        final baseQuantity = _ledgerAmount(item['تعداد']);
+        final baseGross = _ledgerAmount(item['مبلغ کل']);
+        final baseProductId = (item['شناسه کالای انبار'] ?? '').trim();
+        final lines = <Map<String, String>>[];
+        if (baseGross > 0) {
+          if (baseQuantity <= 0) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(
+              const SnackBar(content: Text('تعداد ردیف اصلی فاکتور معتبر نیست.')),
+            );
+            return;
+          }
+          final selected = baseProductId.isEmpty
+              ? null
+              : inventoryOptions.cast<Map<String, Object?>>().firstWhere(
+                  (row) => row['id'].toString() == baseProductId,
+                  orElse: () => <String, Object?>{},
+                );
+          if (selected != null && selected.isEmpty) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(
+              const SnackBar(content: Text('کالای ردیف اصلی پیدا نشد.')),
+            );
+            return;
+          }
+          final description = selected == null
+              ? (item['شرح کالا/خدمت'] ?? '').trim()
+              : (selected['name'] ?? '').toString();
+          final unit = selected == null ? 'خدمت' : (selected['unit'] ?? 'عدد').toString();
+          lines.add({
+            'kind': selected == null ? 'service' : 'product',
+            'product_id': baseProductId,
+            'description': description,
+            'unit': unit,
+            'quantity': baseQuantity.toString(),
+            'unit_price': (baseGross / baseQuantity).toStringAsFixed(2),
+            'line_total': baseGross.toStringAsFixed(0),
+            'is_used': selected != null && selected['is_used'] == 1 ? '1' : '0',
+          });
+        }
+        lines.addAll(extraInvoiceLines.map((line) => Map<String, String>.from(line)));
+        if (lines.isEmpty) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(
+            const SnackBar(content: Text('حداقل یک ردیف کالا یا خدمت لازم است.')),
+          );
+          return;
+        }
+        final lineGross = lines.fold<double>(
+          0, (sum, line) => sum + _ledgerAmount(line['line_total']),
+        );
+        final totalQuantity = lines.fold<double>(
+          0, (sum, line) => sum + _ledgerAmount(line['quantity']),
+        );
+        item['ردیف‌های فاکتور'] = jsonEncode(lines);
+        item['مبلغ کل'] = lineGross.toStringAsFixed(0);
+        item['تعداد'] = totalQuantity.toStringAsFixed(3);
+        if (baseProductId.isEmpty && lines.first['product_id']!.isNotEmpty) {
+          item['شناسه کالای انبار'] = lines.first['product_id']!;
+        }
+        item['شرح کالا/خدمت'] = lines.map((line) => line['description']).join('، ');
       }
       if (item.values.every((value) => value.isEmpty)) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
@@ -2653,6 +2840,48 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   helperText: widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ کل' ? 'مبلغ قبل از تخفیف؛ مبلغ نهایی پس از کسر تخفیف محاسبه می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'تخفیف' ? 'این مبلغ از مبلغ کل کسر می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ دریافتی' ? 'فقط وجه جدید دریافتی را وارد کنید؛ بیعانه قبلی را دوباره وارد نکنید.' : null,
                                 ),
                               ),
+                      ),
+                    if (widget.title == 'فاکتور فروش')
+                      Card(
+                        margin: const EdgeInsets.only(top: 14),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text('ردیف‌های اضافی فاکتور',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              if (extraInvoiceLines.isEmpty)
+                                const Text('برای افزودن چند قطعه یا خدمت به یک فاکتور، ردیف جدید اضافه کنید.',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              for (var lineIndex = 0; lineIndex < extraInvoiceLines.length; lineIndex++)
+                                ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(extraInvoiceLines[lineIndex]['description'] ?? ''),
+                                  subtitle: Text(
+                                    (extraInvoiceLines[lineIndex]['quantity'] ?? '1') + ' × ' +
+                                    (extraInvoiceLines[lineIndex]['unit_price'] ?? '0') + ' = ' +
+                                    (extraInvoiceLines[lineIndex]['line_total'] ?? '0') + ' تومان',
+                                  ),
+                                  trailing: IconButton(
+                                    tooltip: 'حذف ردیف',
+                                    onPressed: () => refresh(() => extraInvoiceLines.removeAt(lineIndex)),
+                                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                  ),
+                                ),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  await addAdditionalInvoiceLine();
+                                  refresh(() {});
+                                },
+                                icon: const Icon(Icons.add),
+                                label: const Text('افزودن کالا یا خدمت'),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                   ],
                 ),
