@@ -123,6 +123,60 @@ void main() {
     await migrated.close();
   });
 
+  test('editing product details preserves live stock and immutable accounting history', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'خازن قدیمی',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '1000',
+      'قیمت فروش': '1500',
+    });
+
+    await accounting.recordStockMovement(
+      StockMovementDraft(
+        productId: productId,
+        movementType: 'sale',
+        quantityDelta: -2,
+        unitCost: 1000,
+        occurredAt: '2026-11-14T12:00:00.000',
+        idempotencyKey: 'metadata-edit-sale-$productId',
+        referenceType: 'test',
+        referenceId: 'sale-1',
+        journalEntry: JournalEntryDraft(
+          entryDate: '2026-11-14',
+          description: 'ثبت خروج آزمایشی کالا',
+          idempotencyKey: 'metadata-edit-journal-$productId',
+          lines: const [
+            JournalLineDraft(accountCode: '5000', debit: 2000),
+            JournalLineDraft(accountCode: '1200', credit: 2000),
+          ],
+        ),
+      ),
+    );
+
+    final db = await store.database;
+    final beforeEntries = await db.query('journal_entries');
+    final beforeMovements = await db.query('inventory_movements');
+    final beforeLines = await db.query('journal_lines');
+
+    await store.updateRecord('products', productId, {
+      'نام کالا': 'خازن جدید',
+      'گروه اصلی': 'الکترونیک',
+      'زیرگروه': 'خازن‌ها',
+      'موجودی': '999',
+      'بهای تمام‌شده هر واحد': '1200',
+      'قیمت فروش': '1800',
+    });
+
+    final product = (await store.getAll('products')).single;
+    expect(product['نام کالا'], 'خازن جدید');
+    expect(product['موجودی'], '8.0');
+    expect(await store.getStockOnHand(productId), 8);
+
+    expect(await db.query('journal_entries'), beforeEntries);
+    expect(await db.query('inventory_movements'), beforeMovements);
+    expect(await db.query('journal_lines'), beforeLines);
+  });
+
   test('rejects unknown categories and empty records', () async {
     await expectLater(
       store.insert('unknown', {'عنوان': 'نمونه'}),
