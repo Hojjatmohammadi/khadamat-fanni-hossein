@@ -4780,6 +4780,171 @@ class _ReportsPageState extends State<ReportsPage> {
     };
   }
 
+  Future<void> _showTrialBalance() async {
+    final rows = await AccountingEngine.trialBalance(DemoStore.database);
+    if (!mounted) return;
+    final debitTotal = rows.fold<double>(0, (sum, row) => sum + (row['debit_total'] as num).toDouble());
+    final creditTotal = rows.fold<double>(0, (sum, row) => sum + (row['credit_total'] as num).toDouble());
+    await showDialog<void>(
+      context: context,
+      builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تراز آزمایشی دفتر کل'),
+          content: SizedBox(
+            width: 620,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('کد')),
+                  DataColumn(label: Text('حساب')),
+                  DataColumn(label: Text('بدهکار')),
+                  DataColumn(label: Text('بستانکار')),
+                ],
+                rows: [
+                  for (final row in rows)
+                    DataRow(cells: [
+                      DataCell(Text(row['code'].toString())),
+                      DataCell(Text(row['name'].toString())),
+                      DataCell(Text((row['debit_total'] as num).toStringAsFixed(0))),
+                      DataCell(Text((row['credit_total'] as num).toStringAsFixed(0))),
+                    ]),
+                  DataRow(
+                    color: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
+                    cells: [
+                      const DataCell(Text('')),
+                      const DataCell(Text('جمع کل', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataCell(Text(debitTotal.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.bold))),
+                      DataCell(Text(creditTotal.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            Text(
+              'اختلاف تراز: ' + (debitTotal - creditTotal).abs().toStringAsFixed(2) + ' تومان',
+              style: TextStyle(
+                color: (debitTotal - creditTotal).abs() < 0.01 ? Colors.green : Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showStockCardex() async {
+    final products = await DemoStore.database.query(
+      'products',
+      columns: ['id', 'name', 'code', 'quantity', 'unit'],
+      orderBy: 'name COLLATE NOCASE ASC',
+    );
+    if (!mounted) return;
+    if (products.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کالایی برای نمایش کارتکس وجود ندارد.')));
+      return;
+    }
+    var selectedId = products.first['id'] as int;
+    var movements = await AccountingEngine.stockCardex(
+      DemoStore.database,
+      selectedId,
+      from: _fromDate?.toDateTime(),
+      to: _toDate?.toDateTime(),
+    );
+    const movementLabels = <String, String>{
+      'purchase': 'خرید',
+      'sale': 'فروش',
+      'sale_return': 'برگشت از فروش',
+      'purchase_return': 'برگشت به فروشنده',
+      'manual_adjustment': 'اصلاح دستی',
+    };
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('کارتکس و گردش تاریخی کالا'),
+            content: SizedBox(
+              width: 620,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    value: selectedId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'انتخاب کالا'),
+                    items: products.map((product) => DropdownMenuItem<int>(
+                      value: product['id'] as int,
+                      child: Text((product['name'] ?? '').toString() + ' • کد ' + (product['code'] ?? '').toString()),
+                    )).toList(),
+                    onChanged: (value) async {
+                      if (value == null) return;
+                      final next = await AccountingEngine.stockCardex(
+                        DemoStore.database,
+                        value,
+                        from: _fromDate?.toDateTime(),
+                        to: _toDate?.toDateTime(),
+                      );
+                      refresh(() {
+                        selectedId = value;
+                        movements = next;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'موجودی فعلی: ' +
+                    (products.firstWhere((product) => product['id'] == selectedId)['quantity'] ?? 0).toString() +
+                    ' ' +
+                    (products.firstWhere((product) => product['id'] == selectedId)['unit'] ?? 'عدد').toString(),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: movements.isEmpty
+                        ? const Center(child: Text('در بازه انتخاب‌شده گردش ثبت‌شده‌ای وجود ندارد.'))
+                        : ListView.builder(
+                            itemCount: movements.length,
+                            itemBuilder: (context, index) {
+                              final movement = movements[index];
+                              final delta = (movement['quantity_delta'] as num).toDouble();
+                              final balance = (movement['running_quantity'] as num).toDouble();
+                              final date = DateTime.tryParse((movement['occurred_at'] ?? '').toString());
+                              return ListTile(
+                                dense: true,
+                                title: Text(movementLabels[movement['movement_type']] ?? movement['movement_type'].toString()),
+                                subtitle: Text(
+                                  (date == null ? '' : Jalali.fromDateTime(date).formatCompactDate()) +
+                                  ' • بهای واحد: ' + (movement['unit_cost'] as num).toStringAsFixed(0),
+                                ),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text((delta > 0 ? '+' : '') + delta.toStringAsFixed(3)),
+                                    Text('مانده: ' + balance.toStringAsFixed(3), style: Theme.of(context).textTheme.bodySmall),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن'))],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _chooseDate({required bool isStart}) async {
     final now = Jalali.now();
     final picked = await showPersianDatePicker(
@@ -4956,6 +5121,23 @@ class _ReportsPageState extends State<ReportsPage> {
                             Text('هزینه‌ها: ' + money('expenses')),
                             Text('سود خالص: ' + money('netProfit')),
                             Text('ارزش فعلی موجودی انبار: ' + money('inventoryValue')),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _showTrialBalance,
+                                  icon: const Icon(Icons.balance),
+                                  label: const Text('تراز آزمایشی'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _showStockCardex,
+                                  icon: const Icon(Icons.inventory),
+                                  label: const Text('کارتکس گردش کالا'),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 6),
                             const Text('توجه: محاسبات دفتر کل برای خریدها و فروش‌هایی است که با نسخهٔ جدید ثبت شده‌اند؛ اسناد قدیمی پیش از اتصال به دفتر دوبل، خودکار به سوابق حسابداری تبدیل نشده‌اند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
                           ],
