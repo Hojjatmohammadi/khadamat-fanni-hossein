@@ -2080,15 +2080,27 @@ class _SimpleListPageState extends State<SimpleListPage> {
       return TextEditingController(text: value);
     }).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
-    final repairCustomerNames = DemoStore.customers
-        .map((customer) => (customer['نام مشتری'] ?? '').trim())
-        .where((name) => name.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final previousRepairCustomer = existing?['نام مشتری']?.trim() ?? '';
-    if (previousRepairCustomer.isNotEmpty && !repairCustomerNames.contains(previousRepairCustomer)) {
-      repairCustomerNames.add(previousRepairCustomer);
+    final repairCustomerRows = await DemoStore.database.query(
+      'customers',
+      columns: ['id', 'first_name', 'last_name', 'phone'],
+      orderBy: 'last_name COLLATE NOCASE ASC, first_name COLLATE NOCASE ASC, id ASC',
+    );
+    final repairCustomerOptions = <String, String>{};
+    for (final row in repairCustomerRows) {
+      final id = row['id'].toString();
+      final customerName = ((row['first_name'] ?? '').toString() + ' ' +
+        (row['last_name'] ?? '').toString()).trim();
+      if (customerName.isEmpty) continue;
+      final phone = (row['phone'] ?? '').toString().trim();
+      repairCustomerOptions[id] = phone.isEmpty ? customerName : customerName + ' • ' + phone;
+    }
+    var selectedCustomerId = (existing?['شناسه مشتری'] ?? '').trim();
+    if (selectedCustomerId.isEmpty) {
+      final oldName = (existing?['نام مشتری'] ?? '').trim();
+      final matches = repairCustomerRows.where((row) =>
+        ((row['first_name'] ?? '').toString() + ' ' +
+          (row['last_name'] ?? '').toString()).trim() == oldName).toList();
+      if (matches.length == 1) selectedCustomerId = matches.first['id'].toString();
     }
     final repairOptions = <String, String>{};
     if (widget.title == 'فاکتور فروش') {
@@ -2136,8 +2148,27 @@ class _SimpleListPageState extends State<SimpleListPage> {
       final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
       if (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') {
         final customerName = (item['نام مشتری'] ?? '').trim();
-        final matches = await DemoStore.database.query('customers', columns: ['id'], where: "TRIM(first_name || ' ' || last_name) = ?", whereArgs: [customerName], limit: 2);
-        if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
+        if (selectedCustomerId.isNotEmpty) {
+          final selected = await DemoStore.database.query('customers',
+            columns: ['id'], where: 'id = ?',
+            whereArgs: [int.tryParse(selectedCustomerId)], limit: 1);
+          if (selected.isEmpty) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پرونده انتخاب‌شدهٔ مشتری پیدا نشد.')));
+            return;
+          }
+          item['شناسه مشتری'] = selectedCustomerId;
+        } else {
+          final matches = await DemoStore.database.query('customers',
+            columns: ['id'],
+            where: "TRIM(first_name || ' ' || last_name) = ?",
+            whereArgs: [customerName],
+            limit: 2);
+          if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
+          else if (matches.length > 1) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('این نام تکراری است؛ پرونده دقیق مشتری را از فهرست انتخاب کنید.')));
+            return;
+          }
+        }
       }
       if (widget.title == 'فاکتور فروش') {
         final quantity = _ledgerAmount(item['تعداد']);
@@ -2169,18 +2200,22 @@ class _SimpleListPageState extends State<SimpleListPage> {
         }
         final customerName = (item['نام مشتری'] ?? '').trim();
         if (customerName.isNotEmpty) {
-          final customerRows = await DemoStore.database.query(
-            'customers',
-            columns: ['id'],
-            where: "TRIM(first_name || ' ' || last_name) = ?",
-            whereArgs: [customerName],
-            limit: 2,
-          );
-          if (customerRows.length > 1) {
-            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام این مشتری تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.')));
-            return;
+          if (selectedCustomerId.isNotEmpty) {
+            item['شناسه مشتری'] = selectedCustomerId;
+          } else {
+            final customerRows = await DemoStore.database.query(
+              'customers',
+              columns: ['id'],
+              where: "TRIM(first_name || ' ' || last_name) = ?",
+              whereArgs: [customerName],
+              limit: 2,
+            );
+            if (customerRows.length > 1) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام این مشتری تکراری است؛ پرونده دقیق مشتری را از فهرست انتخاب کنید.')));
+              return;
+            }
+            item['شناسه مشتری'] = customerRows.isEmpty ? '' : customerRows.first['id'].toString();
           }
-          item['شناسه مشتری'] = customerRows.isEmpty ? '' : customerRows.first['id'].toString();
         } else {
           item['شناسه مشتری'] = '';
         }
@@ -2398,27 +2433,33 @@ class _SimpleListPageState extends State<SimpleListPage> {
                               )
                             : (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'نام مشتری'
                             ? DropdownButtonFormField<String>(
-                                value: repairCustomerNames.contains(controllers[i].text.trim())
-                                    ? controllers[i].text.trim()
+                                value: repairCustomerOptions.containsKey(selectedCustomerId)
+                                    ? selectedCustomerId
                                     : null,
                                 isExpanded: true,
                                 decoration: InputDecoration(
-                                  labelText: 'انتخاب مشتری',
-                                  hintText: repairCustomerNames.isEmpty
+                                  labelText: 'انتخاب پرونده مشتری',
+                                  hintText: repairCustomerOptions.isEmpty
                                       ? 'ابتدا مشتری را ثبت کنید'
-                                      : 'از فهرست مشتریان انتخاب کنید',
-                                  helperText: repairCustomerNames.isEmpty
-                                      ? 'برای ثبت پذیرش، ابتدا از بخش مشتریان یک مشتری اضافه کنید.'
-                                      : 'مشتریان قبلی؛ نیازی به ثبت دوباره نیست.',
+                                      : 'مشتری را با شماره تماس انتخاب کنید',
+                                  helperText: repairCustomerOptions.isEmpty
+                                      ? 'برای ثبت پذیرش یا فاکتور، ابتدا مشتری را ثبت کنید.'
+                                      : 'شناسهٔ هر پرونده مستقل است؛ نام‌های تکراری قابل انتخاب‌اند.',
                                 ),
-                                items: repairCustomerNames
-                                    .map((name) => DropdownMenuItem<String>(
-                                          value: name,
-                                          child: Text(name, overflow: TextOverflow.ellipsis),
+                                items: repairCustomerOptions.entries
+                                    .map((entry) => DropdownMenuItem<String>(
+                                          value: entry.key,
+                                          child: Text(entry.value, overflow: TextOverflow.ellipsis),
                                         ))
                                     .toList(),
                                 onChanged: (value) {
-                                  if (value != null) controllers[i].text = value;
+                                  if (value == null) return;
+                                  selectedCustomerId = value;
+                                  final selectedRow = repairCustomerRows.firstWhere(
+                                    (row) => row['id'].toString() == value,
+                                  );
+                                  controllers[i].text = ((selectedRow['first_name'] ?? '').toString() +
+                                    ' ' + (selectedRow['last_name'] ?? '').toString()).trim();
                                 },
                               )
                             : widget.title == 'فاکتور فروش' && widget.fields[i] == 'شناسه کالای انبار'
@@ -2553,14 +2594,15 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, bool asPayment = false, int? customerId}) async {
     final amount = TextEditingController(), note = TextEditingController();
     const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
-    String method = methods.first;
+    final availableMethods = asDeposit ? methods.where((m) => m != 'چک').toList() : methods;
+    String method = availableMethods.first;
     Jalali selectedDate = Jalali.now();
     final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
         title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : asPayment ? 'ثبت پرداخت به ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : asPayment ? 'مبلغ پرداختی به مشتری (تومان)' : 'مبلغ دریافتی (تومان)')),
-          DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
+          DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: availableMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
           OutlinedButton.icon(
             onPressed: () async {
               final picked = await showPersianDatePicker(
