@@ -2596,7 +2596,12 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       ]))),
       if (busy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
       if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:\n$lastSaved', style: const TextStyle(fontSize: 11)),
-      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Google Drive از مسیر انتخاب‌گر فایل اندروید برای بازیابی قابل استفاده است و هنگام تهیه خروجی نیز می‌توانی Drive را از پنجره اشتراک‌گذاری انتخاب کنی. همگام‌سازی خودکار و پس‌زمینه هنوز فعclass ReportsPage extends StatefulWidget {
+      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Google Drive از مسیر انتخاب‌گر فایل اندروید برای بازیابی قابل استفاده است و هنگام تهیه خروجی نیز می‌توانی Drive را از پنجره اشتراک‌گذاری انتخاب کنی. همگام‌سازی خودکار و پس‌زمینه هنوز فعال نشده است.'))),
+    ],
+  );
+}
+
+class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
   @override
   State<ReportsPage> createState() => _ReportsPageState();
