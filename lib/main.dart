@@ -1386,8 +1386,13 @@ class DemoStore {
         'data': jsonEncode(product),
         'created_at': createdAt,
       });
+      // The purchase transaction below records the stock receipt exactly once.
+      // Keep the human-readable JSON snapshot intact, but create the normalized
+      // product with zero opening stock to avoid counting the purchase twice.
+      final normalizedProductData = Map<String, String>.from(product)
+        ..['موجودی'] = '0';
       await AppDatabaseSchema.insertLegacyRecord(
-        txn, 'products', product, productRecordId, createdAt,
+        txn, 'products', normalizedProductData, productRecordId, createdAt,
       );
       final normalized = await txn.query('products', columns: ['id'],
         where: 'legacy_source_id = ?', whereArgs: [productRecordId], limit: 1);
