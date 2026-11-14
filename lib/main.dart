@@ -665,7 +665,7 @@ class DemoStore {
     item['شناسه مشتری'] = partyId?.toString() ?? '';
     item['تاریخ میلادی'] = occurredAt.toIso8601String();
 
-    double balanceFor(String code, {String type = '', int? id}) async {
+    Future<double> balanceFor(String code, {String type = '', int? id}) async {
       final account = await AccountingEngine.accountId(txn, code);
       final where = <String>['account_id = ?'];
       final args = <Object?>[account];
