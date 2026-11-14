@@ -5965,8 +5965,11 @@ class _ReportsPageState extends State<ReportsPage> {
       final debit = (row['debit'] as num).toDouble();
       final credit = (row['credit'] as num).toDouble();
       if (type == 'income') income += credit - debit;
-      if (type == 'expense') expenses += debit - credit;
-      if (code == '5000') costOfGoods += debit - credit;
+      if (code == '5000') {
+        costOfGoods += debit - credit;
+      } else if (type == 'expense') {
+        expenses += debit - credit;
+      }
     }
     final movementWhere = <String>["movement_type IN ('purchase', 'purchase_return')"];
     final movementArgs = <Object?>[];
@@ -5995,12 +5998,38 @@ class _ReportsPageState extends State<ReportsPage> {
                FROM stock_movements WHERE occurred_at < ?''',
             [stockCutoff.toIso8601String()],
           );
+    final expenseRows = await DemoStore.database.query(
+      'records',
+      columns: ['data', 'created_at'],
+      where: 'category = ?',
+      whereArgs: ['operations'],
+      orderBy: 'created_at ASC',
+    );
+    final expenseCategoryTotals = <String, double>{};
+    for (final row in expenseRows) {
+      try {
+        final data = jsonDecode(row['data'] as String) as Map;
+        if ((data['نوع عملیات'] ?? '').toString() != 'ثبت هزینه') continue;
+        final occurredAt = DateTime.tryParse((data['تاریخ میلادی'] ?? row['created_at'] ?? '').toString())
+            ?? DateTime.tryParse((row['created_at'] ?? '').toString());
+        if (occurredAt == null) continue;
+        if (_fromDate != null && occurredAt.isBefore(_fromDate!.toDateTime())) continue;
+        if (_toDate != null && !occurredAt.isBefore(_toDate!.toDateTime().add(const Duration(days: 1)))) continue;
+        final category = (data['دسته هزینه'] ?? 'سایر').toString();
+        final amount = double.tryParse((data['مبلغ'] ?? '0').toString()) ?? 0;
+        if (amount > 0 && amount.isFinite) {
+          expenseCategoryTotals[category] = (expenseCategoryTotals[category] ?? 0) + amount;
+        }
+      } catch (_) {}
+    }
     return {
+      for (final entry in expenseCategoryTotals.entries)
+        'expenseCategory:' + entry.key: entry.value,
       'salesNet': income,
       'expenses': expenses,
       'costOfGoods': costOfGoods,
       'grossProfit': income - costOfGoods,
-      'netProfit': income - expenses,
+      'netProfit': income - costOfGoods - expenses,
       'purchases': (purchaseRows.first['total'] as num).toDouble(),
       'inventoryValue': (stockRows.first['total'] as num).toDouble(),
     };
@@ -6393,8 +6422,18 @@ class _ReportsPageState extends State<ReportsPage> {
                             Text('خریدهای ثبت‌شده در گردش انبار: ' + money('purchases')),
                             Text('بهای تمام‌شده کالای فروش‌رفته: ' + money('costOfGoods')),
                             Text('سود ناخالص: ' + money('grossProfit')),
-                            Text('هزینه‌ها: ' + money('expenses')),
+                            Text('هزینه‌های عملیاتی (بدون بهای تمام‌شده): ' + money('expenses')),
                             Text('سود خالص: ' + money('netProfit')),
+                            if (totals.keys.any((key) => key.startsWith('expenseCategory:'))) ...[
+                              const Divider(height: 20),
+                              const Text('ریز هزینه‌ها بر اساس دسته‌بندی در بازه انتخاب‌شده:',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                              for (final entry in totals.entries.where((entry) =>
+                                  entry.key.startsWith('expenseCategory:')).toList()
+                                ..sort((a, b) => a.key.compareTo(b.key)))
+                                Text(entry.key.substring('expenseCategory:'.length) + ': ' +
+                                  entry.value.toStringAsFixed(0) + ' تومان'),
+                            ],
                             Text((_toDate == null ? 'ارزش فعلی موجودی انبار: ' : 'ارزش موجودی تا تاریخ ' + _dateLabel(_toDate) + ': ') + money('inventoryValue')),
                             const SizedBox(height: 12),
                             Wrap(
@@ -6414,7 +6453,7 @@ class _ReportsPageState extends State<ReportsPage> {
                               ],
                             ),
                             const SizedBox(height: 6),
-                            const Text('توجه: محاسبات دفتر کل برای خریدها و فروش‌هایی است که با نسخهٔ جدید ثبت شده‌اند؛ اسناد قدیمی پیش از اتصال به دفتر دوبل، خودکار به سوابق حسابداری تبدیل نشده‌اند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                            const Text('توجه: اسناد قدیمی معتبر در نخستین ارتقا به دفتر کل منتقل می‌شوند؛ سوابق ناقص یا بدون مبالغ قابل‌اعتماد نیازمند تطبیق دستی هستند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
                           ],
                         ),
                       ),
