@@ -1,4 +1,10 @@
 import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/painting.dart' as painting;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:excel/excel.dart';
@@ -165,6 +171,101 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+
+  Future<void> _exportPdf() async {
+    if (_rows.isEmpty) {
+      _message('داده‌ای برای خروجی وجود ندارد');
+      return;
+    }
+    try {
+      const width = 1240.0;
+      const height = 1754.0;
+      const margin = 64.0;
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
+      var y = 70.0;
+
+      double drawText(String value, {double size = 25, bool bold = false}) {
+        final painter = painting.TextPainter(
+          text: painting.TextSpan(
+            text: value,
+            style: painting.TextStyle(
+              color: const ui.Color(0xFF202124),
+              fontSize: size,
+              fontWeight: bold ? painting.FontWeight.bold : painting.FontWeight.normal,
+            ),
+          ),
+          textDirection: painting.TextDirection.rtl,
+          textAlign: painting.TextAlign.right,
+          maxLines: 2,
+        )..layout(maxWidth: width - margin * 2);
+        painter.paint(canvas, ui.Offset(margin, y));
+        return painter.height;
+      }
+
+      final title = switch (_report) {
+        'stock' => 'گزارش کاردکس و گردش انبار',
+        'profit' => 'گزارش سود و زیان',
+        'item_profit' => 'گزارش سود هر کالا',
+        _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
+      };
+      y += drawText('خدمات فنی حسین', size: 40, bold: true) + 12;
+      y += drawText(title, size: 32, bold: true) + 10;
+      y += drawText('از \${_from.toIso8601String().substring(0, 10)} تا \${_to.toIso8601String().substring(0, 10)}', size: 20) + 20;
+      canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFB8BEC5)..strokeWidth = 2);
+      y += 20;
+
+      final lines = <String>[];
+      for (final row in _rows.take(27)) {
+        if (_report == 'profit') {
+          lines.add('\${row['account_code']} - \${row['account_name']} | \${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: \${_money(row['balance'])} تومان');
+        } else if (_report == 'item_profit') {
+          lines.add('\${row['product_name']} | فروش: \${_money(row['net_revenue'])} | بها: \${_money(row['net_cost'])} | سود: \${_money(row['gross_profit'])}');
+        } else if (_report == 'stock') {
+          lines.add('\${row['occurred_at']} | \${row['product_name']} | \${_typeName(row['movement_type'])} | تعداد: \${row['quantity_delta']}');
+        } else {
+          lines.add('\${row['document_date']} | \${_typeName(row['document_type'])} | \${row['document_number']} | \${_money(row['total_amount'])} تومان');
+        }
+      }
+      for (var i = 0; i < lines.length; i++) {
+        final h = drawText('\${i + 1}. \${lines[i]}', size: 21);
+        y += h + 15;
+        canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFE0E3E7));
+        y += 8;
+        if (y > height - 100) break;
+      }
+      if (_rows.length > lines.length) {
+        y += 8;
+        drawText('برای کوتاه ماندن فایل، فقط \${lines.length} ردیف نخست نمایش داده شد.', size: 18);
+      }
+
+      final picture = recorder.endRecording();
+      final raster = await picture.toImage(width.toInt(), height.toInt());
+      final png = await raster.toByteData(format: ui.ImageByteFormat.png);
+      raster.dispose();
+      picture.dispose();
+      if (png == null) throw StateError('ساخت تصویر گزارش ناموفق بود');
+
+      final document = pw.Document();
+      document.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: pw.EdgeInsets.zero,
+        build: (_) => pw.Image(
+          pw.MemoryImage(png.buffer.asUint8List()),
+          fit: pw.BoxFit.fill,
+        ),
+      ));
+      final bytes = await document.save();
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'report_\${DateTime.now().millisecondsSinceEpoch}.pdf',
+      );
+    } catch (error) {
+      _message('ساخت یا اشتراک PDF ناموفق بود: $error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final total = switch (_report) {
@@ -228,7 +329,13 @@ class _ReportsPageState extends State<ReportsPage> {
             Expanded(child: OutlinedButton.icon(
               onPressed: _loading ? null : _exportExcel,
               icon: const Icon(Icons.table_view),
-              label: const Text('خروجی Excel'),
+              label: const Text('Excel'),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: OutlinedButton.icon(
+              onPressed: _loading ? null : _exportPdf,
+              icon: const Icon(Icons.picture_as_pdf),
+              label: const Text('PDF'),
             )),
           ],
         ),
