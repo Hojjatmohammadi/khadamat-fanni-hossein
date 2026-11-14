@@ -1656,6 +1656,7 @@ class _RepairPageState extends State<RepairPage> {
         cashAccountCode: '1000',
         customerId: customerId,
         idempotencyKey: 'repair-service-income-' + repairId,
+        repairId: repairId,
       );
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('درآمد اجرت ثبت شد؛ مانده دریافت‌نشده در حساب مشتری باقی ماند')));
