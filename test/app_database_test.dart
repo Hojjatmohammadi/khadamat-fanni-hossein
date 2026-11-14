@@ -228,6 +228,15 @@ void main() {
     expect(originalLines[0]['debit'], 50000);
     expect(reversalLines[0]['credit'], 50000);
     expect(reversalLines[1]['debit'], 50000);
+    await expectLater(
+      db.update(
+        'journal_entries',
+        {'description': 'تغییر غیرمجاز'},
+        where: 'id = ?',
+        whereArgs: [originalId],
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
 
     final totals = await accounting.getTrialBalance();
     expect(
@@ -280,6 +289,14 @@ void main() {
     expect(
       await db.query('inventory_movements', where: 'product_id = ?', whereArgs: [productId]),
       hasLength(2),
+    );
+    await expectLater(
+      db.delete(
+        'inventory_movements',
+        where: 'id = ?',
+        whereArgs: [movementId],
+      ),
+      throwsA(isA<DatabaseException>()),
     );
 
     await expectLater(
