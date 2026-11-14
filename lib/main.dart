@@ -1665,13 +1665,21 @@ class _RepairPageState extends State<RepairPage> {
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _recordPartConsumption,
-                  icon: const Icon(Icons.inventory),
-                  label: const Text('ثبت مصرف قطعه در تعمیر'),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _recordPartConsumption,
+                    icon: const Icon(Icons.inventory),
+                    label: const Text('ثبت مصرف قطعه در تعمیر'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _recordRepairServiceIncome,
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('ثبت درآمد اجرت تعمیر'),
+                  ),
+                ],
               ),
             ),
           ),
