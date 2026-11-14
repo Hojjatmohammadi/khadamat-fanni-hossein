@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'app_database.dart';
+import 'trade_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +39,7 @@ class HoseinApp extends StatelessWidget {
 
 class DemoStore {
   static final AppDatabase _database = AppDatabase();
+  static final TradeRepository trades = TradeRepository(_database);
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
@@ -48,7 +50,24 @@ class DemoStore {
     await _loadCategory('products', products);
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
-    await _loadCategory('sales', sales);
+    await refreshSales();
+  }
+
+  static Future<void> refreshProducts() => _loadCategory('products', products);
+
+  static Future<void> refreshSales() async {
+    final storedSales = await _database.getAll('sales');
+    final invoices = await trades.getDocuments(type: 'sale');
+    sales
+      ..clear()
+      ..addAll(storedSales)
+      ..addAll(invoices.map((row) => {
+        'شماره فاکتور': row['document_number']?.toString() ?? '',
+        'نام مشتری': row['counterparty_name']?.toString() ?? '',
+        'تاریخ': row['document_date']?.toString() ?? '',
+        'مبلغ کل': row['total_amount']?.toString() ?? '0',
+        '__database_id': row['id']?.toString() ?? '',
+      }));
   }
 
   static Future<void> _loadCategory(
@@ -101,7 +120,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -161,6 +180,7 @@ class _HomePageState extends State<HomePage> {
     final pages = [
       Dashboard(onSelect: _selectTab),
       ProductPage(onChanged: () => setState(() {})),
+      PurchasePage(onChanged: () => setState(() {})),
       CustomerPage(onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
@@ -207,7 +227,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -295,7 +315,7 @@ class Dashboard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت مشتری'), (3, 'پذیرش تعمیر'), (4, 'صدور فاکتور')])
+        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور')])
           Card(
             child: ListTile(
               title: Text(e.$2),
