@@ -5274,9 +5274,17 @@ class _ReportsPageState extends State<ReportsPage> {
       "SELECT COALESCE(SUM(CASE WHEN movement_type = 'purchase_return' THEN -total_cost ELSE total_cost END), 0) AS total FROM stock_movements WHERE " + movementWhere.join(' AND '),
       movementArgs,
     );
-    final stockRows = await DemoStore.database.rawQuery(
-      'SELECT COALESCE(SUM(quantity * purchase_price), 0) AS total FROM products',
-    );
+    final stockCutoff = _toDate?.toDateTime().add(const Duration(days: 1));
+    final stockRows = stockCutoff == null
+        ? await DemoStore.database.rawQuery(
+            'SELECT COALESCE(SUM(quantity * purchase_price), 0) AS total FROM products',
+          )
+        : await DemoStore.database.rawQuery(
+            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+                 THEN total_cost ELSE -total_cost END), 0) AS total
+               FROM stock_movements WHERE occurred_at < ?''',
+            [stockCutoff.toIso8601String()],
+          );
     return {
       'salesNet': income,
       'expenses': expenses,
@@ -5546,6 +5554,49 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+  Future<void> _exportReportPdf() async {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary = _reportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) throw StateError('گزارش برای تهیه PDF آماده نیست.');
+      final image = await boundary.toImage(pixelRatio: 2.0);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (data == null) throw StateError('تبدیل گزارش به تصویر انجام نشد.');
+      final root = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(dir.path, 'report_$stamp.pdf'));
+      final document = pw.Document();
+      document.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(18),
+        build: (_) => pw.Center(
+          child: pw.Image(
+            pw.MemoryImage(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes)),
+            fit: pw.BoxFit.contain,
+          ),
+        ),
+      ));
+      await file.writeAsBytes(await document.save(), flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('گزارش PDF ذخیره شد.')),
+      );
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/pdf')],
+        text: 'گزارش خدمات فنی حسین',
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تهیه PDF گزارش ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<List<Map<String, Object?>>>(
     future: _recordsFuture,
@@ -5570,9 +5621,15 @@ class _ReportsPageState extends State<ReportsPage> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(children: [
             Expanded(child: OutlinedButton.icon(
+              onPressed: _exportReportPdf,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('خروجی PDF گزارش'),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: OutlinedButton.icon(
               onPressed: _exportReportImage,
               icon: const Icon(Icons.image_outlined),
-              label: const Text('خروجی تصویر گزارش و نمودار'),
+              label: const Text('خروجی تصویر گزارش'),
             )),
             IconButton(
               tooltip: 'به‌روزرسانی',
@@ -5628,7 +5685,7 @@ class _ReportsPageState extends State<ReportsPage> {
                             Text('سود ناخالص: ' + money('grossProfit')),
                             Text('هزینه‌ها: ' + money('expenses')),
                             Text('سود خالص: ' + money('netProfit')),
-                            Text('ارزش فعلی موجودی انبار: ' + money('inventoryValue')),
+                            Text((_toDate == null ? 'ارزش فعلی موجودی انبار: ' : 'ارزش موجودی تا تاریخ ' + _dateLabel(_toDate) + ': ') + money('inventoryValue')),
                             const SizedBox(height: 12),
                             Wrap(
                               spacing: 8,
