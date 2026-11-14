@@ -10,7 +10,7 @@ class ProductDuplicateChecker {
         .replaceAll('ي', 'ی')
         .replaceAll('ك', 'ک')
         .replaceAllMapped(RegExp(r'[۰-۹]'), (match) =>
-            String.fromCharCode(match.group(0)!.codeUnitAt(0) - 1728 + 48))
+            String.fromCharCode(match.group(0)!.codeUnitAt(0) - 1728))
         .replaceAll(RegExp(r'\s+'), ' ');
   }
 
