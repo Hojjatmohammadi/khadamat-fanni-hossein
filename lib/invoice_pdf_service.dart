@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/painting.dart' as painting;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -43,10 +44,10 @@ class InvoicePdfService {
       double top = 0,
       double maxWidth = _width - 2 * _margin,
     }) {
-      final painter = ui.TextPainter(
-        text: ui.TextSpan(
+      final painter = painting.TextPainter(
+        text: painting.TextSpan(
           text: value,
-          style: ui.TextStyle(
+          style: painting.TextStyle(
             color: color,
             fontSize: fontSize,
             fontWeight: bold ? ui.FontWeight.bold : ui.FontWeight.normal,
