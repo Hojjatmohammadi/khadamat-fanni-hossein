@@ -3304,6 +3304,170 @@ class _OperationsPageState extends State<OperationsPage> {
     );
   }
 
+  Future<void> _showPurchaseArchive() async {
+    final rows = await DemoStore.database.query('purchase_archive', orderBy: 'archived_at DESC');
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('فاکتورهای خرید بایگانی‌شده'),
+          content: SizedBox(
+            width: 520,
+            child: rows.isEmpty
+                ? const Padding(padding: EdgeInsets.all(16), child: Text('هنوز فاکتور خریدی ثبت نشده است.'))
+                : ListView(
+                    shrinkWrap: true,
+                    children: rows.map((row) {
+                      Map<String, dynamic> snapshot = {};
+                      try { snapshot = jsonDecode(row['snapshot_json'] as String) as Map<String, dynamic>; } catch (_) {}
+                      final operation = snapshot['operation'] is Map
+                          ? Map<String, dynamic>.from(snapshot['operation'] as Map)
+                          : <String, dynamic>{};
+                      final product = snapshot['product'] is Map
+                          ? Map<String, dynamic>.from(snapshot['product'] as Map)
+                          : <String, dynamic>{};
+                      final productName = (operation['نام کالا'] ?? product['name'] ?? 'کالای خریداری‌شده').toString();
+                      return Card(
+                        child: ListTile(
+                          title: Text((row['purchase_number'] ?? '').toString() + ' • ' + productName),
+                          subtitle: Text(
+                            (operation['نام شخص'] ?? '').toString() + ' • ' +
+                            (operation['مبلغ'] ?? '0').toString() + ' تومان' + '\n' +
+                            (operation['تاریخ'] ?? row['archived_at']).toString(),
+                          ),
+                          isThreeLine: true,
+                          trailing: const Icon(Icons.lock_outline),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن'))],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _registerReturn() async {
+    final rows = await DemoStore.database.query(
+      'records',
+      columns: ['id', 'category', 'data'],
+      where: "category = ? OR category = ?",
+      whereArgs: ['sales', 'operations'],
+      orderBy: 'id DESC',
+    );
+    final options = <String, String>{};
+    for (final row in rows) {
+      try {
+        final data = jsonDecode(row['data'] as String) as Map<String, dynamic>;
+        final category = row['category'].toString();
+        final isSale = category == 'sales';
+        if (!isSale && data['نوع عملیات'] != 'خرید کالا') continue;
+        final id = row['id'] as int;
+        final label = (isSale ? 'فروش' : 'خرید') + ' • ' +
+            (isSale ? (data['شماره فاکتور'] ?? 'فاکتور ' + id.toString()).toString()
+                    : 'PUR-' + id.toString().padLeft(6, '0')) +
+            ' • ' + (isSale ? (data['نام مشتری'] ?? '') : (data['نام شخص'] ?? '')).toString() +
+            ' • ' + (isSale ? (data['شرح کالا/خدمت'] ?? data['کالای انبار'] ?? '') : (data['نام کالا'] ?? '')).toString();
+        options[category + ':' + id.toString()] = label;
+      } catch (_) {}
+    }
+    if (options.isEmpty || !mounted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('برای برگشت، فاکتور فروش یا خرید ثبت‌شده‌ای پیدا نشد.')));
+      return;
+    }
+    final quantity = TextEditingController(text: '1');
+    final reason = TextEditingController();
+    String? selected = options.keys.first;
+    bool settleAsCash = false;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (dialogContext, refresh) => AlertDialog(
+            title: const Text('ثبت برگشت از خرید یا فروش'),
+            content: SizedBox(
+              width: 460,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selected,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'انتخاب سند اصلی'),
+                      items: options.entries.map((entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value, overflow: TextOverflow.ellipsis, maxLines: 2),
+                      )).toList(),
+                      onChanged: (value) => refresh(() => selected = value),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: quantity,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
+                      decoration: const InputDecoration(labelText: 'تعداد برگشتی'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(controller: reason, maxLines: 2, decoration: const InputDecoration(labelText: 'علت / توضیحات برگشت')),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<bool>(
+                      value: settleAsCash,
+                      decoration: const InputDecoration(labelText: 'روش تسویه'),
+                      items: const [
+                        DropdownMenuItem(value: false, child: Text('ثبت بستانکاری مشتری / کسر از حساب فروشنده')),
+                        DropdownMenuItem(value: true, child: Text('بازپرداخت یا دریافت نقدی')),
+                      ],
+                      onChanged: (value) => refresh(() => settleAsCash = value ?? false),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('مبلغ برگشت بر اساس تعداد و مبلغ سند اصلی محاسبه می‌شود؛ مقدار برگشت از مقدار باقی‌مانده بیشتر نمی‌تواند باشد.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+              FilledButton(
+                onPressed: () async {
+                  final qty = double.tryParse(quantity.text.trim()) ?? 0;
+                  if (selected == null || qty <= 0) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('سند اصلی و تعداد معتبر را انتخاب کنید.')));
+                    return;
+                  }
+                  final parts = selected!.split(':');
+                  try {
+                    await DemoStore.addReturn(
+                      originalCategory: parts.first,
+                      originalSourceId: int.parse(parts.last),
+                      quantity: qty,
+                      reason: reason.text.trim(),
+                      settleAsCash: settleAsCash,
+                    );
+                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  } catch (error) {
+                    if (dialogContext.mounted) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ثبت برگشت ناموفق بود: $error')));
+                    }
+                  }
+                },
+                child: const Text('ثبت قطعی برگشت'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    quantity.dispose();
+    reason.dispose();
+    if (result == true && mounted) setState(() {});
+  }
+
   Future<void> _deleteSelected() async {
     final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x)) && x['نوع عملیات'] != 'خرید کالا').toList();
     if (items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سند خرید از این فهرست حذف نمی‌شود؛ اطلاعات خرید را از بخش انبار اصلاح کنید.'))); return; }
@@ -3326,13 +3490,27 @@ class _OperationsPageState extends State<OperationsPage> {
       ])),
       Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
       Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.inventory_outlined)),
+        title: const Text('فاکتورهای خرید بایگانی‌شده'),
+        subtitle: const Text('نمایش سندهای خرید و تصویر ثابت مشخصات زمان ثبت'),
+        trailing: const Icon(Icons.chevron_left),
+        onTap: _showPurchaseArchive,
+      )),
+      Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.assignment_return_outlined)),
+        title: const Text('برگشت از خرید یا فروش'),
+        subtitle: const Text('ثبت برگشت جزئی یا کامل، اصلاح موجودی و حساب‌ها'),
+        trailing: const Icon(Icons.chevron_left),
+        onTap: _registerReturn,
+      )),
+      Card(child: ListTile(
         leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
         title: const Text('دفتر چک‌ها'),
         subtitle: const Text('پیگیری چک‌های دریافتنی و پرداختنی، تاریخ سررسید و وضعیت وصول'),
         trailing: const Icon(Icons.chevron_left),
         onTap: _showCheckBook,
       )),
-      for (final op in options
+      for (final op in options)
         Card(child: ListTile(
           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
           title: Text(op),
@@ -3340,6 +3518,12 @@ class _OperationsPageState extends State<OperationsPage> {
           onTap: () => _openOperation(context, op),
         )),
       const Divider(),
+      for (final item in DemoStore.returns.reversed)
+        Card(child: ListTile(
+          leading: const Icon(Icons.assignment_return),
+          title: Text((item['نوع برگشت'] ?? 'برگشت') + ' • ' + (item['شماره برگشت'] ?? '')),
+          subtitle: Text((item['نام طرف حساب'] ?? '') + ' • ' + (item['مبلغ برگشت'] ?? '0') + ' تومان'),
+        )),
       for (final item in DemoStore.operations.reversed)
         Card(child: ListTile(
           title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
