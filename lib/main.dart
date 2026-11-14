@@ -3773,7 +3773,6 @@ class _OperationsPageState extends State<OperationsPage> {
     }
 
     final lines = <JournalLineInput>[];
-    int account(String code) => throw StateError('حساب باید از پایگاه داده خوانده شود.');
     Future<int> accountId(String code) => AccountingEngine.accountId(txn, code);
     final isReceived = direction == 'received';
 
@@ -3891,49 +3890,51 @@ class _OperationsPageState extends State<OperationsPage> {
         ));
       } else {
         var reversed = 0.0;
-        if (sourceType != 'purchase') {
+        final contraRows = <Map<String, Object?>>[];
+        if (sourceType == 'purchase') {
+          contraRows.add({
+            'code': '2000',
+            'amount': amount,
+            'party_type': 'supplier',
+            'party_id': partyId,
+          });
+        } else {
           for (final row in originLines) {
             final debit = (row['debit'] as num).toDouble();
             final code = (row['code'] ?? '').toString();
-            if (debit <= 0 || ['1000','1010','1020','2110'].contains(code)) continue;
+            if (debit <= 0 || ['1000','1010','1020','2110','1200'].contains(code)) continue;
             final value = debit.clamp(0, amount - reversed);
             if (value <= 0.0001) continue;
-            lines.add(JournalLineInput(
-              accountId: await accountId(statusAccount == '1010' ? code : '2110'),
-              debit: value,
-              partyType: (row['party_type'] ?? '').toString(),
-              partyId: row['party_id'] as int?,
-              memo: 'ابطال تعهد چک پرداختی',
-            ));
-            lines.add(JournalLineInput(
-              accountId: await accountId(code),
-              credit: value,
-              partyType: (row['party_type'] ?? '').toString(),
-              partyId: row['party_id'] as int?,
-              memo: 'بازگشت بدهی بابت چک برگشتی',
-            ));
+            contraRows.add({
+              'code': code,
+              'amount': value,
+              'party_type': row['party_type'],
+              'party_id': row['party_id'],
+            });
             reversed += value;
             if (reversed >= amount - 0.0001) break;
           }
-        } else {
-          final contra = statusAccount == '1010' ? '2000' : '2000';
-          lines.add(JournalLineInput(
-            accountId: await accountId(statusAccount),
-            debit: amount,
-            partyType: partyType,
-            partyId: partyId,
-            memo: 'برگشت وجه چک خرید پرداختی',
-          ));
-          lines.add(JournalLineInput(
-            accountId: await accountId(contra),
-            credit: amount,
-            partyType: 'supplier',
-            partyId: partyId,
-            memo: 'ایجاد مجدد بدهی خرید به فروشنده',
-          ));
+          if (reversed + 0.0001 < amount) {
+            throw StateError('مبلغ ردیف‌های سند اصلی با مبلغ چک برابر نیست؛ وضعیت تغییر نکرد.');
+          }
         }
-        if (sourceType != 'purchase' && reversed + 0.0001 < amount) {
-          throw StateError('مبلغ ردیف‌های سند اصلی با مبلغ چک برابر نیست؛ وضعیت تغییر نکرد.');
+        // An uncashed issued cheque is reclassified back to the original
+        // payable/expense. A bounced cheque after clearing also restores cash.
+        lines.add(JournalLineInput(
+          accountId: await accountId(statusAccount),
+          debit: amount,
+          partyType: partyType,
+          partyId: partyId,
+          memo: 'برگشت / ابطال چک پرداختی',
+        ));
+        for (final row in contraRows) {
+          lines.add(JournalLineInput(
+            accountId: await accountId(row['code'].toString()),
+            credit: (row['amount'] as num).toDouble(),
+            partyType: (row['party_type'] ?? '').toString(),
+            partyId: row['party_id'] as int?,
+            memo: 'بازگشت بدهی بابت چک برگشتی',
+          ));
         }
       }
     }
