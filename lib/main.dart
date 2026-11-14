@@ -2274,38 +2274,30 @@ class _SimpleListPageState extends State<SimpleListPage> {
         if (existing == null) {
           final customerName = (item['نام مشتری'] ?? '').trim();
           final customerId = item['شناسه مشتری'] ?? '';
-          final operationRows = await DemoStore.database.query('records',
-            columns: ['data'], where: 'category = ?', whereArgs: ['operations']);
-          var deposits = 0.0;
-          for (final row in operationRows) {
-            try {
-              final op = jsonDecode(row['data'] as String) as Map;
-              final type = (op['نوع عملیات'] ?? '').toString();
-              final partyType = (op['نوع طرف حساب'] ?? 'مشتری').toString();
-              final opCustomerId = (op['شناسه مشتری'] ?? '').toString();
-              final opName = (op['نام شخص'] ?? '').toString().trim();
-              final sameCustomer = customerId.isNotEmpty && opCustomerId.isNotEmpty
-                  ? customerId == opCustomerId : opName == customerName;
-              if (type == 'ثبت بیعانه' && partyType == 'مشتری' && sameCustomer) deposits += _ledgerAmount(op['مبلغ']);
-            } catch (_) {}
-          }
-          final previousSales = await DemoStore.database.query('records',
-            columns: ['data'], where: 'category = ?', whereArgs: ['sales']);
-          var alreadyApplied = 0.0;
-          for (final row in previousSales) {
-            try {
-              final sale = jsonDecode(row['data'] as String) as Map;
-              final saleId = (sale['شناسه مشتری'] ?? '').toString();
-              final saleName = (sale['نام مشتری'] ?? '').toString().trim();
-              final sameCustomer = customerId.isNotEmpty && saleId.isNotEmpty
-                  ? customerId == saleId : saleName == customerName;
-              if (sameCustomer) alreadyApplied += _ledgerAmount(sale['بیعانه تخصیص‌یافته']);
-            } catch (_) {}
+          var availableCustomerCredit = 0.0;
+          final customerIdValue = int.tryParse(customerId);
+          if (customerIdValue != null) {
+            final creditAccountId = await AccountingEngine.accountId(
+              DemoStore.database,
+              '2010',
+            );
+            final creditRows = await DemoStore.database.rawQuery(
+              '''SELECT COALESCE(SUM(l.credit - l.debit), 0) AS available
+                 FROM journal_lines l
+                 WHERE l.account_id = ?
+                   AND l.party_type = 'customer'
+                   AND l.party_id = ?''',
+              [creditAccountId, customerIdValue],
+            );
+            availableCustomerCredit =
+                (creditRows.first['available'] as num).toDouble().clamp(0, double.infinity);
           }
           final gross = _ledgerAmount(item['مبلغ کل']);
-          final tax = gross * AppSettings.vatPercent / 100;
-          final net = (gross - _ledgerAmount(item['تخفیف']) + tax).clamp(0, double.infinity).toDouble();
-          item['بیعانه تخصیص‌یافته'] = (deposits - alreadyApplied).clamp(0, net).toStringAsFixed(0);
+          final tax = _ledgerAmount(item['مبلغ مالیات']);
+          final net = (gross - _ledgerAmount(item['تخفیف']) + tax)
+              .clamp(0, double.infinity).toDouble();
+          item['بیعانه تخصیص‌یافته'] =
+              availableCustomerCredit.clamp(0, net).toStringAsFixed(0);
         }
       }
       try {
