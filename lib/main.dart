@@ -1665,6 +1665,49 @@ class _RepairPageState extends State<RepairPage> {
     }
   }
 
+  Future<void> _collectRepairServiceReceivable() async {
+    final repairs = DemoStore.repairs.where((item) => int.tryParse(item['__database_id'] ?? '') != null).toList();
+    if (repairs.isEmpty) return;
+    final repairId = await showDialog<String>(context: context, builder: (dialogContext) => SimpleDialog(
+      title: const Text('انتخاب تعمیر برای دریافت مانده اجرت'),
+      children: [for (final item in repairs) SimpleDialogOption(
+        onPressed: () => Navigator.pop(dialogContext, item['__database_id']),
+        child: Text((item['نوع دستگاه'] ?? 'دستگاه') + ' — ' + (item['نام مشتری'] ?? 'بدون نام')),
+      )],
+    ));
+    if (repairId == null || !mounted) return;
+    final repair = repairs.firstWhere((item) => item['__database_id'] == repairId);
+    final customerName = (repair['نام مشتری'] ?? '').trim();
+    if (customerName.isEmpty) return;
+    final amountController = TextEditingController();
+    final amount = await showDialog<int>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('دریافت مانده اجرت'),
+      content: TextField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافتی (تومان)')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, LocalizedNumber.tryParseInt(amountController.text)), child: const Text('ثبت دریافت')),
+      ],
+    ));
+    amountController.dispose();
+    if (amount == null || amount <= 0 || !mounted) return;
+    try {
+      final customerId = await DemoStore.parties.ensureParty(PartyDraft(partyType: 'customer', displayName: customerName));
+      await DemoStore.accounting.recordRepairServiceReceipt(
+        receiptDate: DateTime.now().toIso8601String().split('T').first,
+        repairId: repairId,
+        customerId: customerId,
+        description: 'اجرت تعمیر ' + (repair['نوع دستگاه'] ?? ''),
+        amount: amount,
+        cashAccountCode: '1000',
+        idempotencyKey: 'repair-service-receipt-' + repairId + '-' + DateTime.now().microsecondsSinceEpoch.toString(),
+      );
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('دریافت مانده اجرت ثبت شد')));
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت دریافت ناموفق بود: ' + error.toString())));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Column(
         children: [
@@ -1694,6 +1737,12 @@ class _RepairPageState extends State<RepairPage> {
                     onPressed: _recordRepairServiceIncome,
                     icon: const Icon(Icons.payments_outlined),
                     label: const Text('ثبت درآمد اجرت تعمیر'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _collectRepairServiceReceivable,
+                    icon: const Icon(Icons.price_check_outlined),
+                    label: const Text('دریافت مانده اجرت تعمیر'),
                   ),
                 ],
               ),
