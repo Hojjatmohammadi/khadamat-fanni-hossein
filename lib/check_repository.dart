@@ -257,7 +257,6 @@ class CheckRepository {
       }
 
       final amount = (check['amount'] as num).toInt();
-      final partyId = check['party_id']?.toString();
       final checkNumber = check['check_number']?.toString() ?? '';
       int? settlementJournalId;
       int? reversalJournalId;
