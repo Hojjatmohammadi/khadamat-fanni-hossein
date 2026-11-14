@@ -20,6 +20,8 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 
@@ -1019,7 +1021,23 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
             decoration: InputDecoration(
               labelText: 'عبارت مورد جست‌وجو',
               prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(icon: const Icon(Icons.clear), tooltip: 'حذف فیلتر', onPressed: () { controller.clear(); refresh(() {}); }),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'جست‌وجو با صدا',
+                    icon: const Icon(Icons.mic),
+                    onPressed: () async {
+                      final spoken = await _recognizePersianSpeech(dialogContext);
+                      if (spoken != null && dialogContext.mounted) {
+                        controller.text = spoken;
+                        refresh(() {});
+                      }
+                    },
+                  ),
+                  IconButton(icon: const Icon(Icons.clear), tooltip: 'حذف فیلتر', onPressed: () { controller.clear(); refresh(() {}); }),
+                ],
+              ),
             ),
             onChanged: (_) => refresh(() {}),
             onSubmitted: (_) => refresh(() {}),
@@ -1065,6 +1083,97 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
     }),
   ));
   controller.dispose();
+}
+
+Future<String?> _scanBarcode(BuildContext context) async {
+  try {
+    return await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('اسکن بارکد کالا'),
+          content: SizedBox(
+            width: 360,
+            height: 420,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: MobileScanner(
+                onDetect: (capture) {
+                  for (final barcode in capture.barcodes) {
+                    final value = barcode.rawValue?.trim() ?? '';
+                    if (value.isNotEmpty && dialogContext.mounted) {
+                      Navigator.pop(dialogContext, value);
+                      break;
+                    }
+                  }
+                },
+              ),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف'))],
+        ),
+      ),
+    );
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('بازکردن دوربین یا اسکن بارکد ناموفق بود: $error')));
+    }
+    return null;
+  }
+}
+
+Future<String?> _recognizePersianSpeech(BuildContext context) async {
+  final speech = SpeechToText();
+  try {
+    final available = await speech.initialize();
+    if (!available) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تشخیص گفتار روی این گوشی در دسترس نیست یا مجوز میکروفون داده نشده است.')));
+      }
+      return null;
+    }
+    final locales = await speech.locales();
+    final persianLocales = locales.where((locale) => locale.localeId.toLowerCase().startsWith('fa')).toList();
+    final localeId = persianLocales.isEmpty ? null : persianLocales.first.localeId;
+    String recognized = '';
+    final dialogFuture = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('جست‌وجوی صوتی فارسی'),
+          content: const Text('نام کالا یا عبارت جست‌وجو را واضح بگویید. پس از پایان گفتار، متن وارد جست‌وجو می‌شود.'),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await speech.stop();
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('پایان شنیدن'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await speech.listen(
+      localeId: localeId,
+      onResult: (result) {
+        recognized = result.recognizedWords.trim();
+        if (result.finalResult && context.mounted) Navigator.of(context).pop();
+      },
+    );
+    await dialogFuture;
+    await speech.stop();
+    return recognized.isEmpty ? null : recognized;
+  } catch (error) {
+    await speech.cancel();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('جست‌وجوی صوتی ناموفق بود: $error')));
+    }
+    return null;
+  }
 }
 
 Widget _horizontalDialogActions(List<Widget> children) {
@@ -1946,7 +2055,22 @@ class _ProductPageState extends State<ProductPage> {
                               : [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
                           textInputAction: TextInputAction.next,
                           onChanged: (_) => refresh(() {}),
-                          decoration: InputDecoration(labelText: names[i]),
+                          decoration: InputDecoration(
+                            labelText: names[i],
+                            suffixIcon: i == 1
+                                ? IconButton(
+                                    tooltip: 'اسکن بارکد',
+                                    icon: const Icon(Icons.qr_code_scanner),
+                                    onPressed: () async {
+                                      final code = await _scanBarcode(context);
+                                      if (code != null) {
+                                        c[i].text = code;
+                                        refresh(() {});
+                                      }
+                                    },
+                                  )
+                                : null,
+                          ),
                         ),
                       ),
                     const SizedBox(height: 8),
@@ -2238,7 +2362,19 @@ class _ProductPageState extends State<ProductPage> {
                 Padding(padding: const EdgeInsets.only(bottom: 9), child: TextField(
                   controller: controllers[key],
                   keyboardType: const ['موجودی','قیمت خرید هر واحد','قیمت فروش','کد کالا'].contains(key) ? TextInputType.number : TextInputType.text,
-                  decoration: InputDecoration(labelText: key),
+                  decoration: InputDecoration(
+                    labelText: key,
+                    suffixIcon: key == 'کد کالا'
+                        ? IconButton(
+                            tooltip: 'اسکن بارکد',
+                            icon: const Icon(Icons.qr_code_scanner),
+                            onPressed: () async {
+                              final code = await _scanBarcode(d);
+                              if (code != null) refresh(() => controllers[key]!.text = code);
+                            },
+                          )
+                        : null,
+                  ),
                 )),
               DropdownButtonFormField<String>(
                 value: group,
