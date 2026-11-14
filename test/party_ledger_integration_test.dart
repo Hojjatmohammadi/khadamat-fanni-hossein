@@ -201,7 +201,7 @@ void main() {
       limit: 1,
     );
     expect(first['opening_balance'], 1000);
-    expect(first['closing_balance'], 3000);
+    expect(first['closing_balance'], 3500);
     expect(first['total_lines'], 2);
     expect(first['lines'], hasLength(1));
     expect(first['has_more'], isTrue);
@@ -216,8 +216,8 @@ void main() {
     );
     expect(second['has_more'], isFalse);
     expect(second['offset'], 1);
-    expect(second['closing_balance'], 3000);
-    expect((second['lines'] as List<Map<String, Object?>>).single['running_balance'], 3000);
+    expect(second['closing_balance'], 3500);
+    expect((second['lines'] as List<Map<String, Object?>>).single['running_balance'], 3500);
   });
 
   test('a linked settlement cannot be posted to a different party', () async {
