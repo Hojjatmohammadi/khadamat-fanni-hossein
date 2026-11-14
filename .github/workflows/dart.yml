@@ -1,5 +1,5 @@
-name: Build Android APK
-# CI build for the latest test-branch revision
+name: Validate Flutter code
+# Pushes run static analysis only. APK builds require a deliberate manual dispatch.
 
 on:
   push:
@@ -43,10 +43,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build release APK
+      - name: Analyze Flutter code
+        run: flutter analyze
+
+      - name: Build release APK (manual request only)
+        if: github.event_name == 'workflow_dispatch'
         run: flutter build apk --release
 
-      - name: Upload installable APK
+      - name: Upload installable APK (manual request only)
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: khadamat-fanni-hossein-release-apk
