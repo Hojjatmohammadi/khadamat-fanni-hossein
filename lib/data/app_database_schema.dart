@@ -307,8 +307,7 @@ class AppDatabaseSchema {
     return id;
   }
 
-  /// Keeps normalized rows synchronized when editable customer, repair or
-  /// product details are changed. Quantity edits are recorded as stock adjustments.
+  /// Synchronizes editable legacy records with normalized tables.
   static Future<void> updateLegacyRecord(
     DatabaseExecutor db,
     String category,
@@ -316,12 +315,176 @@ class AppDatabaseSchema {
     int sourceId,
   ) async {
     if (category == 'customers') {
-      final rows = await db.query('customers', columns: ['id'],
-        where: 'legacy_source_id = ?', whereArgs: [sourceId], limit: 1);
+      final rows = await db.query(
+        'customers',
+        columns: ['id'],
+        where: 'legacy_source_id = ?',
+        whereArgs: [sourceId],
+        limit: 1,
+      );
       if (rows.isEmpty) throw StateError('پرونده مشتری در پایگاه داده پیدا نشد.');
-      final id = rows.first['id'] as int;
+      final customerId = rows.first['id'] as int;
       final phone = _text(item, 'شماره تماس');
-      if (phone.isNotEmpty && !RegExp(r'^\d{11}  /// inside the same SQLite transaction as the legacy JSON row.
+      if (phone.isNotEmpty && (phone.length != 11 || int.tryParse(phone) == null)) {
+        throw StateError('شماره موبایل در صورت ورود باید دقیقاً ۱۱ رقم باشد.');
+      }
+      if (phone.isNotEmpty) {
+        final duplicate = await db.query(
+          'customers',
+          columns: ['id'],
+          where: 'phone = ? AND id != ?',
+          whereArgs: [phone, customerId],
+          limit: 1,
+        );
+        if (duplicate.isNotEmpty) throw StateError('این شماره موبایل برای مشتری دیگری ثبت شده است.');
+      }
+      final parts = _text(item, 'نام مشتری')
+          .split(RegExp(r'\s+'))
+          .where((part) => part.isNotEmpty)
+          .toList();
+      await db.update(
+        'customers',
+        {
+          'first_name': parts.isEmpty ? '' : parts.first,
+          'last_name': parts.length < 2 ? '' : parts.skip(1).join(' '),
+          'phone': phone,
+          'address': _text(item, 'آدرس'),
+          'notes': _text(item, 'توضیحات'),
+        },
+        where: 'id = ?',
+        whereArgs: [customerId],
+      );
+    } else if (category == 'products') {
+      final rows = await db.query(
+        'products',
+        columns: ['id', 'quantity', 'purchase_price'],
+        where: 'legacy_source_id = ?',
+        whereArgs: [sourceId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('کالای موردنظر در پایگاه داده پیدا نشد.');
+      final productId = rows.first['id'] as int;
+      final unit = _text(item, 'واحد شمارش').isEmpty ? 'عدد' : _text(item, 'واحد شمارش');
+      _assertNumeric(item, [
+        'کد کالا', 'قیمت خرید هر واحد', 'قیمت فروش',
+        'هزینه پست', 'هزینه باربری / حمل', 'سایر هزینه‌ها',
+      ]);
+      _assertNumeric(item, ['موجودی'], allowDecimal: unit != 'عدد');
+      final oldQuantity = (rows.first['quantity'] as num).toDouble();
+      final newQuantity = _number(item, 'موجودی');
+      final delta = newQuantity - oldQuantity;
+      if (delta.abs() > 0.000001) {
+        final oldCost = (rows.first['purchase_price'] as num).toDouble();
+        final now = DateTime.now();
+        final reference = sourceId.toString() + '-' + now.microsecondsSinceEpoch.toString();
+        await AccountingEngine.recordStockMovementInTransaction(
+          db,
+          productId: productId,
+          movementType: 'manual_adjustment',
+          quantityDelta: delta,
+          unitCost: oldCost,
+          referenceType: 'product_edit',
+          referenceId: reference,
+          notes: 'اصلاح موجودی از فرم ویرایش کالا',
+          occurredAt: now,
+        );
+        final amount = delta.abs() * oldCost;
+        if (amount > 0) {
+          final lines = delta > 0
+              ? <JournalLineInput>[
+                  JournalLineInput(
+                    accountId: await AccountingEngine.accountId(db, '1200'),
+                    debit: amount,
+                    memo: 'افزایش موجودی با اصلاح دستی',
+                  ),
+                  JournalLineInput(
+                    accountId: await AccountingEngine.accountId(db, '3000'),
+                    credit: amount,
+                    memo: 'طرف مقابل اصلاح موجودی',
+                  ),
+                ]
+              : <JournalLineInput>[
+                  JournalLineInput(
+                    accountId: await AccountingEngine.accountId(db, '6000'),
+                    debit: amount,
+                    memo: 'کسری موجودی با اصلاح دستی',
+                  ),
+                  JournalLineInput(
+                    accountId: await AccountingEngine.accountId(db, '1200'),
+                    credit: amount,
+                    memo: 'کاهش موجودی با اصلاح دستی',
+                  ),
+                ];
+          await AccountingEngine.postJournalInTransaction(
+            db,
+            entryNumber: 'STOCK-EDIT-' + reference,
+            occurredAt: now,
+            description: 'سند اصلاح دستی موجودی ' + _text(item, 'نام کالا'),
+            sourceType: 'stock_adjustment',
+            sourceId: reference,
+            lines: lines,
+          );
+        }
+      }
+      final landedCost = _number(item, 'بهای تمام‌شده هر واحد');
+      await db.update(
+        'products',
+        {
+          'code': _text(item, 'کد کالا'),
+          'name': _text(item, 'نام کالا').isEmpty ? 'کالای بدون نام' : _text(item, 'نام کالا'),
+          'category': _text(item, 'گروه اصلی'),
+          'subcategory': _text(item, 'زیرگروه'),
+          'unit': unit,
+          'purchase_price': landedCost > 0 ? landedCost : _number(item, 'قیمت خرید هر واحد'),
+          'sale_price': _number(item, 'قیمت فروش'),
+          'is_used': _text(item, 'وضعیت کالا') == 'دست دوم' ? 1 : 0,
+          'shipping_cost': _number(item, 'هزینه پست'),
+          'freight_cost': _number(item, 'هزینه باربری / حمل'),
+          'other_cost': _number(item, 'سایر هزینه‌ها'),
+          'vat_rate': _number(item, 'درصد ارزش افزوده'),
+          'vat_included': _text(item, 'مشمول ارزش افزوده') == 'بله' ? 1 : 0,
+          'image_base64': _text(item, 'تصویر کالا'),
+        },
+        where: 'id = ?',
+        whereArgs: [productId],
+      );
+    } else if (category == 'repairs') {
+      _assertNumeric(item, ['اجرت']);
+      final repairRows = await db.query(
+        'repairs',
+        columns: ['id'],
+        where: 'legacy_source_id = ?',
+        whereArgs: [sourceId],
+        limit: 1,
+      );
+      if (repairRows.isEmpty) throw StateError('پذیرش تعمیر برای ویرایش پیدا نشد.');
+      final customerName = _text(item, 'نام مشتری');
+      final matches = await db.query(
+        'customers',
+        columns: ['id'],
+        where: "TRIM(first_name || ' ' || last_name) = ?",
+        whereArgs: [customerName],
+        limit: 2,
+      );
+      await db.update(
+        'repairs',
+        {
+          'customer_id': matches.length == 1 ? matches.first['id'] : null,
+          'customer_name_snapshot': customerName,
+          'device_type': _text(item, 'نوع دستگاه'),
+          'problem_description': _text(item, 'شرح عیب'),
+          'labor_cost': _number(item, 'اجرت'),
+          'status': _text(item, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(item, 'وضعیت تعمیر'),
+        },
+        where: 'id = ?',
+        whereArgs: [repairRows.first['id']],
+      );
+    } else if (category != 'operations') {
+      throw ArgumentError('ویرایش این دسته اطلاعات پشتیبانی نمی‌شود: ' + category);
+    }
+  }
+
+  /// inside the same SQLite transaction as the legacy JSON row.
   static Future<void> insertLegacyRecord(
     DatabaseExecutor db,
     String category,
