@@ -467,28 +467,9 @@ class TradeRepository {
       final duplicate = await _findDuplicate(txn, idempotencyKey, payload);
       if (duplicate != null) return duplicate;
 
-      final documentId = await _insertDocument(
-        txn,
-        type: 'repair_consumption',
-        date: documentDate,
-        prefix: 'REP',
-        counterpartyName: customerName,
-        counterpartyId: customerId,
-        subtotal: 0,
-        discount: 0,
-        charges: 0,
-        vat: 0,
-        total: 0,
-        paid: 0,
-        journalEntryId: null,
-        sourceDocumentId: null,
-        idempotencyKey: idempotencyKey,
-        payload: payload,
-      );
-
+      final prepared = <Map<String, Object?>>[];
       var totalCost = 0;
-      for (var i = 0; i < parts.length; i++) {
-        final part = parts[i];
+      for (final part in parts) {
         final valuation = await _stockValuation(txn, part.productId);
         if (valuation.quantity + 0.0000001 < part.quantity) {
           throw StateError('موجودی قطعه برای مصرف در تعمیر کافی نیست');
@@ -498,14 +479,47 @@ class TradeRepository {
             : (valuation.value / valuation.quantity).round();
         final amount = (part.quantity * unitCost).round();
         totalCost += amount;
-        final productName = await _productName(txn, part.productId);
+        prepared.add({
+          'productId': part.productId,
+          'quantity': part.quantity,
+          'unitCost': unitCost,
+          'amount': amount,
+          'productName': await _productName(txn, part.productId),
+        });
+      }
 
+      final documentId = await _insertDocument(
+        txn,
+        type: 'repair_consumption',
+        date: documentDate,
+        prefix: 'REP',
+        counterpartyName: customerName,
+        counterpartyId: customerId,
+        subtotal: totalCost,
+        discount: 0,
+        charges: 0,
+        vat: 0,
+        total: totalCost,
+        paid: 0,
+        journalEntryId: null,
+        sourceDocumentId: null,
+        idempotencyKey: idempotencyKey,
+        payload: payload,
+      );
+
+      for (var i = 0; i < prepared.length; i++) {
+        final part = prepared[i];
+        final productId = part['productId'] as int;
+        final quantity = part['quantity'] as double;
+        final unitCost = part['unitCost'] as int;
+        final amount = part['amount'] as int;
+        final productName = part['productName'] as String;
         await _insertDocumentLine(
           txn,
           documentId: documentId,
-          productId: part.productId,
+          productId: productId,
           productName: productName,
-          quantity: part.quantity,
+          quantity: quantity,
           unitPrice: 0,
           unitCost: unitCost,
           lineTotal: amount,
@@ -529,9 +543,9 @@ class TradeRepository {
         await _accounting.recordStockMovementInTransaction(
           txn,
           StockMovementDraft(
-            productId: part.productId,
+            productId: productId,
             movementType: 'repair_consumption',
-            quantityDelta: -part.quantity,
+            quantityDelta: -quantity,
             unitCost: unitCost,
             occurredAt: documentDate,
             idempotencyKey: 'repair-stock-$idempotencyKey-$i',
@@ -541,14 +555,6 @@ class TradeRepository {
           ),
         );
       }
-      await txn.update(
-        'business_documents',
-        {'subtotal': totalCost, 'total_amount': totalCost},
-        where: 'id = ?',
-        whereArgs: [documentId],
-      );
-      // The document update occurs before it is returned, within the same
-      // transaction. Its header carries the total parts cost for the repair.
       return documentId;
     });
   }
