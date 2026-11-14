@@ -425,6 +425,146 @@ class AccountingRepository {
     });
   }
 
+  /// Reconciles the book quantity to a physically counted quantity.
+  /// The correction, valuation and journal entry are committed atomically.
+  Future<int> recordStockAdjustment({
+    required int productId,
+    required double countedQuantity,
+    required int fallbackUnitCost,
+    required String occurredAt,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    if (productId <= 0 ||
+        !countedQuantity.isFinite ||
+        countedQuantity < 0 ||
+        fallbackUnitCost < 0 ||
+        DateTime.tryParse(occurredAt) == null ||
+        reason.trim().isEmpty ||
+        idempotencyKey.trim().isEmpty) {
+      throw ArgumentError('مقدار شمارش‌شده، تاریخ، علت و بهای معتبر الزامی است');
+    }
+
+    final referenceSignature = jsonEncode({
+      'productId': productId,
+      'countedQuantity': countedQuantity,
+      'fallbackUnitCost': fallbackUnitCost,
+      'occurredAt': occurredAt,
+      'reason': reason.trim(),
+    });
+    final db = await _database.database;
+
+    return db.transaction((txn) async {
+      final previous = await txn.query(
+        'inventory_movements',
+        where: 'idempotency_key = ?',
+        whereArgs: [idempotencyKey],
+        limit: 1,
+      );
+      if (previous.isNotEmpty) {
+        final row = previous.single;
+        if (row['product_id'] == productId &&
+            row['movement_type'] == 'adjustment' &&
+            row['occurred_at'] == occurredAt &&
+            row['reference_type'] == 'stock_count' &&
+            row['reference_id'] == referenceSignature) {
+          return row['id'] as int;
+        }
+        throw StateError('شناسه یکتای اصلاح موجودی قبلاً برای عملیات دیگری استفاده شده است');
+      }
+
+      final quantityRows = await txn.rawQuery(
+        'SELECT COALESCE(SUM(quantity_delta), 0) AS quantity '
+        'FROM inventory_movements WHERE product_id = ?',
+        [productId],
+      );
+      final currentQuantity =
+          (quantityRows.single['quantity'] as num).toDouble();
+      if (currentQuantity < -0.0000001) {
+        throw StateError('موجودی دفتری کالا منفی است و باید ابتدا بررسی شود');
+      }
+
+      final delta = countedQuantity - currentQuantity;
+      if (delta.abs() < 0.0000001) {
+        throw StateError('موجودی شمارش‌شده با موجودی دفتر برابر است؛ اصلاحی لازم نیست');
+      }
+
+      final valueRows = await txn.rawQuery(
+        '''
+        SELECT COALESCE(SUM(
+          CASE WHEN quantity_delta > 0 THEN total_cost ELSE -total_cost END
+        ), 0) AS inventory_value
+        FROM inventory_movements
+        WHERE product_id = ?
+        ''',
+        [productId],
+      );
+      final currentValue =
+          (valueRows.single['inventory_value'] as num).toInt();
+      if (currentValue < 0) {
+        throw StateError('ارزش دفتری موجودی منفی است و امکان اصلاح امن وجود ندارد');
+      }
+
+      final unitCost = currentQuantity > 0
+          ? (currentValue / currentQuantity).round()
+          : fallbackUnitCost;
+      final adjustmentValue = (delta.abs() * unitCost).round();
+      JournalEntryDraft? journalEntry;
+      if (adjustmentValue > 0) {
+        final lines = delta > 0
+            ? [
+                JournalLineDraft(
+                  accountCode: '1200',
+                  debit: adjustmentValue,
+                  memo: 'افزایش موجودی طبق شمارش فیزیکی',
+                ),
+                JournalLineDraft(
+                  accountCode: '4055',
+                  credit: adjustmentValue,
+                  memo: 'مازاد انبارگردانی',
+                ),
+              ]
+            : [
+                JournalLineDraft(
+                  accountCode: '5200',
+                  debit: adjustmentValue,
+                  memo: 'کسری موجودی طبق شمارش فیزیکی',
+                ),
+                JournalLineDraft(
+                  accountCode: '1200',
+                  credit: adjustmentValue,
+                  memo: 'کاهش موجودی طبق شمارش فیزیکی',
+                ),
+              ];
+        journalEntry = JournalEntryDraft(
+          entryDate: DateTime.parse(occurredAt)
+              .toIso8601String()
+              .substring(0, 10),
+          description: 'اصلاح موجودی: ${reason.trim()}',
+          idempotencyKey: '$idempotencyKey-journal',
+          referenceType: 'stock_count',
+          referenceId: referenceSignature,
+          lines: lines,
+        );
+      }
+
+      return recordStockMovementInTransaction(
+        txn,
+        StockMovementDraft(
+          productId: productId,
+          movementType: 'adjustment',
+          quantityDelta: delta,
+          unitCost: unitCost,
+          occurredAt: occurredAt,
+          idempotencyKey: idempotencyKey,
+          referenceType: 'stock_count',
+          referenceId: referenceSignature,
+          journalEntry: journalEntry,
+        ),
+      );
+    });
+  }
+
   Future<double> getStockOnHand(int productId) {
     return _database.getStockOnHand(productId);
   }
