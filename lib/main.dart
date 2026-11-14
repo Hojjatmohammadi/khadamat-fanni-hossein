@@ -2235,4 +2235,954 @@ class _SettingsPageState extends State<SettingsPage> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مالیات و تخفیف باید بین صفر تا ۱۰۰ و شماره فاکتور عدد مثبت باشد.')));
         return false;
       }
-      if (pinEnabled && !RegExp(r'^[0-9]{4,8}$'
+      if (pinEnabled && !RegExp(r'^[0-9]{4,8}$').hasMatch(pinCode.text)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('برای قفل برنامه یک PIN چهار تا هشت رقمی وارد کنید.')));
+        return false;
+      }
+      AppSettings.appName = appName.text.trim().isEmpty ? storeName.text.trim() : appName.text.trim();
+      AppSettings.currency = currency;
+      AppSettings.vatPercent = vat;
+      AppSettings.defaultDiscountPercent = discount;
+      AppSettings.invoicePrefix = invoicePrefix.text.trim().replaceAll(RegExp(r'\s+'), '');
+      AppSettings.nextInvoiceNumber = sequence;
+      AppSettings.pinEnabled = pinEnabled;
+      AppSettings.pinCode = pinEnabled ? pinCode.text : '';
+      await AppSettings.save(
+        newStoreName: storeName.text,
+        newManagerName: managerName.text,
+        newPhone: phone.text,
+        newAddress: address.text,
+        newPostalCode: postalCode.text,
+        newDarkMode: darkMode,
+        newThemeMode: themeMode,
+        newDrawerImage: drawerImage,
+        newFontScale: fontScale,
+      );
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تنظیمات با موفقیت ذخیره شد')));
+      return true;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره تنظیمات ناموفق بود: $error')));
+      return false;
+    }
+  }
+
+  Future<void> saveSettings() async {
+    await _saveSettingsInternal();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('مشخصات فروشگاه', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          TextField(controller: appName, decoration: const InputDecoration(labelText: 'نام نمایشی برنامه')),
+          const SizedBox(height: 10),
+          TextField(controller: storeName, decoration: const InputDecoration(labelText: 'نام فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: managerName, decoration: const InputDecoration(labelText: 'نام مدیر / صاحب فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)], decoration: const InputDecoration(labelText: 'شماره تماس فروشگاه (حداکثر ۱۱ رقم)')),
+          const SizedBox(height: 10),
+          TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'آدرس فروشگاه')),
+          const SizedBox(height: 10),
+          TextField(controller: postalCode, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], decoration: const InputDecoration(labelText: 'کد پستی (دقیقاً ۱۰ رقم)')),
+          const Divider(height: 32),
+          const Text('تنظیمات ظاهری', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          DropdownButtonFormField<String>(
+            value: themeMode,
+            decoration: const InputDecoration(labelText: 'قالب رنگی برنامه'),
+            items: const ['روشن', 'تیره', 'فیروزه‌ای و سرمه‌ای'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+            onChanged: (v) => setState(() { themeMode = v ?? 'روشن'; darkMode = themeMode == 'تیره'; }),
+          ),
+          const SizedBox(height: 14),
+          const Text('اندازه نوشته‌ها'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: const [
+              (0.82, 'ریز'),
+              (0.92, 'کوچک'),
+              (1.0, 'استاندارد'),
+              (1.12, 'بزرگ'),
+            ].map((option) => ChoiceChip(
+              label: Text(option.$2, maxLines: 1, softWrap: false),
+              selected: fontScale == option.$1,
+              onSelected: (_) => setState(() => fontScale = option.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )).toList(),
+          ),
+          const Divider(height: 28),
+          const Divider(height: 30),
+          const Text('تنظیمات مالی و فاکتور', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          DropdownButtonFormField<String>(value: currency, decoration: const InputDecoration(labelText: 'واحد پول'), items: const ['تومان','ریال'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(), onChanged:(v)=>setState(()=>currency=v ?? 'تومان')),
+          const SizedBox(height: 10),
+          TextField(controller: vatPercent, keyboardType: const TextInputType.numberWithOptions(decimal:true), decoration: const InputDecoration(labelText: 'مالیات بر ارزش افزوده (درصد)')),
+          const SizedBox(height: 10),
+          TextField(controller: defaultDiscount, keyboardType: const TextInputType.numberWithOptions(decimal:true), decoration: const InputDecoration(labelText: 'درصد تخفیف پیش‌فرض')),
+          const SizedBox(height: 10),
+          TextField(controller: invoicePrefix, decoration: const InputDecoration(labelText: 'پیشوند شماره فاکتور')),
+          const SizedBox(height: 10),
+          TextField(controller: nextInvoice, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'شماره بعدی فاکتور')),
+          const Divider(height: 30),
+          const Text('امنیت برنامه', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('فعال‌سازی قفل PIN هنگام ورود'), value: pinEnabled, onChanged:(v)=>setState(()=>pinEnabled=v)),
+          if (pinEnabled) TextField(controller: pinCode, obscureText:true, keyboardType: TextInputType.number, maxLength:8, decoration: const InputDecoration(labelText:'رمز PIN چهار تا هشت رقمی')),
+          OutlinedButton.icon(onPressed: _manageProductGroups, icon: const Icon(Icons.category_outlined), label: const Text('مدیریت گروه‌ها و زیرگروه‌های کالا')),
+          OutlinedButton.icon(onPressed: _resetAppearance, icon: const Icon(Icons.restart_alt), label: const Text('بازگردانی تنظیمات ظاهری به پیش‌فرض')),
+          const Divider(height: 28),
+          const Text('عکس پروفایل فروشگاه', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (drawerImage.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.memory(base64Decode(drawerImage), height: 110, fit: BoxFit.contain)),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(onPressed: () async {
+              final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70, maxWidth: 900, maxHeight: 900);
+              if (x != null) { final bytes = await x.readAsBytes(); setState(() => drawerImage = base64Encode(bytes)); }
+            }, icon: const Icon(Icons.photo_library), label: const Text('انتخاب عکس')),
+            if (drawerImage.isNotEmpty) TextButton.icon(onPressed: () => setState(() => drawerImage = ''), icon: const Icon(Icons.delete), label: const Text('حذف عکس')),
+          ]),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: saveSettings,
+            icon: const Icon(Icons.save),
+            label: const Text('ذخیره تنظیمات'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'تنظیمات این بخش فقط روی همین نصب ذخیره می‌شوند. مشخصات سربرگ هر فاکتور هنگام صدور در آرشیو همان فاکتور ثبت می‌شود.',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
+      );
+}
+
+
+class OperationsPage extends StatefulWidget {
+  final VoidCallback onChanged;
+  const OperationsPage({super.key, required this.onChanged});
+  @override
+  State<OperationsPage> createState() => _OperationsPageState();
+}
+
+class _OperationsPageState extends State<OperationsPage> {
+  static const options = ['تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  final Set<String> _selected = {};
+
+  Future<void> _deleteSelected() async {
+    final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x)) && x['نوع عملیات'] != 'خرید کالا').toList();
+    if (items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سند خرید از این فهرست حذف نمی‌شود؛ اطلاعات خرید را از بخش انبار اصلاح کنید.'))); return; }
+    if (!await _confirmDelete(context, items.length)) return;
+    await DemoStore.delete('operations', items);
+    if (mounted) setState(() => _selected.clear());
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    body: Column(children: [
+      if (_selected.isNotEmpty) Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Row(children: [
+        Padding(padding: const EdgeInsets.all(12), child: Text('${_selected.length} مورد انتخاب شده')),
+        const Spacer(),
+        TextButton(onPressed: () => setState(() => _selected.clear()), child: const Text('لغو انتخاب')),
+        TextButton.icon(onPressed: () => setState(() => _selected.addAll(DemoStore.operations.where((x) => x['نوع عملیات'] != 'خرید کالا').map((x) => jsonEncode(x)))), icon: const Icon(Icons.select_all), label: const Text('انتخاب همه')),
+        IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
+      ])),
+      Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
+      for (final op in options)
+        Card(child: ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
+          title: Text(op),
+          trailing: const Icon(Icons.chevron_left),
+          onTap: () => _openOperation(context, op),
+        )),
+      const Divider(),
+      for (final item in DemoStore.operations.reversed)
+        Card(child: ListTile(
+          title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
+          subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
+          leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
+          onLongPress: item['نوع عملیات'] == 'خرید کالا' ? null : () => setState(() => _selected.add(jsonEncode(item))),
+          onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _showPartyAccount(item); },
+          trailing: _selected.isNotEmpty ? Checkbox(value: _selected.contains(jsonEncode(item)), onChanged: item['نوع عملیات'] == 'خرید کالا' ? null : (_) => setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); })) : IconButton(icon: const Icon(Icons.edit_outlined), tooltip: item['نوع عملیات'] == 'خرید کالا' ? 'ویرایش از بخش انبار کالا' : 'ویرایش عملیات', onPressed: item['نوع عملیات'] == 'خرید کالا' ? null : () => _openOperation(context, item['نوع عملیات'] ?? options.first, existing: item)),
+        )),
+    ])),
+  ]));
+  Future<void> _showPartyAccount(Map<String, String> selected) async {
+    final name = (selected['نام شخص'] ?? '').trim();
+    if (name.isEmpty) return;
+    final type = (selected['نوع طرف حساب'] ?? ((selected['نوع عملیات'] == 'تخفیف گرفتن') ? 'فروشنده' : 'مشتری')).toString();
+    final records = await DemoStore.database.query('records', columns: ['data','created_at'], where: 'category = ?', whereArgs: ['operations']);
+    final rows = <Map<String,Object?>>[];
+    for (final record in records) {
+      Map<String,dynamic> data;
+      try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
+      if ((data['نام شخص'] ?? '').toString().trim() != name) continue;
+      final op = (data['نوع عملیات'] ?? '').toString();
+      final partyType = (data['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
+      if (partyType != type) continue;
+      var amountText = (data['مبلغ'] ?? '0').toString().trim();
+      const faDigits = '۰۱۲۳۴۵۶۷۸۹', arDigits = '٠١٢٣٤٥٦٧٨٩';
+      for (var i = 0; i < 10; i++) { amountText = amountText.replaceAll(faDigits[i], '$i').replaceAll(arDigits[i], '$i'); }
+      final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+      if (amount <= 0) continue;
+      final isSupplier = type == 'فروشنده';
+      final paid = double.tryParse((data['مبلغ پرداخت‌شده'] ?? '0').toString().replaceAll(',', '')) ?? 0;
+      final debit = op == 'خرید کالا' && isSupplier
+          ? paid
+          : isSupplier
+              ? (['متفرقه شخص بدهکار','پرداخت وجه','دریافت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
+              : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
+      final credit = op == 'خرید کالا' && isSupplier
+          ? amount
+          : isSupplier
+              ? (['متفرقه شخص بستانکار'].contains(op) ? amount : 0.0)
+              : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
+      if (debit == 0 && credit == 0) continue;
+      rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
+    }
+    rows.sort((a,b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    var balance = 0.0, debits = 0.0, credits = 0.0;
+    for (final row in rows) { debits += row['debit'] as double; credits += row['credit'] as double; balance += (row['debit'] as double) - (row['credit'] as double); row['balance'] = balance; }
+    if (!mounted) return;
+    await showDialog<void>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: Text('دفتر حساب $type: $name'),
+      content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(balance > 0 ? 'مانده: ${balance.toStringAsFixed(0)} تومان بدهکار' : balance < 0 ? 'مانده: ${balance.abs().toStringAsFixed(0)} تومان بستانکار' : 'حساب تسویه است'),
+        Text('جمع بدهکار: ${debits.toStringAsFixed(0)} تومان  |  جمع بستانکار: ${credits.toStringAsFixed(0)} تومان'),
+        if (rows.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('برای این طرف حساب هنوز عملیات مالی ثبت نشده است.'))
+        else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))], rows: rows.map((r) { final b=r['balance'] as double; return DataRow(cells:[DataCell(Text(Jalali.fromDateTime(r['date'] as DateTime).formatCompactDate())),DataCell(Text(r['op'] as String)),DataCell(Text((r['method'] as String).isEmpty?'—':r['method'] as String)),DataCell(Text((r['debit'] as double).toStringAsFixed(0))),DataCell(Text((r['credit'] as double).toStringAsFixed(0))),DataCell(Text('${b.abs().toStringAsFixed(0)} ${b>0?'بدهکار':b<0?'بستانکار':'تسویه'}'))]); }).toList())),
+        const Text('این دفتر فعلاً عملیات مالی ثبت‌شده را نشان می‌دهد؛ فاکتورهای خرید هنوز در برنامه به‌عنوان سند مستقل ثبت نمی‌شوند.', style: TextStyle(fontSize:11,color:Colors.grey)),
+      ]))),
+      actions: [TextButton(onPressed:()=>Navigator.pop(d),child:const Text('بستن')),TextButton.icon(onPressed:()=>Navigator.pop(d),icon:const Icon(Icons.edit_outlined),label:const Text('ویرایش عملیات'))],
+    )));
+  }
+  Future<void> addNewOperation() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('انتخاب نوع عملیات'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final option in options)
+                ListTile(
+                  title: Text(option),
+                  trailing: const Icon(Icons.chevron_left),
+                  onTap: () => Navigator.pop(dialogContext, option),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      await _openOperation(context, selected);
+    }
+  }
+
+  Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
+    final name = TextEditingController(text: existing?['نام شخص'] ?? '');
+    final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+    final note = TextEditingController(text: existing?['توضیحات'] ?? '');
+    final initialName = name.text, initialAmount = amount.text, initialNote = note.text;
+    String method = existing?['روش'] ?? 'نقدی';
+    String partyType = existing?['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
+    final initialMethod = method;
+    final initialPartyType = partyType;
+    final methods = ['نقدی', 'چک', 'کارتی / حواله', 'خرج چک'];
+
+    bool dirty() => existing == null
+        ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty || note.text.trim().isNotEmpty || method != 'نقدی' || partyType != initialPartyType
+        : name.text.trim() != initialName || amount.text.trim() != initialAmount || note.text.trim() != initialNote || method != initialMethod || partyType != initialPartyType;
+
+    Future<void> requestClose(BuildContext dialogContext) async {
+      if (!dirty()) { Navigator.pop(dialogContext, false); return; }
+      final discard = await showDialog<bool>(context: dialogContext, builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تغییرات ذخیره نشده‌اند'),
+          content: const Text('اطلاعات این عملیات ذخیره نشده است. بدون ذخیره خارج می‌شوید؟'),
+          actions: [_horizontalDialogActions([
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('ادامه ویرایش')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('خروج بدون ذخیره')),
+          ])],
+        ),
+      ));
+      if (discard == true && dialogContext.mounted) Navigator.pop(dialogContext, false);
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) { if (!didPop) requestClose(dialogContext); },
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(builder: (dialogContext, set) => AlertDialog(
+            title: Text(op),
+            content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              DropdownButtonFormField<String>(
+                value: partyType,
+                decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
+                items: const [DropdownMenuItem(value: 'مشتری', child: Text('مشتری')), DropdownMenuItem(value: 'فروشنده', child: Text('فروشنده')), DropdownMenuItem(value: 'سایر اشخاص', child: Text('سایر اشخاص'))],
+                onChanged: (v) => set(() { partyType = v ?? 'مشتری'; }),
+              ),
+              if (partyType == 'مشتری' && ['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) && DemoStore.customers.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  value: DemoStore.customers.any((c) => c['نام مشتری'] == name.text.trim()) ? name.text.trim() : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'انتخاب مشتری (اختیاری)'),
+                  items: DemoStore.customers.map((c) => c['نام مشتری'] ?? '').where((n) => n.trim().isNotEmpty).toSet().map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+                  onChanged: (v) { if (v != null) { name.text = v; set(() {}); } },
+                ),
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
+              TextField(controller: amount, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ (تومان)')),
+              if (op == 'پرداخت وجه' || op == 'دریافت وجه')
+                DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش عملیات'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => set(() => method = v ?? 'نقدی')),
+              TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات')),
+            ])),
+            actions: [_horizontalDialogActions([
+              if (existing != null) TextButton.icon(onPressed: () async {
+                if (!await _confirmDelete(dialogContext, 1)) return;
+                await DemoStore.delete('operations', [existing]);
+                if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+              }, icon: const Icon(Icons.delete_outline), label: const Text('حذف')),
+              TextButton(onPressed: () => requestClose(dialogContext), child: const Text('انصراف')),
+              FilledButton(onPressed: () async {
+                if (name.text.trim().isEmpty && amount.text.trim().isEmpty && note.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('چیزی برای ثبت یا ذخیره وارد نشده است.')));
+                  return;
+                }
+                if (name.text.trim().isEmpty || amount.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام شخص و مبلغ را وارد کنید.')));
+                  return;
+                }
+                final canonicalOp = op == 'تخفیف دادن به مشتری' ? 'تخفیف دادن' : op == 'تخفیف گرفتن از فروشنده' ? 'تخفیف گرفتن' : op;
+                final data = <String, String>{'نوع عملیات': canonicalOp, 'نوع طرف حساب': partyType, 'نام شخص': name.text.trim(), 'مبلغ': amount.text.trim(), 'روش': method, 'تاریخ': (existing?['تاریخ'] ?? DateTime.now().toIso8601String()).toString(), 'توضیحات': note.text.trim()};
+                try {
+                  if (existing == null) await DemoStore.add('operations', data);
+                  else await DemoStore.update('operations', existing, data);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                } catch (error) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ذخیره عملیات ناموفق بود: $error')));
+                }
+              }, child: const Text('ثبت عملیات')),
+            ])],
+          )),
+        ),
+      ),
+    );
+    name.dispose(); amount.dispose(); note.dispose();
+    if (result == true) widget.onChanged();
+  }
+}
+
+
+class ExportBackupPage extends StatefulWidget {
+  const ExportBackupPage({super.key});
+  @override
+  State<ExportBackupPage> createState() => _ExportBackupPageState();
+}
+
+class _ExportBackupPageState extends State<ExportBackupPage> {
+  bool busy = false;
+  String lastSaved = '';
+
+  Future<Directory> _outputDirectory() async {
+    final root = await getApplicationDocumentsDirectory();
+    final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  String _stamp() => DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+
+  Future<void> _shareFile(File file, String message) async {
+    await Share.shareXFiles([XFile(file.path)], text: message);
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('عملیات ناموفق بود: $e')));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _createBackup() async {
+    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    final source = File(DemoStore.database.path);
+    if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
+    final settingsData = <String, Object?>{
+      'store_name': AppSettings.storeName,
+      'app_name': AppSettings.appName,
+      'currency': AppSettings.currency,
+      'vat_percent': AppSettings.vatPercent,
+      'default_discount_percent': AppSettings.defaultDiscountPercent,
+      'invoice_prefix': AppSettings.invoicePrefix,
+      'next_invoice_number': AppSettings.nextInvoiceNumber,
+      'manager_name': AppSettings.managerName,
+      'phone': AppSettings.phone,
+      'address': AppSettings.address,
+      'postal_code': AppSettings.postalCode,
+      'theme_mode': AppSettings.themeMode,
+      'dark_mode': AppSettings.darkMode,
+      'drawer_image': AppSettings.drawerImage,
+      'font_scale': AppSettings.fontScale,
+      'product_image_mode': AppSettings.productImageMode,
+      'product_groups': AppSettings.productGroups,
+    };
+    final bundle = <String, Object?>{
+      'format': 'khadamat_fanni_hosein_backup',
+      'format_version': 1,
+      'created_at': DateTime.now().toIso8601String(),
+      'database_base64': base64Encode(await source.readAsBytes()),
+      'settings': settingsData,
+    };
+    final dir = await _outputDirectory();
+    final file = File(p.join(dir.path, 'backup_${_stamp()}.hfbak'));
+    await file.writeAsString(jsonEncode(bundle), encoding: utf8, flush: true);
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    final savedLocation = await FilePicker.platform.saveFile(
+      dialogTitle: 'ذخیره فایل پشتیبان در گوشی',
+      fileName: p.basename(file.path),
+      type: FileType.custom,
+      allowedExtensions: ['hfbak'],
+      bytes: await file.readAsBytes(),
+    );
+    if (savedLocation != null && mounted) {
+      setState(() => lastSaved = savedLocation);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فایل پشتیبان در محل انتخاب‌شده ذخیره شد. اکنون می‌توانی آن را به گوشی دیگر هم ارسال کنی.')));
+    }
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/octet-stream')],
+      text: 'نسخه پشتیبان کامل خدمات فنی حسین؛ شامل پایگاه داده و تنظیمات',
+    );
+  }
+
+  Future<void> _restoreBackup() async {
+    final selection = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['hfbak', 'db', 'sqlite', 'json'],
+      allowMultiple: true,
+      withData: false,
+    );
+    if (selection == null || selection.files.isEmpty) return;
+    File? selectedDb;
+    File? selectedSettings;
+    File? selectedBundle;
+    for (final picked in selection.files) {
+      final path = picked.path;
+      if (path == null) continue;
+      final file = File(path);
+      final ext = p.extension(path).toLowerCase();
+      if (ext == '.hfbak') selectedBundle = file;
+      if (ext == '.db' || ext == '.sqlite') selectedDb = file;
+      if (ext == '.json') {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map && decoded['format'] == 'khadamat_fanni_hosein_backup') {
+          selectedBundle = file;
+        } else if (decoded is Map<String, dynamic>) {
+          selectedSettings = file;
+        }
+      }
+    }
+    Uint8List databaseBytes;
+    Map<String, dynamic>? settingsData;
+    if (selectedBundle != null) {
+      final decoded = jsonDecode(await selectedBundle.readAsString());
+      if (decoded is! Map || decoded['format'] != 'khadamat_fanni_hosein_backup' || decoded['format_version'] != 1) {
+        throw Exception('ساختار فایل پشتیبان شناخته‌شده نیست یا نسخه آن پشتیبانی نمی‌شود.');
+      }
+      final encoded = decoded['database_base64'];
+      if (encoded is! String || encoded.isEmpty) throw Exception('اطلاعات پایگاه داده در فایل پشتیبان وجود ندارد.');
+      try {
+        databaseBytes = base64Decode(encoded);
+      } catch (_) {
+        throw Exception('بخش پایگاه داده در فایل پشتیبان خراب است.');
+      }
+      if (decoded['settings'] is Map) settingsData = Map<String, dynamic>.from(decoded['settings'] as Map);
+    } else if (selectedDb != null) {
+      databaseBytes = await selectedDb.readAsBytes();
+      if (selectedSettings != null) {
+        final decoded = jsonDecode(await selectedSettings.readAsString());
+        if (decoded is! Map<String, dynamic>) throw Exception('فایل تنظیمات پشتیبان معتبر نیست.');
+        settingsData = decoded;
+      }
+    } else {
+      throw Exception('فایل پشتیبان خدمات فنی حسین انتخاب نشده است.');
+    }
+    final appDir = await _outputDirectory();
+    final candidate = File(p.join(appDir.path, 'restore_candidate_${_stamp()}.db'));
+    await candidate.writeAsBytes(databaseBytes, flush: true);
+    final checkDb = await openDatabase(candidate.path, readOnly: true, singleInstance: false);
+    try {
+      final integrity = await checkDb.rawQuery('PRAGMA integrity_check');
+      if (integrity.isEmpty || integrity.first.values.first.toString().toLowerCase() != 'ok') {
+        throw Exception('سلامت فایل پایگاه داده تأیید نشد. فایل فعلی تغییر نمی‌کند.');
+      }
+      final tables = await checkDb.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'records'");
+      if (tables.isEmpty) throw Exception('این فایل، پایگاه داده معتبر برنامه خدمات فنی حسین نیست.');
+    } finally {
+      await checkDb.close();
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تأیید بازیابی نسخه پشتیبان'),
+          content: const Text('با بازیابی، اطلاعات فعلی برنامه با اطلاعات داخل فایل پشتیبان جایگزین می‌شود. قبل از جایگزینی، از اطلاعات فعلی نیز یک نسخه اضطراری نگهداری می‌شود. ادامه می‌دهید؟'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('بله، بازیابی شود')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    final dbPath = DemoStore.database.path;
+    final liveFile = File(dbPath);
+    final emergency = File(p.join(appDir.path, 'before_restore_${_stamp()}.db'));
+    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    await DemoStore.database.close();
+    DemoStore._db = null;
+    if (await liveFile.exists()) await liveFile.copy(emergency.path);
+    for (final suffix in ['-wal', '-shm']) {
+      final sidecar = File('$dbPath$suffix');
+      if (await sidecar.exists()) await sidecar.delete();
+    }
+    try {
+      await candidate.copy(dbPath);
+      await DemoStore.init();
+      if (settingsData != null) await AppSettings.restoreBackup(settingsData);
+      if (!mounted) return;
+      setState(() => lastSaved = 'بازیابی انجام شد؛ نسخه اضطراری اطلاعات قبلی: ${emergency.path}');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('بازیابی پایگاه داده با موفقیت انجام شد.')));
+    } catch (error) {
+      if (await emergency.exists()) {
+        final failed = File('$dbPath.failed');
+        if (await failed.exists()) await failed.delete();
+        if (await liveFile.exists()) await liveFile.delete();
+        await emergency.copy(dbPath);
+        await DemoStore.init();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _exportExcel() async {
+    final excel = Excel.createExcel();
+    final dataSets = <String, List<Map<String, String>>>{
+      'کالاها': DemoStore.products,
+      'مشتریان': DemoStore.customers,
+      'تعمیرات': DemoStore.repairs,
+      'فاکتورها': DemoStore.sales,
+      'عملیات مالی': DemoStore.operations,
+    };
+    var first = true;
+    for (final entry in dataSets.entries) {
+      final sheetName = entry.key;
+      if (first) {
+        excel.rename('Sheet1', sheetName);
+        first = false;
+      }
+      final sheet = excel[sheetName];
+      final keys = <String>{};
+      for (final row in entry.value) { keys.addAll(row.keys); }
+      final columns = keys.toList();
+      if (columns.isEmpty) {
+        sheet.appendRow([TextCellValue('اطلاعاتی ثبت نشده است')]);
+      } else {
+        sheet.appendRow(columns.map((key) => TextCellValue(key)).toList());
+        for (final row in entry.value) {
+          sheet.appendRow(columns.map((key) => TextCellValue(row[key] ?? '')).toList());
+        }
+      }
+    }
+    final bytes = excel.encode();
+    if (bytes == null) throw Exception('ساخت فایل Excel ناموفق بود.');
+    final dir = await _outputDirectory();
+    final file = File(p.join(dir.path, 'گزارش_کامل_${_stamp()}.xlsx'));
+    await file.writeAsBytes(bytes, flush: true);
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فایل Excel در حافظه برنامه ذخیره شد.')));
+    await _shareFile(file, 'خروجی Excel اطلاعات خدمات فنی حسین');
+  }
+
+  Widget _invoicePreview(Map<String, String> item, int index) {
+    final gross = double.tryParse((item['مبلغ کل'] ?? '0').replaceAll(',', '')) ?? 0;
+    final discount = double.tryParse((item['تخفیف'] ?? '0').replaceAll(',', '')) ?? 0;
+    final received = double.tryParse((item['مبلغ دریافتی'] ?? '0').replaceAll(',', '')) ?? 0;
+    final tax = double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0;
+    final net = (gross - discount + tax).clamp(0, double.infinity).toDouble();
+    return Container(
+      width: 560,
+      color: Colors.white,
+      padding: const EdgeInsets.all(28),
+      child: DefaultTextStyle(
+        style: const TextStyle(color: Colors.black, fontSize: 15),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(item['نام فروشگاه در زمان صدور'] ?? AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
+          const SizedBox(height: 5),
+          if ((item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address).isNotEmpty) Text(item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address, textAlign: TextAlign.center),
+          if ((item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone).isNotEmpty) Text('تلفن: ${item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone}', textAlign: TextAlign.center),
+          const Divider(color: Colors.black, height: 28),
+          Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Text('تاریخ فاکتور: ${item['تاریخ'] ?? Jalali.now().formatCompactDate()}'),
+          Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
+          Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
+          Text('تعداد: ${item['تعداد'] ?? '۱'}'),
+          const Divider(color: Colors.black),
+          _invoiceLine('مبلغ کل قبل از تخفیف', gross, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('تخفیف', discount, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مالیات بر ارزش افزوده', double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency) ,
+          _invoiceLine('مبلغ نهایی', net, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مبلغ جدید دریافتی', received, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net), item['واحد پول در زمان صدور'] ?? AppSettings.currency),
+          const SizedBox(height: 26),
+          const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
+        ]),
+      ),
+    );
+  }
+
+  Widget _invoiceLine(String title, num value, String currency) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(title),
+      Text('${value.toStringAsFixed(0)} $currency', style: const TextStyle(fontWeight: FontWeight.bold)),
+    ]),
+  );
+
+  Future<Uint8List?> _captureInvoice(Map<String, String> item, int index) async {
+    final key = GlobalKey();
+    return showDialog<Uint8List>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('پیش‌نمایش فاکتور'),
+          content: SizedBox(
+            width: 600,
+            child: SingleChildScrollView(
+              child: RepaintBoundary(key: key, child: _invoicePreview(item, index)),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+            FilledButton.icon(
+              onPressed: () async {
+                try {
+                  final boundary = key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+                  if (boundary == null) throw Exception('پیش‌نمایش فاکتور آماده نیست.');
+                  final image = await boundary.toImage(pixelRatio: 3);
+                  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+                  image.dispose();
+                  if (data == null) throw Exception('تبدیل فاکتور به تصویر ناموفق بود.');
+                  final pngBytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, pngBytes);
+                } catch (e) {
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('ساخت تصویر ناموفق بود: $e')));
+                }
+              },
+              icon: const Icon(Icons.image_outlined),
+              label: const Text('ساخت خروجی'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportInvoice(Map<String, String> item, int index, {required bool pdf}) async {
+    final imageBytes = await _captureInvoice(item, index);
+    if (imageBytes == null) return;
+    final dir = await _outputDirectory();
+    final extension = pdf ? 'pdf' : 'png';
+    final file = File(p.join(dir.path, 'factor_${index + 1}_${_stamp()}.$extension'));
+    if (pdf) {
+      final document = pw.Document();
+      document.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(20),
+        build: (_) => pw.Center(child: pw.Image(pw.MemoryImage(imageBytes), fit: pw.BoxFit.contain)),
+      ));
+      await file.writeAsBytes(await document.save(), flush: true);
+    } else {
+      await file.writeAsBytes(imageBytes, flush: true);
+    }
+    if (!mounted) return;
+    setState(() => lastSaved = file.path);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فاکتور به صورت ${pdf ? 'PDF' : 'عکس'} ذخیره شد.')));
+    await _shareFile(file, 'فاکتور فروش خدمات فنی حسین');
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('پشتیبان‌گیری از پایگاه داده', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('یک فایل پشتیبان شامل پایگاه داده و تنظیمات ساخته می‌شود. همان یک فایل را در حافظه گوشی ذخیره کن یا به گوشی دیگر بفرست.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_createBackup), icon: const Icon(Icons.backup), label: const Text('تهیه نسخه پشتیبان و اشتراک‌گذاری')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('بازیابی نسخه پشتیبان', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('فقط یک فایل با پسوند HFBak انتخاب کن؛ این فایل پایگاه داده و تنظیمات فروشگاه را با هم دارد. می‌توانی آن را از حافظه گوشی یا فایلی که از گوشی دیگر دریافت کرده‌ای انتخاب کنی. فایل‌های پشتیبان قدیمی DB و JSON نیز همچنان قابل بازیابی‌اند. پیش از جایگزینی، از اطلاعات فعلی نسخه اضطراری ساخته می‌شود.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_restoreBackup), icon: const Icon(Icons.settings_backup_restore), label: const Text('انتخاب فایل و بازیابی')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('خروجی Excel', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('اطلاعات کالاها، مشتریان، تعمیرات، فاکتورها و عملیات مالی در یک فایل چندبرگی Excel ذخیره و قابل ارسال می‌شود.'),
+        const SizedBox(height: 10),
+        FilledButton.icon(onPressed: busy ? null : () => _run(_exportExcel), icon: const Icon(Icons.table_view), label: const Text('ساخت Excel و اشتراک‌گذاری')),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('فاکتور PDF و عکس', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('برای هر فاکتور ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
+        const SizedBox(height: 8),
+        if (DemoStore.archivedSales.isEmpty)
+          const Text('هنوز فاکتور آرشیوشده‌ای ثبت نشده است.')
+        else
+          for (int i = 0; i < DemoStore.archivedSales.length; i++)
+            Card(child: ListTile(
+              title: Text('${DemoStore.archivedSales[i]['شماره فاکتور']} ـ ${DemoStore.archivedSales[i]['نام مشتری'] ?? 'بدون نام'}'),
+              subtitle: Text(DemoStore.archivedSales[i]['شرح کالا/خدمت'] ?? ''),
+              trailing: Wrap(spacing: 2, children: [
+                IconButton(tooltip: 'خروجی PDF', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: true)), icon: const Icon(Icons.picture_as_pdf)),
+                IconButton(tooltip: 'خروجی عکس', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: false)), icon: const Icon(Icons.image)),
+              ]),
+            )),
+      ]))),
+      if (busy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())),
+      if (lastSaved.isNotEmpty) SelectableText('آخرین فایل ذخیره‌شده در حافظه برنامه:\n$lastSaved', style: const TextStyle(fontSize: 11)),
+      const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('Google Drive از مسیر انتخاب‌گر فایل اندروید برای بازیابی قابل استفاده است و هنگام تهیه خروجی نیز می‌توانی Drive را از پنجره اشتراک‌گذاری انتخاب کنی. همگام‌سازی خودکار و پس‌زمینه هنوز فعال نشده است.'))),
+    ],
+  );
+}
+
+class ReportsPage extends StatefulWidget {
+  const ReportsPage({super.key});
+  @override
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> {
+  final GlobalKey _reportKey = GlobalKey();
+  Jalali? _fromDate;
+  Jalali? _toDate;
+  late Future<List<Map<String, Object?>>> _recordsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = _loadRecords();
+  }
+
+  Future<List<Map<String, Object?>>> _loadRecords() => DemoStore.database.query(
+    'records',
+    columns: ['category', 'created_at', 'data'],
+    orderBy: 'created_at DESC',
+  );
+
+  Future<void> _chooseDate({required bool isStart}) async {
+    final now = Jalali.now();
+    final picked = await showPersianDatePicker(
+      context: context,
+      initialDate: isStart ? (_fromDate ?? _toDate ?? now) : (_toDate ?? _fromDate ?? now),
+      firstDate: Jalali(1300, 1, 1),
+      lastDate: Jalali(1500, 12, 29),
+      locale: const Locale('fa', 'IR'),
+      textDirection: TextDirection.rtl,
+      helpText: isStart ? 'انتخاب تاریخ شروع' : 'انتخاب تاریخ پایان',
+      cancelText: 'انصراف',
+      confirmText: 'تأیید',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _fromDate = picked;
+        if (_toDate != null && _toDate!.toDateTime().isBefore(picked.toDateTime())) _toDate = picked;
+      } else {
+        _toDate = picked;
+        if (_fromDate != null && _fromDate!.toDateTime().isAfter(picked.toDateTime())) _fromDate = picked;
+      }
+    });
+  }
+
+  DateTime? _recordDate(Map<String, Object?> record) {
+    try {
+      final raw = record['data'];
+      if (raw is String && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final key in ['تاریخ ثبت کالا', 'تاریخ', 'تاریخ فاکتور', 'تاریخ پذیرش']) {
+            var value = (decoded[key] ?? '').toString().trim();
+            if (value.isEmpty) continue;
+            const fa = '۰۱۲۳۴۵۶۷۸۹';
+            const ar = '٠١٢٣٤٥٦٧٨٩';
+            for (var i = 0; i < 10; i++) {
+              value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
+            }
+            final jalaliMatch = RegExp(r'^([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})$').firstMatch(value);
+            if (jalaliMatch != null) {
+              try {
+                return Jalali(int.parse(jalaliMatch.group(1)!), int.parse(jalaliMatch.group(2)!), int.parse(jalaliMatch.group(3)!)).toDateTime();
+              } catch (_) {}
+            }
+            final iso = DateTime.tryParse(value);
+            if (iso != null) return iso;
+          }
+        }
+      }
+    } catch (_) {}
+    return DateTime.tryParse((record['created_at'] ?? '').toString());
+  }
+
+  bool _inRange(Map<String, Object?> record) {
+    final date = _recordDate(record);
+    if (date == null) return false;
+    final day = DateTime(date.year, date.month, date.day);
+    if (_fromDate != null) {
+      final from = _fromDate!.toDateTime();
+      if (day.isBefore(DateTime(from.year, from.month, from.day))) return false;
+    }
+    if (_toDate != null) {
+      final to = _toDate!.toDateTime();
+      if (day.isAfter(DateTime(to.year, to.month, to.day))) return false;
+    }
+    return true;
+  }
+
+  String _dateLabel(Jalali? date) => date?.formatCompactDate() ?? 'بدون محدودیت';
+
+  Future<void> _exportReportImage() async {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary = _reportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) throw StateError('گزارش برای تهیه تصویر آماده نیست.');
+      final image = await boundary.toImage(pixelRatio: 2.5);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (data == null) throw StateError('ساخت تصویر گزارش ناموفق بود.');
+      final root = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(dir.path, 'report_$stamp.png'));
+      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+      await Share.shareXFiles([XFile(file.path, mimeType: 'image/png')], text: 'گزارش خدمات فنی حسین');
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تهیه تصویر گزارش ناموفق بود: $error')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, Object?>>>(
+    future: _recordsFuture,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError) return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: ${snapshot.error}'));
+      final all = snapshot.data ?? const <Map<String, Object?>>[];
+      final filtered = all.where(_inRange).toList();
+      int count(String category) => filtered.where((r) => r['category'] == category).length;
+      final categories = <(String, String, IconData)>[
+        ('کالاها', 'products', Icons.inventory_2_outlined),
+        ('مشتریان', 'customers', Icons.people_outline),
+        ('تعمیرات', 'repairs', Icons.build_outlined),
+        ('فروش‌ها', 'sales', Icons.receipt_long_outlined),
+        ('عملیات مالی', 'operations', Icons.account_balance_wallet_outlined),
+      ];
+      final counts = categories.map((e) => count(e.$2)).toList();
+      final maxCount = counts.fold<int>(1, (a, b) => a > b ? a : b);
+      return Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(children: [
+            Expanded(child: OutlinedButton.icon(
+              onPressed: _exportReportImage,
+              icon: const Icon(Icons.image_outlined),
+              label: const Text('خروجی تصویر گزارش و نمودار'),
+            )),
+            IconButton(
+              tooltip: 'به‌روزرسانی',
+              onPressed: () => setState(() => _recordsFuture = _loadRecords()),
+              icon: const Icon(Icons.refresh),
+            ),
+          ]),
+        ),
+        Expanded(child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: RepaintBoundary(
+            key: _reportKey,
+            child: Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('گزارش‌های خدمات فنی حسین', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('فیلتر زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold)),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: true), icon: const Icon(Icons.calendar_month), label: Text('از تاریخ: ${_dateLabel(_fromDate)}')),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: false), icon: const Icon(Icons.event), label: Text('تا تاریخ: ${_dateLabel(_toDate)}')),
+                    Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; }),
+                      icon: const Icon(Icons.filter_alt_off), label: const Text('حذف فیلتر تاریخ'),
+                    )),
+                  ]),
+                )),
+                for (final entry in categories)
+                  Card(child: ListTile(
+                    leading: Icon(entry.$3), title: Text(entry.$1),
+                    trailing: Text(count(entry.$2).toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+                  )),
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('نمودار تعداد اسناد', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < categories.length; i++)
+                      Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [
+                        SizedBox(width: 76, child: Text(categories[i].$1, style: const TextStyle(fontSize: 11))),
+                        Expanded(child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(value: counts[i] / maxCount, minHeight: 14),
+                        )),
+                        const SizedBox(width: 8), Text(counts[i].toString()),
+                      ])),
+                  ]),
+                )),
+                Text('تعداد کل اسناد در بازه: ${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('تاریخ‌های انتخابی شمسی هستند؛ در صورت نبود تاریخ معتبر در فرم، زمان ثبت سند مبنا قرار می‌گیرد.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ]),
+            ),
+          ),
+        )),
+      ]);
+    },
+  );
+}
