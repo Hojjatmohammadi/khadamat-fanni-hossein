@@ -882,9 +882,15 @@ class TradeRepository {
             isCustomerReceipt ? 'customer_return' : 'supplier_return',
           ],
         );
+        final checkRows = await txn.rawQuery(
+          "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
+          "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
+          [sourceDocumentId],
+        );
         final alreadySettled =
             (source['paid_amount'] as num).toInt() +
-            (paymentRows.single['paid'] as num).toInt();
+            (paymentRows.single['paid'] as num).toInt() +
+            (checkRows.single['amount'] as num).toInt();
         final returnedAmount = (returnRows.single['returned'] as num).toInt();
         final outstanding =
             (source['total_amount'] as num).toInt() -
@@ -982,8 +988,14 @@ class TradeRepository {
       'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
       [documentId, returnType],
     );
+    final checks = await db.rawQuery(
+      "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
+      "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
+      [documentId],
+    );
     final totalPaid = (document['paid_amount'] as num).toInt() +
-        (payments.single['paid'] as num).toInt();
+        (payments.single['paid'] as num).toInt() +
+        (checks.single['amount'] as num).toInt();
     final totalReturned = (returns.single['returned'] as num).toInt();
     final total = (document['total_amount'] as num).toInt();
     return total - totalPaid - totalReturned;
