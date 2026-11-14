@@ -2783,7 +2783,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
           }
         }
         if (existing == null) {
-          final customerName = (item['نام مشتری'] ?? '').trim();
           final customerId = item['شناسه مشتری'] ?? '';
           var availableCustomerCredit = 0.0;
           final customerIdValue = int.tryParse(customerId);
