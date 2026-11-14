@@ -37,7 +37,7 @@ class InvoicePdfService {
       String value, {
       double fontSize = 30,
       bool bold = false,
-      ui.Color color = textColor,
+      ui.Color color = const ui.Color(0xFF202124),
       double top = 0,
       double maxWidth = _width - 2 * _margin,
     }) {
