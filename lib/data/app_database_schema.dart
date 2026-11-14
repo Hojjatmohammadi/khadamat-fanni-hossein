@@ -369,6 +369,8 @@ class AppDatabaseSchema {
     required DateTime dueDate,
     String bankName = '',
     String notes = '',
+    String sourceType = '',
+    String? sourceId,
   }) async {
     if (checkNumber.trim().isEmpty || amount <= 0 ||
         !amount.isFinite || !['received', 'issued'].contains(direction) ||
@@ -393,6 +395,8 @@ class AppDatabaseSchema {
       'status': 'pending',
       'bank_name': bankName.trim(),
       'notes': notes.trim(),
+      'source_type': sourceType,
+      'source_id': sourceId,
       'created_at': DateTime.now().toIso8601String(),
     });
     await db.insert('checks_history', {
@@ -403,6 +407,18 @@ class AppDatabaseSchema {
       'notes': 'ثبت اولیه چک',
     });
     return id;
+  }
+
+  /// Adds source-reference columns to check registers created by older builds.
+  static Future<void> ensureCheckSourceColumns(DatabaseExecutor db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(checks_register)');
+    final names = columns.map((row) => row['name'].toString()).toSet();
+    if (!names.contains('source_type')) {
+      await db.execute("ALTER TABLE checks_register ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.contains('source_id')) {
+      await db.execute('ALTER TABLE checks_register ADD COLUMN source_id TEXT');
+    }
   }
 
   /// Synchronizes editable legacy records with normalized tables.
