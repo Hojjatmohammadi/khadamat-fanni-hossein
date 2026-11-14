@@ -821,6 +821,61 @@ class AppDatabase {
     });
   }
 
+  /// Updates editable record fields without rewriting immutable stock or
+  /// accounting history. Product stock is always recalculated from movements.
+  Future<void> updateRecord(
+    String category,
+    int id,
+    Map<String, String> item,
+  ) async {
+    final table = _tableFor(category);
+    if (id <= 0) throw ArgumentError('شناسه رکورد معتبر نیست');
+
+    final values = Map<String, String>.fromEntries(
+      item.entries.where((entry) => !entry.key.startsWith('__')),
+    );
+    if (values.isEmpty ||
+        values.values.every((value) => value.trim().isEmpty)) {
+      throw ArgumentError('اطلاعات خالی قابل ذخیره نیست');
+    }
+
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      final existing = await txn.query(
+        table,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (existing.isEmpty) {
+        throw StateError('رکورد موردنظر پیدا نشد');
+      }
+
+      if (category == 'products') {
+        final stockRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(quantity_delta), 0) AS quantity '
+          'FROM inventory_movements WHERE product_id = ?',
+          [id],
+        );
+        final stock = (stockRows.first['quantity'] as num?)?.toDouble() ?? 0;
+        // Never accept an edited form's stock value as a stock movement.
+        values['موجودی'] = stock.toString();
+      }
+
+      await txn.update(
+        table,
+        {
+          'data_json': jsonEncode(values),
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
   Future<double> getStockOnHand(int productId) async {
     final db = await database;
     final rows = await db.rawQuery(
