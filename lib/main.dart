@@ -336,7 +336,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 5,
+      version: 6,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -367,6 +367,7 @@ class DemoStore {
           await db.execute('UPDATE invoices SET subtotal = total, total = MAX(0, total - discount) WHERE legacy_source_id IS NOT NULL');
         }
         if (oldVersion < 5) await _createInvoiceArchive(db);
+        if (oldVersion < 6) await AccountingEngine.createTables(db);
       },
     );
     await _loadCategory('products', products);
@@ -434,17 +435,29 @@ class DemoStore {
   }
 
   static Future<void> update(String category, Map<String, String> oldItem, Map<String, String> newItem) async {
-    await _db!.update('records', {'data': jsonEncode(newItem)}, where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)]);
+    if (category == 'sales') {
+      throw StateError('فاکتور صادرشده قابل ویرایش نیست؛ برای اصلاح، سند جدید صادر کنید.');
+    }
     final target = switch (category) {
-      'products' => products, 'customers' => customers, 'repairs' => repairs, 'sales' => sales, 'operations' => operations,
+      'products' => products, 'customers' => customers, 'repairs' => repairs, 'operations' => operations,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
+    await _db!.transaction((txn) async {
+      final rows = await txn.query('records', columns: ['id'],
+        where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)], limit: 1);
+      if (rows.isEmpty) throw StateError('سند برای ویرایش پیدا نشد.');
+      final recordId = rows.first['id'] as int;
+      await txn.update('records', {'data': jsonEncode(newItem)},
+        where: 'id = ? AND category = ?', whereArgs: [recordId, category]);
+      await AppDatabaseSchema.updateLegacyRecord(txn, category, newItem, recordId);
+    });
     final index = target.indexWhere((x) => jsonEncode(x) == jsonEncode(oldItem));
     if (index >= 0) target[index] = Map<String,String>.from(newItem);
   }
 
   static Future<void> delete(String category, List<Map<String, String>> items) async {
     if (items.isEmpty) return;
+    if (category == 'sales') throw StateError('فاکتور صادرشده حذف نمی‌شود؛ برای اصلاح یا برگشت، سند مستقل ثبت کنید.');
     final table = switch (category) {
       'customers' => 'customers', 'products' => 'products', 'repairs' => 'repairs', 'sales' => 'invoices',
       _ => null,
@@ -520,21 +533,35 @@ class DemoStore {
     }
   }
 
-  /// Saves the stock item and its supplier payable/payment record atomically.
+  /// Saves purchase document, supplier balance, inventory movement and journal atomically.
   static Future<void> addProductPurchase(
     Map<String, String> product,
     Map<String, String> operation,
   ) async {
     final createdAt = DateTime.now().toIso8601String();
+    final quantity = double.tryParse((product['موجودی'] ?? '0').replaceAll(',', '')) ?? 0;
+    final unitCost = double.tryParse((product['بهای تمام‌شده هر واحد'] ?? '0').replaceAll(',', '')) ?? 0;
+    final total = double.tryParse((product['جمع بهای تمام‌شده'] ?? '0').replaceAll(',', '')) ?? 0;
+    final paid = double.tryParse((operation['مبلغ پرداخت‌شده'] ?? '0').replaceAll(',', '')) ?? 0;
+    final supplier = (operation['نام شخص'] ?? '').trim();
+    if (quantity <= 0 || unitCost <= 0 || total <= 0 || supplier.isEmpty ||
+        paid < 0 || paid > total + 0.01) {
+      throw ArgumentError('اطلاعات خرید، تعداد، بهای تمام‌شده، فروشنده یا مبلغ پرداخت معتبر نیست.');
+    }
     await _db!.transaction((txn) async {
-      final productId = await txn.insert('records', {
+      final productRecordId = await txn.insert('records', {
         'category': 'products',
         'data': jsonEncode(product),
         'created_at': createdAt,
       });
       await AppDatabaseSchema.insertLegacyRecord(
-        txn, 'products', product, productId, createdAt,
+        txn, 'products', product, productRecordId, createdAt,
       );
+      final normalized = await txn.query('products', columns: ['id'],
+        where: 'legacy_source_id = ?', whereArgs: [productRecordId], limit: 1);
+      if (normalized.isEmpty) throw StateError('ثبت کالای خریداری‌شده در انبار کامل نشد.');
+      final productId = normalized.first['id'] as int;
+
       final operationId = await txn.insert('records', {
         'category': 'operations',
         'data': jsonEncode(operation),
@@ -542,6 +569,53 @@ class DemoStore {
       });
       await AppDatabaseSchema.insertLegacyRecord(
         txn, 'operations', operation, operationId, createdAt,
+      );
+
+      await AccountingEngine.recordStockMovementInTransaction(
+        txn,
+        productId: productId,
+        movementType: 'purchase',
+        quantityDelta: quantity,
+        unitCost: unitCost,
+        referenceType: 'purchase',
+        referenceId: operationId.toString(),
+        notes: 'خرید از ' + supplier,
+        occurredAt: DateTime.tryParse(operation['تاریخ'] ?? '') ?? DateTime.parse(createdAt),
+      );
+
+      final lines = <JournalLineInput>[
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '1200'),
+          debit: total,
+          memo: 'ورود موجودی بابت خرید ' + (product['نام کالا'] ?? ''),
+        ),
+      ];
+      if (paid > 0) {
+        final method = operation['روش'] ?? 'نقدی';
+        final creditCode = method == 'چک' ? '2110'
+            : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, creditCode),
+          credit: paid,
+          memo: 'پرداخت بابت خرید از ' + supplier,
+        ));
+      }
+      if (total - paid > 0.01) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '2000'),
+          credit: total - paid,
+          partyType: 'supplier',
+          memo: 'بدهی خرید به ' + supplier,
+        ));
+      }
+      await AccountingEngine.postJournalInTransaction(
+        txn,
+        entryNumber: 'PURCHASE-' + operationId.toString(),
+        occurredAt: DateTime.tryParse(operation['تاریخ'] ?? '') ?? DateTime.parse(createdAt),
+        description: 'ثبت خرید کالا از ' + supplier,
+        sourceType: 'purchase',
+        sourceId: operationId.toString(),
+        lines: lines,
       );
     });
     products.add(Map<String, String>.from(product));
