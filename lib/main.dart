@@ -728,16 +728,201 @@ class CustomerPage extends StatelessWidget {
       );
 }
 
-class RepairPage extends StatelessWidget {
+class RepairPage extends StatefulWidget {
   final VoidCallback onChanged;
   const RepairPage({super.key, required this.onChanged});
 
   @override
-  Widget build(BuildContext context) => SimpleListPage(
-        title: 'پذیرش تعمیر',
-        data: DemoStore.repairs,
-        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
-        primary: 'نوع دستگاه',
+  State<RepairPage> createState() => _RepairPageState();
+}
+
+class _RepairPageState extends State<RepairPage> {
+  Future<void> _recordPartConsumption() async {
+    final repairOptions = DemoStore.repairs
+        .where((item) => int.tryParse(item['__database_id'] ?? '') != null)
+        .toList();
+    final productOptions = DemoStore.products
+        .where((item) => int.tryParse(item['__database_id'] ?? '') != null)
+        .toList();
+
+    if (repairOptions.isEmpty || productOptions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا پذیرش تعمیر و کالا را ثبت کنید')),
+      );
+      return;
+    }
+
+    int? selectedRepairId =
+        int.tryParse(repairOptions.first['__database_id'] ?? '');
+    int? selectedProductId =
+        int.tryParse(productOptions.first['__database_id'] ?? '');
+    final quantityController = TextEditingController(text: '1');
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('ثبت مصرف قطعه در تعمیر'),
+            content: SizedBox(
+              width: 380,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<int>(
+                      key: ValueKey(selectedRepairId),
+                      initialValue: selectedRepairId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'پذیرش تعمیر'),
+                      items: [
+                        for (final repair in repairOptions)
+                          DropdownMenuItem(
+                            value: int.parse(repair['__database_id']!),
+                            child: Text(
+                              '${repair['نوع دستگاه'] ?? 'دستگاه'} — ${repair['نام مشتری'] ?? 'بدون نام'}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          refresh(() => selectedRepairId = value),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      key: ValueKey(selectedProductId),
+                      initialValue: selectedProductId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'قطعه مصرفی'),
+                      items: [
+                        for (final product in productOptions)
+                          DropdownMenuItem(
+                            value: int.parse(product['__database_id']!),
+                            child: Text(
+                              '${product['نام کالا'] ?? 'کالای بدون نام'} — موجودی: ${product['موجودی'] ?? '0'}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          refresh(() => selectedProductId = value),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: quantityController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'تعداد مصرفی'),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'هزینه قطعه بر اساس میانگین بهای موجودی محاسبه و به هزینه قطعات مصرفی تعمیر منتقل می‌شود.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final repair = repairOptions.firstWhere(
+                    (item) => item['__database_id'] == selectedRepairId.toString(),
+                  );
+                  final quantity = double.tryParse(quantityController.text.trim());
+                  if (selectedRepairId == null ||
+                      selectedProductId == null ||
+                      quantity == null ||
+                      quantity <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('اطلاعات مصرف قطعه را بررسی کنید')),
+                    );
+                    return;
+                  }
+                  try {
+                    await DemoStore.trades.recordRepairConsumption(
+                      documentDate: DateTime.now().toIso8601String().split('T').first,
+                      repairId: selectedRepairId.toString(),
+                      customerName: repair['نام مشتری'] ?? 'مشتری تعمیر',
+                      customerId: null,
+                      idempotencyKey:
+                          'repair-parts-${selectedRepairId}-${DateTime.now().microsecondsSinceEpoch}',
+                      parts: [
+                        TradeLineDraft(
+                          productId: selectedProductId!,
+                          quantity: quantity,
+                          unitPrice: 0,
+                        ),
+                      ],
+                    );
+                    await DemoStore.refreshProducts();
+                    if (dialogContext.mounted) {
+                      Navigator.pop(dialogContext, true);
+                    }
+                  } catch (error) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('ثبت مصرف قطعه ناموفق بود: $error')),
+                    );
+                  }
+                },
+                child: const Text('ثبت مصرف قطعه'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    quantityController.dispose();
+    if (saved == true && mounted) {
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مصرف قطعه و سند حسابداری ثبت شد')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          Expanded(
+            child: SimpleListPage(
+              title: 'پذیرش تعمیر',
+              data: DemoStore.repairs,
+              fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
+              primary: 'نوع دستگاه',
+              onChanged: widget.onChanged,
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _recordPartConsumption,
+                  icon: const Icon(Icons.inventory),
+                  label: const Text('ثبت مصرف قطعه در تعمیر'),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+}
+
+class PurchasePage extends StatelessWidget {
+  final VoidCallback onChanged;
+  const PurchasePage({super.key, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => TradeEntryPage(
+        documentType: 'purchase',
         onChanged: onChanged,
       );
 }
@@ -747,13 +932,628 @@ class SalesPage extends StatelessWidget {
   const SalesPage({super.key, required this.onChanged});
 
   @override
-  Widget build(BuildContext context) => SimpleListPage(
-        title: 'فاکتور فروش',
-        data: DemoStore.sales,
-        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
-        primary: 'نام مشتری',
+  Widget build(BuildContext context) => TradeEntryPage(
+        documentType: 'sale',
         onChanged: onChanged,
       );
+}
+
+class TradeEntryPage extends StatefulWidget {
+  final String documentType;
+  final VoidCallback onChanged;
+
+  const TradeEntryPage({
+    super.key,
+    required this.documentType,
+    required this.onChanged,
+  });
+
+  @override
+  State<TradeEntryPage> createState() => _TradeEntryPageState();
+}
+
+class _TradeEntryPageState extends State<TradeEntryPage> {
+  final _partyController = TextEditingController();
+  final _dateController = TextEditingController();
+  final _quantityController = TextEditingController(text: '1');
+  final _priceController = TextEditingController();
+  final _discountController = TextEditingController(text: '0');
+  final _vatRateController = TextEditingController(text: '0');
+  final _paidController = TextEditingController(text: '0');
+  final _shippingController = TextEditingController(text: '0');
+  final _freightController = TextEditingController(text: '0');
+  final _otherCostController = TextEditingController(text: '0');
+
+  final List<TradeLineDraft> _lines = [];
+  List<Map<String, Object?>> _documents = [];
+  int? _selectedProductId;
+  String _cashAccountCode = '1000';
+  bool _vatExempt = false;
+  bool _saving = false;
+
+  bool get _isPurchase => widget.documentType == 'purchase';
+  String get _partyLabel => _isPurchase ? 'نام فروشنده' : 'نام مشتری';
+  String get _pageTitle => _isPurchase ? 'ثبت فاکتور خرید' : 'ثبت فاکتور فروش';
+
+  @override
+  void initState() {
+    super.initState();
+    _dateController.text = DateTime.now().toIso8601String().split('T').first;
+    _selectedProductId = _firstProductId();
+    _loadDocuments();
+  }
+
+  @override
+  void dispose() {
+    _partyController.dispose();
+    _dateController.dispose();
+    _quantityController.dispose();
+    _priceController.dispose();
+    _discountController.dispose();
+    _vatRateController.dispose();
+    _paidController.dispose();
+    _shippingController.dispose();
+    _freightController.dispose();
+    _otherCostController.dispose();
+    super.dispose();
+  }
+
+  int? _firstProductId() {
+    for (final product in DemoStore.products) {
+      final id = int.tryParse(product['__database_id'] ?? '');
+      if (id != null) return id;
+    }
+    return null;
+  }
+
+  int _int(TextEditingController controller) {
+    return int.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+  }
+
+  double _double(TextEditingController controller) {
+    return double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+  }
+
+  String _productName(int id) {
+    for (final product in DemoStore.products) {
+      if (product['__database_id'] == id.toString()) {
+        return product['نام کالا'] ?? 'کالای شماره $id';
+      }
+    }
+    return 'کالای شماره $id';
+  }
+
+  int get _subtotal => _lines.fold<int>(
+        0,
+        (sum, line) => sum + (line.quantity * line.unitPrice).round(),
+      );
+
+  int get _previewTotal {
+    final net = (_subtotal - _int(_discountController)).clamp(0, _subtotal);
+    final charges = _isPurchase
+        ? _int(_shippingController) + _int(_freightController) + _int(_otherCostController)
+        : 0;
+    final vat = _vatExempt ? 0 : (net * _double(_vatRateController) / 100).round();
+    return net + charges + vat;
+  }
+
+  Future<void> _loadDocuments() async {
+    final rows = await DemoStore.trades.getDocuments(type: widget.documentType);
+    final documents = <Map<String, Object?>>[];
+    for (final row in rows) {
+      final id = (row['id'] as num).toInt();
+      final outstanding = await DemoStore.trades.getOutstandingAmount(id);
+      documents.add({...row, 'outstanding_amount': outstanding});
+    }
+    if (mounted) setState(() => _documents = documents);
+  }
+
+  void _addLine() {
+    final productId = _selectedProductId;
+    final quantity = _double(_quantityController);
+    final price = _int(_priceController);
+    if (productId == null || quantity <= 0 || price < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('کالا، تعداد و قیمت را بررسی کنید')),
+      );
+      return;
+    }
+    setState(() {
+      _lines.add(TradeLineDraft(
+        productId: productId,
+        quantity: quantity,
+        unitPrice: price,
+      ));
+      _quantityController.text = '1';
+      _priceController.clear();
+    });
+  }
+
+  Future<void> _saveDocument() async {
+    if (_saving) return;
+    if (_partyController.text.trim().isEmpty ||
+        _dateController.text.trim().isEmpty ||
+        _lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('نام شخص، تاریخ و حداقل یک ردیف کالا الزامی است')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final draft = TradeDocumentDraft(
+        documentDate: _dateController.text.trim(),
+        counterpartyName: _partyController.text.trim(),
+        idempotencyKey:
+            '${widget.documentType}-${DateTime.now().microsecondsSinceEpoch}',
+        lines: List<TradeLineDraft>.from(_lines),
+        discountAmount: _int(_discountController),
+        shippingCost: _isPurchase ? _int(_shippingController) : 0,
+        freightCost: _isPurchase ? _int(_freightController) : 0,
+        otherCost: _isPurchase ? _int(_otherCostController) : 0,
+        vatRate: _double(_vatRateController),
+        vatExempt: _vatExempt,
+        paidAmount: _int(_paidController),
+        cashAccountCode: _cashAccountCode,
+      );
+      if (_isPurchase) {
+        await DemoStore.trades.recordPurchase(draft);
+      } else {
+        await DemoStore.trades.recordSale(draft);
+      }
+      await DemoStore.refreshProducts();
+      await DemoStore.refreshSales();
+      await _loadDocuments();
+      if (!mounted) return;
+      setState(() {
+        _lines.clear();
+        _partyController.clear();
+        _discountController.text = '0';
+        _vatRateController.text = '0';
+        _paidController.text = '0';
+        _shippingController.text = '0';
+        _freightController.text = '0';
+        _otherCostController.text = '0';
+        _vatExempt = false;
+      });
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isPurchase ? 'فاکتور خرید ثبت شد' : 'فاکتور فروش ثبت شد')),
+      );
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ثبت فاکتور ناموفق بود: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _returnDocument(Map<String, Object?> document) async {
+    final documentId = (document['id'] as num).toInt();
+    final lines = await DemoStore.trades.getDocumentLines(documentId);
+    if (lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('برای این فاکتور ردیف کالایی پیدا نشد')),
+      );
+      return;
+    }
+
+    int? selectedLineId = (lines.first['id'] as num).toInt();
+    final quantityController = TextEditingController(text: '1');
+    final returnLine = await showDialog<ReturnLineDraft?>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text(_isPurchase ? 'برگشت از خرید' : 'برگشت از فروش'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(selectedLineId),
+                    initialValue: selectedLineId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'ردیف فاکتور'),
+                    items: [
+                      for (final line in lines)
+                        DropdownMenuItem(
+                          value: (line['id'] as num).toInt(),
+                          child: Text(
+                            '${line['product_name']} — تعداد: ${line['quantity']}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) => refresh(() => selectedLineId = value),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: quantityController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'تعداد مرجوعی'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final quantity = double.tryParse(quantityController.text.trim());
+                  if (selectedLineId == null || quantity == null || quantity <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('ردیف و تعداد مرجوعی را بررسی کنید')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(
+                    dialogContext,
+                    ReturnLineDraft(sourceLineId: selectedLineId!, quantity: quantity),
+                  );
+                },
+                child: const Text('ادامه'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    quantityController.dispose();
+    if (returnLine == null || !mounted) return;
+
+    try {
+      final draft = ReturnDocumentDraft(
+        documentDate: DateTime.now().toIso8601String().split('T').first,
+        sourceDocumentId: documentId,
+        counterpartyName: document['counterparty_name']?.toString() ?? 'شخص',
+        counterpartyId: document['counterparty_id']?.toString(),
+        idempotencyKey:
+            'return-${documentId}-${DateTime.now().microsecondsSinceEpoch}',
+        lines: [returnLine],
+      );
+      if (_isPurchase) {
+        await DemoStore.trades.recordSupplierReturn(draft);
+      } else {
+        await DemoStore.trades.recordCustomerReturn(draft);
+      }
+      await DemoStore.refreshProducts();
+      await _loadDocuments();
+      widget.onChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('برگشت کالا و ثبت‌های حسابداری انجام شد')),
+        );
+      }
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ثبت برگشت ناموفق بود: $error')),
+      );
+    }
+  }
+
+  Future<void> _settleDocument(Map<String, Object?> document) async {
+    final outstanding = (document['outstanding_amount'] as num?)?.toInt() ?? 0;
+    if (outstanding <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('این فاکتور مانده‌ای برای تسویه ندارد')),
+      );
+      return;
+    }
+    final amountController = TextEditingController(text: outstanding.toString());
+    String accountCode = '1000';
+    final amount = await showDialog<int?>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text(_isPurchase ? 'ثبت پرداخت به فروشنده' : 'ثبت دریافت از مشتری'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'مبلغ',
+                    helperText: 'مانده فاکتور: $outstanding تومان',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: accountCode,
+                  decoration: const InputDecoration(labelText: 'محل دریافت / پرداخت'),
+                  items: const [
+                    DropdownMenuItem(value: '1000', child: Text('صندوق')),
+                    DropdownMenuItem(value: '1010', child: Text('بانک')),
+                  ],
+                  onChanged: (value) => refresh(() => accountCode = value ?? '1000'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = int.tryParse(amountController.text.trim());
+                  if (value == null || value <= 0 || value > outstanding) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('مبلغ باید از صفر بیشتر و حداکثر برابر مانده فاکتور باشد')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, value);
+                },
+                child: const Text('ثبت'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    amountController.dispose();
+    if (amount == null || !mounted) return;
+
+    try {
+      final draft = PartyPaymentDraft(
+        documentDate: DateTime.now().toIso8601String().split('T').first,
+        counterpartyName: document['counterparty_name']?.toString() ?? 'شخص',
+        counterpartyId: document['counterparty_id']?.toString(),
+        amount: amount,
+        idempotencyKey:
+            'settlement-${document['id']}-${DateTime.now().microsecondsSinceEpoch}',
+        cashAccountCode: accountCode,
+        referenceId: document['id'].toString(),
+      );
+      if (_isPurchase) {
+        await DemoStore.trades.recordSupplierPayment(draft);
+      } else {
+        await DemoStore.trades.recordCustomerReceipt(draft);
+      }
+      await _loadDocuments();
+      widget.onChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تسویه و سند دریافت / پرداخت ثبت شد')),
+        );
+      }
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ثبت تسویه ناموفق بود: $error')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final products = DemoStore.products
+        .where((item) => int.tryParse(item['__database_id'] ?? '') != null)
+        .toList();
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(_pageTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _partyController,
+            decoration: InputDecoration(labelText: _partyLabel),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _dateController,
+            decoration: const InputDecoration(labelText: 'تاریخ (YYYY-MM-DD)'),
+          ),
+          const SizedBox(height: 10),
+          if (products.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('برای ثبت فاکتور، ابتدا کالا را در انبار ثبت کنید'),
+            )
+          else
+            DropdownButtonFormField<int>(
+              key: ValueKey(_selectedProductId),
+              initialValue: _selectedProductId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'انتخاب کالا'),
+              items: [
+                for (final product in products)
+                  DropdownMenuItem(
+                    value: int.parse(product['__database_id']!),
+                    child: Text(
+                      '${product['نام کالا'] ?? 'کالای بدون نام'} — موجودی: ${product['موجودی'] ?? '0'}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) => setState(() => _selectedProductId = value),
+            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _quantityController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'تعداد'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _priceController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: _isPurchase ? 'قیمت خرید واحد' : 'قیمت فروش واحد'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: products.isEmpty ? null : _addLine,
+            icon: const Icon(Icons.add),
+            label: const Text('افزودن کالا به فاکتور'),
+          ),
+          if (_lines.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (var i = 0; i < _lines.length; i++)
+              Card(
+                child: ListTile(
+                  title: Text(_productName(_lines[i].productId)),
+                  subtitle: Text(
+                    'تعداد: ${_lines[i].quantity} × ${_lines[i].unitPrice} تومان',
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'حذف ردیف',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => setState(() => _lines.removeAt(i)),
+                  ),
+                ),
+              ),
+          ],
+          const Divider(height: 24),
+          TextField(
+            controller: _discountController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'تخفیف کل (تومان)'),
+          ),
+          const SizedBox(height: 10),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _vatExempt,
+            title: const Text('معاف از ارزش افزوده'),
+            controlAffinity: ListTileControlAffinity.leading,
+            onChanged: (value) => setState(() => _vatExempt = value ?? false),
+          ),
+          if (!_vatExempt)
+            TextField(
+              controller: _vatRateController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'درصد ارزش افزوده'),
+            ),
+          if (_isPurchase) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _shippingController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'هزینه پست'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _freightController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'هزینه باربری / حمل'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _otherCostController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید'),
+            ),
+          ],
+          const SizedBox(height: 10),
+          TextField(
+            controller: _paidController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام ثبت'),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: _cashAccountCode,
+            decoration: const InputDecoration(labelText: 'صندوق یا بانک'),
+            items: const [
+              DropdownMenuItem(value: '1000', child: Text('صندوق')),
+              DropdownMenuItem(value: '1010', child: Text('بانک')),
+            ],
+            onChanged: (value) => setState(() => _cashAccountCode = value ?? '1000'),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            color: const Color(0xFFFFF4CC),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('پیش‌نمایش مبلغ', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('جمع ردیف‌ها: $_subtotal تومان'),
+                  Text('مبلغ تقریبی فاکتور: $_previewTotal تومان'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: _saving ? null : _saveDocument,
+            icon: _saving
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.save),
+            label: Text(_saving ? 'در حال ثبت...' : 'ثبت قطعی فاکتور'),
+          ),
+          const Divider(height: 32),
+          Text(
+            _isPurchase ? 'فاکتورهای خرید ثبت‌شده' : 'فاکتورهای فروش ثبت‌شده',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          if (_documents.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: Text('هنوز فاکتوری ثبت نشده است')),
+            ),
+          for (final document in _documents)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${document['document_number']} — ${document['counterparty_name']}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('تاریخ: ${document['document_date']}'),
+                    Text('مبلغ: ${document['total_amount']} تومان  •  پرداخت اولیه: ${document['paid_amount']} تومان'),
+                    Text('مانده: ${document['outstanding_amount']} تومان'),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _returnDocument(document),
+                          icon: const Icon(Icons.assignment_return),
+                          label: const Text('برگشت کالا'),
+                        ),
+                        TextButton.icon(
+                          onPressed: (document['outstanding_amount'] as num).toInt() > 0
+                              ? () => _settleDocument(document)
+                              : null,
+                          icon: const Icon(Icons.payments_outlined),
+                          label: Text(_isPurchase ? 'ثبت پرداخت' : 'ثبت دریافت'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class ReportsPage extends StatelessWidget {
