@@ -1063,19 +1063,21 @@ class _SimpleListPageState extends State<SimpleListPage> {
 
   DateTime? _ledgerDate(Object? raw) {
     var value = (raw ?? '').toString().trim();
-    final iso = DateTime.tryParse(value);
-    if (iso != null) return iso;
     const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
     for (var i = 0; i < 10; i++) {
       value = value.replaceAll(fa[i], '$i').replaceAll(ar[i], '$i');
     }
-    final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(value);
-    if (match == null) return null;
-    try {
-      return Jalali(int.parse(match.group(1)!), int.parse(match.group(2)!), int.parse(match.group(3)!)).toDateTime();
-    } catch (_) {
-      return null;
+    // Persian dates are stored with slashes; convert them as Jalali before
+    // trying DateTime, which could otherwise misread 1405/08/23 as Gregorian.
+    final jalaliMatch = RegExp(r'^([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})$').firstMatch(value);
+    if (jalaliMatch != null) {
+      try {
+        return Jalali(int.parse(jalaliMatch.group(1)!), int.parse(jalaliMatch.group(2)!), int.parse(jalaliMatch.group(3)!)).toDateTime();
+      } catch (_) {
+        return null;
+      }
     }
+    return DateTime.tryParse(value);
   }
 
   Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, bool asPayment = false, int? customerId}) async {
@@ -2751,19 +2753,19 @@ class _ReportsPageState extends State<ReportsPage> {
           for (final key in ['تاریخ ثبت کالا', 'تاریخ', 'تاریخ فاکتور', 'تاریخ پذیرش']) {
             var value = (decoded[key] ?? '').toString().trim();
             if (value.isEmpty) continue;
-            final iso = DateTime.tryParse(value);
-            if (iso != null) return iso;
             const fa = '۰۱۲۳۴۵۶۷۸۹';
             const ar = '٠١٢٣٤٥٦٧٨٩';
             for (var i = 0; i < 10; i++) {
               value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
             }
-            final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(value);
-            if (match != null) {
+            final jalaliMatch = RegExp(r'^([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})$').firstMatch(value);
+            if (jalaliMatch != null) {
               try {
-                return Jalali(int.parse(match.group(1)!), int.parse(match.group(2)!), int.parse(match.group(3)!)).toDateTime();
+                return Jalali(int.parse(jalaliMatch.group(1)!), int.parse(jalaliMatch.group(2)!), int.parse(jalaliMatch.group(3)!)).toDateTime();
               } catch (_) {}
             }
+            final iso = DateTime.tryParse(value);
+            if (iso != null) return iso;
           }
         }
       }
