@@ -3848,7 +3848,7 @@ class _OperationsPageState extends State<OperationsPage> {
             row['code'] == '2010' && (row['credit'] as num).toDouble() > 0).toList();
           for (final row in creditRows) {
             if (remaining <= 0.0001) break;
-            final value = (row['credit'] as num).toDouble().clamp(0, remaining);
+            final value = (row['credit'] as num).toDouble().clamp(0, remaining).toDouble();
             lines.add(JournalLineInput(
               accountId: await accountId('2010'),
               debit: value,
@@ -3874,7 +3874,7 @@ class _OperationsPageState extends State<OperationsPage> {
             final credit = (row['credit'] as num).toDouble();
             final code = (row['code'] ?? '').toString();
             if (credit <= 0 || ['1000','1010','1020','2110'].contains(code)) continue;
-            final value = credit.clamp(0, amount - reversed);
+            final value = credit.clamp(0, amount - reversed).toDouble();
             if (value <= 0.0001) continue;
             lines.add(JournalLineInput(
               accountId: await accountId(code),
@@ -3918,7 +3918,7 @@ class _OperationsPageState extends State<OperationsPage> {
             final debit = (row['debit'] as num).toDouble();
             final code = (row['code'] ?? '').toString();
             if (debit <= 0 || ['1000','1010','1020','2110','1200'].contains(code)) continue;
-            final value = debit.clamp(0, amount - reversed);
+            final value = debit.clamp(0, amount - reversed).toDouble();
             if (value <= 0.0001) continue;
             contraRows.add({
               'code': code,
