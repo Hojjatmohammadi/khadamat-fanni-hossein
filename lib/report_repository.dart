@@ -132,6 +132,58 @@ class ReportRepository {
     ]);
   }
 
+  /// Posted expense entries, grouped by journal entry and expense account.
+  /// The report reads only the expense side of the journal, never cash/bank
+  /// credits, so paying an expense cannot be counted as a second expense.
+  Future<List<Map<String, Object?>>> getExpenses({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT e.id AS journal_entry_id, e.entry_date, e.description,
+        l.account_code, a.name AS account_name,
+        l.debit - l.credit AS amount, l.memo
+      FROM journal_entries e
+      JOIN journal_lines l ON l.journal_entry_id = e.id
+      JOIN accounts a ON a.code = l.account_code
+      WHERE e.reference_type = 'expense'
+        AND e.entry_date >= ? AND e.entry_date < ?
+        AND a.account_type = 'expense'
+      ORDER BY e.entry_date ASC, e.id ASC, l.line_no ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
+  /// Labour revenue for repair services, excluding later customer receipts.
+  /// Only the 4100 income credit is reported, so settlements do not duplicate
+  /// revenue already recognized when the repair service was recorded.
+  Future<List<Map<String, Object?>>> getRepairServiceRevenue({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT e.id AS journal_entry_id, e.entry_date, e.description,
+        l.account_code, a.name AS account_name,
+        l.credit - l.debit AS amount, l.party_id, l.memo
+      FROM journal_entries e
+      JOIN journal_lines l ON l.journal_entry_id = e.id
+      JOIN accounts a ON a.code = l.account_code
+      WHERE e.reference_type = 'repair_service'
+        AND l.account_code = '4100'
+        AND e.entry_date >= ? AND e.entry_date < ?
+      ORDER BY e.entry_date ASC, e.id ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
   String _date(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 }
