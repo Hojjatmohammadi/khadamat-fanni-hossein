@@ -250,7 +250,6 @@ class TradeRepository {
         total: total,
         paid: draft.paidAmount,
         journalEntryId: journalId,
-        sourceDocumentId: sourceDocumentId,
         idempotencyKey: draft.idempotencyKey,
         payload: payload,
       );
@@ -935,6 +934,7 @@ class TradeRepository {
         total: draft.amount,
         paid: draft.amount,
         journalEntryId: journalId,
+        sourceDocumentId: sourceDocumentId,
         idempotencyKey: draft.idempotencyKey,
         payload: payload,
       );
