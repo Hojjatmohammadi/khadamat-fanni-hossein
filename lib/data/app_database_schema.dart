@@ -896,6 +896,96 @@ class AppDatabaseSchema {
     }
   }
 
+  /// Links legacy cheque-register rows to their original immutable record.
+  /// Only a unique exact note/direction match is migrated; ambiguous cheques stay
+  /// unlinked and therefore cannot be cleared accidentally.
+  static Future<void> migrateLegacyCheckLinks(DatabaseExecutor db) async {
+    final records = await db.query(
+      'records',
+      columns: ['id', 'category', 'data'],
+      where: 'category IN (?, ?)',
+      whereArgs: ['sales', 'operations'],
+      orderBy: 'id ASC',
+    );
+    for (final record in records) {
+      final sourceId = record['id'] as int;
+      final category = (record['category'] ?? '').toString();
+      final data = _decode(record['data']);
+      final operation = _text(data, 'نوع عملیات');
+      String direction = '';
+      String note = '';
+      String sourceType = '';
+      String partyType = '';
+      int? partyId;
+      double amount = 0;
+
+      if (category == 'sales' && _text(data, 'روش پرداخت') == 'چک') {
+        amount = _number(data, 'مبلغ دریافتی');
+        if (amount <= 0) continue;
+        direction = 'received';
+        sourceType = 'sale';
+        note = 'دریافت بابت فاکتور ' + _text(data, 'شماره فاکتور');
+        partyType = 'customer';
+        partyId = int.tryParse(_text(data, 'شناسه مشتری'));
+      } else if (category == 'operations' && operation == 'خرید کالا' &&
+          _text(data, 'روش') == 'چک') {
+        amount = _number(data, 'مبلغ پرداخت‌شده');
+        if (amount <= 0) continue;
+        direction = 'issued';
+        sourceType = 'purchase';
+        note = 'پرداخت بابت خرید کالا از ' + _text(data, 'نام شخص');
+        partyType = 'supplier';
+        partyId = int.tryParse(_text(data, 'شناسه فروشنده'));
+        if (partyId == null && _text(data, 'نام شخص').isNotEmpty) {
+          partyId = await ensureSupplier(db, _text(data, 'نام شخص'));
+        }
+      } else if (category == 'operations' &&
+          (operation == 'دریافت وجه' || operation == 'پرداخت وجه') &&
+          _text(data, 'روش') == 'چک') {
+        amount = _number(data, 'مبلغ');
+        if (amount <= 0) continue;
+        final isReceipt = operation == 'دریافت وجه';
+        direction = isReceipt ? 'received' : 'issued';
+        sourceType = 'operation';
+        note = (isReceipt ? 'دریافت وجه در عملیات ' : 'پرداخت وجه در عملیات ') +
+            sourceId.toString();
+        final label = _text(data, 'نوع طرف حساب');
+        partyType = label == 'مشتری' ? 'customer'
+            : label == 'فروشنده' ? 'supplier' : '';
+        partyId = partyType == 'customer'
+            ? int.tryParse(_text(data, 'شناسه مشتری'))
+            : partyType == 'supplier'
+                ? int.tryParse(_text(data, 'شناسه فروشنده'))
+                : null;
+        if (partyType == 'supplier' && partyId == null &&
+            _text(data, 'نام شخص').isNotEmpty) {
+          partyId = await ensureSupplier(db, _text(data, 'نام شخص'));
+        }
+      } else {
+        continue;
+      }
+
+      final matches = await db.query(
+        'checks_register',
+        where: "direction = ? AND notes = ? AND COALESCE(source_id, '') = '' AND COALESCE(source_type, '') = '' AND ABS(amount - ?) < 0.01",
+        whereArgs: [direction, note, amount],
+        limit: 2,
+      );
+      if (matches.length != 1) continue;
+      await db.update(
+        'checks_register',
+        {
+          'source_type': sourceType,
+          'source_id': sourceId.toString(),
+          'party_type': partyType,
+          'party_id': partyId,
+        },
+        where: 'id = ?',
+        whereArgs: [matches.first['id']],
+      );
+    }
+  }
+
   static Future<int?> _findCustomerId(DatabaseExecutor db, String customerName) async {
     if (customerName.trim().isEmpty) return null;
     final rows = await db.query(
