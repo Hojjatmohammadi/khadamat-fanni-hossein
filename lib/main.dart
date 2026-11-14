@@ -22,6 +22,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 
@@ -2989,6 +2990,19 @@ class _SimpleListPageState extends State<SimpleListPage> {
     amount.dispose(); note.dispose();
   }
 
+  Future<void> _launchCustomerContact(Uri uri, String failureMessage) async {
+    try {
+      final launched = await launchUrl(uri);
+      if (!launched) throw StateError('برنامه مناسب روی گوشی پیدا نشد.');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(failureMessage + ' ' + error.toString())),
+        );
+      }
+    }
+  }
+
   Future<void> _showCustomerAccount(Map<String, String> customer) async {
     final customerName = (customer['نام مشتری'] ?? '').trim();
     if (customerName.isEmpty) return;
@@ -3050,6 +3064,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
         if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
         final tax = _ledgerAmount(data['مبلغ مالیات']);
         if (tax > 0) rows.add({'date':date,'description':'مالیات بر ارزش افزوده فاکتور','method':'','debit':tax,'credit':0.0});
+        final deposit = _ledgerAmount(data['بیعانه تخصیص‌یافته']);
+        if (deposit > 0) rows.add({'date':date,'description':'مصرف بیعانه / اعتبار قبلی مشتری','method':'','debit':0.0,'credit':deposit});
         if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
         continue;
       } else if (record['category'] == 'repairs') {
@@ -3081,6 +3097,35 @@ class _SimpleListPageState extends State<SimpleListPage> {
           Text(balance > 0.009 ? 'وضعیت: مشتری بدهکار است' : balance < -0.009 ? 'وضعیت: مشتری بستانکار است' : 'وضعیت: حساب تسویه است', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0.009 ? Colors.red.shade700 : balance < -0.009 ? Colors.green.shade700 : null)),
           Text('مانده: ' + balance.abs().toStringAsFixed(0) + ' تومان'), Text('جمع بدهکار: ' + debitTotal.toStringAsFixed(0) + ' تومان'), Text('جمع بستانکار: ' + creditTotal.toStringAsFixed(0) + ' تومان'),
         ]))),
+        if ((customer['شماره تماس'] ?? '').trim().isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _launchCustomerContact(
+                  Uri(scheme: 'tel', path: (customer['شماره تماس'] ?? '').replaceAll(RegExp(r'[^0-9+]'), '')),
+                  'بازکردن شماره‌گیر ممکن نشد.',
+                ),
+                icon: const Icon(Icons.call_outlined),
+                label: const Text('تماس با مشتری'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () {
+                  final phone = (customer['شماره تماس'] ?? '').replaceAll(RegExp(r'[^0-9+]'), '');
+                  final message = 'مشتری گرامی، دستگاه شما آماده تحویل است. لطفاً برای دریافت آن به خدمات فنی مراجعه فرمایید.';
+                  final uri = Uri(
+                    scheme: 'sms',
+                    path: phone,
+                    query: 'body=' + Uri.encodeComponent(message),
+                  );
+                  _launchCustomerContact(uri, 'بازکردن پیامک ممکن نشد.');
+                },
+                icon: const Icon(Icons.sms_outlined),
+                label: const Text('پیامک آماده‌بودن دستگاه'),
+              ),
+            ],
+          ),
         if (rows.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('هنوز گردش مالی برای این مشتری ثبت نشده است.'))
         else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
           columnSpacing: 10, columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))],
