@@ -510,8 +510,8 @@ class AccountingRepository {
         COALESCE(SUM(l.credit), 0) AS credit
       FROM journal_lines l
       JOIN journal_entries e ON e.id = l.journal_entry_id
-      WHERE l.account_code = ? AND e.entry_date <= ?
-    ''', [accountCode, statementDate]);
+      WHERE l.account_code = ? AND e.entry_date < ?
+    ''', [accountCode, DateTime.parse(statementDate).add(const Duration(days: 1)).toIso8601String().substring(0, 10)]);
     final bookBalance = (balanceRows.single['debit'] as num).toInt() -
         (balanceRows.single['credit'] as num).toInt();
     final difference = statementBalance - bookBalance;
