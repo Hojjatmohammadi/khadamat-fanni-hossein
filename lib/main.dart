@@ -14,10 +14,18 @@ import 'check_repository.dart';
 import 'party_ledger_page.dart';
 import 'checks_page.dart';
 import 'jalali_date_field.dart';
+import 'check_reminder_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DemoStore.init();
+  final reminders = CheckReminderService();
+  try {
+    await reminders.initialize();
+    await reminders.notifyDueChecks(DemoStore.checks);
+  } catch (error) {
+    // Notification permission or platform support must never block app startup.
+  }
   runApp(const HoseinApp());
 }
 
