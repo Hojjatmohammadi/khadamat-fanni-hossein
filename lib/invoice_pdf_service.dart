@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/painting.dart' as painting;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
