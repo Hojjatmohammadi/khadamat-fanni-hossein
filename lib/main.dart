@@ -841,7 +841,7 @@ class DemoStore {
               (double.tryParse(source['تخفیف'] ?? '0') ?? 0) +
               (double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0);
           final received = double.tryParse(source['مبلغ دریافتی'] ?? '0') ?? 0;
-          final receivableRemaining = (originalTotal - received - priorAmount).clamp(0.0, amount);
+          final receivableRemaining = (originalTotal - received - priorAmount).clamp(0.0, amount).toDouble();
           if (receivableRemaining > 0.001) {
             lines.add(JournalLineInput(
               accountId: await AccountingEngine.accountId(txn, '1100'),
@@ -2534,7 +2534,7 @@ class _ProductPageState extends State<ProductPage> {
                     const SizedBox(height: 10),
                     const Align(alignment: Alignment.centerRight, child: Text('اطلاعات طرف حساب خرید', style: TextStyle(fontWeight: FontWeight.bold))),
                     const SizedBox(height: 8),
-                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اختیاری)')),
+                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اجباری)')),
                     const SizedBox(height: 8),
                     TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (تومان)')),
                     DropdownButtonFormField<String>(value: purchaseMethod, decoration: const InputDecoration(labelText: 'روش پرداخت خرید'), items: const ['نقدی','کارت به کارت','حواله بانکی','چک'].map((m) => DropdownMenuItem(value:m, child:Text(m))).toList(), onChanged: (v) => refresh(() => purchaseMethod = v ?? 'نقدی')),
@@ -4169,7 +4169,7 @@ class _ReportsPageState extends State<ReportsPage> {
       if (type == 'expense') expenses += debit - credit;
       if (code == '5000') costOfGoods += debit - credit;
     }
-    final movementWhere = <String>["movement_type = 'purchase'"];
+    final movementWhere = <String>["movement_type IN ('purchase', 'purchase_return')"];
     final movementArgs = <Object?>[];
     if (_fromDate != null) {
       movementWhere.add('occurred_at >= ?');
@@ -4180,7 +4180,7 @@ class _ReportsPageState extends State<ReportsPage> {
       movementArgs.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
     }
     final purchaseRows = await DemoStore.database.rawQuery(
-      'SELECT COALESCE(SUM(total_cost), 0) AS total FROM stock_movements WHERE ' + movementWhere.join(' AND '),
+      "SELECT COALESCE(SUM(CASE WHEN movement_type = 'purchase_return' THEN -total_cost ELSE total_cost END), 0) AS total FROM stock_movements WHERE " + movementWhere.join(' AND '),
       movementArgs,
     );
     final stockRows = await DemoStore.database.rawQuery(
