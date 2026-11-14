@@ -578,11 +578,13 @@ class TradeRepository {
         draft.lines.isEmpty) {
       throw ArgumentError('اطلاعات برگشت کالا کامل نیست');
     }
+    final seenSourceLines = <int>{};
     for (final line in draft.lines) {
       if (line.sourceLineId <= 0 ||
           !line.quantity.isFinite ||
-          line.quantity <= 0) {
-        throw ArgumentError('مقدار برگشت یا سطر مبدا معتبر نیست');
+          line.quantity <= 0 ||
+          !seenSourceLines.add(line.sourceLineId)) {
+        throw ArgumentError('مقدار برگشت یا سطر مبدا معتبر نیست؛ هر سطر مبدا فقط یک‌بار در سند برگشت بیاید');
       }
     }
 
