@@ -249,10 +249,72 @@ class HoseinApp extends StatelessWidget {
               data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(AppSettings.fontScale)),
               child: child ?? const SizedBox.shrink(),
             ),
-            home: const HomePage(),
+            home: const PinLockGate(child: HomePage()),
           );
         },
       );
+}
+
+class PinLockGate extends StatefulWidget {
+  final Widget child;
+  const PinLockGate({super.key, required this.child});
+  @override
+  State<PinLockGate> createState() => _PinLockGateState();
+}
+
+class _PinLockGateState extends State<PinLockGate> {
+  final controller = TextEditingController();
+  bool unlocked = false;
+  String error = '';
+
+  @override
+  void dispose() { controller.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AppSettings.pinEnabled || AppSettings.pinCode.isEmpty || unlocked) return widget.child;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(title: Text(AppSettings.appName)),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.lock_outline, size: 56),
+                const SizedBox(height: 16),
+                const Text('برای ورود، رمز PIN را وارد کنید'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 8,
+                  onSubmitted: (_) => _unlock(),
+                  decoration: const InputDecoration(labelText: 'رمز PIN'),
+                ),
+                if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: 12),
+                FilledButton(onPressed: _unlock, child: const Text('ورود به برنامه')),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _unlock() {
+    if (controller.text == AppSettings.pinCode) {
+      setState(() { unlocked = true; error = ''; });
+    } else {
+      setState(() => error = 'رمز واردشده صحیح نیست.');
+      controller.clear();
+    }
+  }
 }
 
 class DemoStore {
