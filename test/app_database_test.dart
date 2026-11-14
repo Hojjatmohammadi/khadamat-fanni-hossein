@@ -83,12 +83,12 @@ void main() {
   });
 
   test('rejects unknown categories and empty records', () async {
-    expect(
-      () => store.insert('unknown', {'عنوان': 'نمونه'}),
+    await expectLater(
+      store.insert('unknown', {'عنوان': 'نمونه'}),
       throwsArgumentError,
     );
-    expect(
-      () => store.insert('products', {'نام کالا': '  '}),
+    await expectLater(
+      store.insert('products', {'نام کالا': '  '}),
       throwsArgumentError,
     );
   });
