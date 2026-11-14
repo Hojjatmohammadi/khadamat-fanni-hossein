@@ -177,6 +177,107 @@ void main() {
     expect(await db.query('journal_lines'), beforeLines);
   });
 
+  test('physical stock count posts valued surplus and shortage atomically', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'قطعه انبارگردانی',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '1000',
+    });
+
+    final increaseId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 12,
+      fallbackUnitCost: 700,
+      occurredAt: '2026-11-14T09:00:00.000',
+      reason: 'شمارش اولیه',
+      idempotencyKey: 'stock-count-increase-$productId',
+    );
+    expect(
+      await accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 12,
+        fallbackUnitCost: 700,
+        occurredAt: '2026-11-14T09:00:00.000',
+        reason: 'شمارش اولیه',
+        idempotencyKey: 'stock-count-increase-$productId',
+      ),
+      increaseId,
+    );
+    expect(await store.getStockOnHand(productId), 12);
+
+    final db = await store.database;
+    final surplus = await db.query(
+      'inventory_movements',
+      where: 'id = ?',
+      whereArgs: [increaseId],
+    );
+    expect(surplus.single['quantity_delta'], 2);
+    expect(surplus.single['unit_cost'], 1000);
+    expect(surplus.single['total_cost'], 2000);
+
+    final decreaseId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 9,
+      fallbackUnitCost: 700,
+      occurredAt: '2026-11-14T10:00:00.000',
+      reason: 'ثبت کسری شمارش',
+      idempotencyKey: 'stock-count-decrease-$productId',
+    );
+    expect(await store.getStockOnHand(productId), 9);
+
+    final shortage = await db.query(
+      'inventory_movements',
+      where: 'id = ?',
+      whereArgs: [decreaseId],
+    );
+    expect(shortage.single['quantity_delta'], -3);
+    expect(shortage.single['unit_cost'], 1000);
+    expect(shortage.single['total_cost'], 3000);
+
+    final surplusAccount = await db.query(
+      'journal_lines',
+      where: 'account_code = ?',
+      whereArgs: ['4055'],
+    );
+    final shortageAccount = await db.query(
+      'journal_lines',
+      where: 'account_code = ?',
+      whereArgs: ['5200'],
+    );
+    expect(surplusAccount.fold<int>(
+      0,
+      (sum, line) => sum + (line['credit'] as num).toInt(),
+    ), 2000);
+    expect(shortageAccount.fold<int>(
+      0,
+      (sum, line) => sum + (line['debit'] as num).toInt(),
+    ), 3000);
+
+    final trialBalance = await accounting.getTrialBalance();
+    expect(
+      trialBalance.fold<int>(
+        0,
+        (sum, row) => sum + (row['total_debit'] as num).toInt(),
+      ),
+      trialBalance.fold<int>(
+        0,
+        (sum, row) => sum + (row['total_credit'] as num).toInt(),
+      ),
+    );
+
+    await expectLater(
+      accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 8,
+        fallbackUnitCost: 700,
+        occurredAt: '2026-11-14T10:00:00.000',
+        reason: 'تغییر غیرمجاز',
+        idempotencyKey: 'stock-count-increase-$productId',
+      ),
+      throwsStateError,
+    );
+  });
+
   test('rejects unknown categories and empty records', () async {
     await expectLater(
       store.insert('unknown', {'عنوان': 'نمونه'}),
