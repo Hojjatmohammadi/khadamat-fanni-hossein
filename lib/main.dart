@@ -1020,7 +1020,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                 },
                                 decoration: InputDecoration(
                                   labelText: widget.fields[i],
-                                  helperText: widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ کل' ? 'مبلغ قبل از تخفیف؛ مبلغ نهایی پس از کسر تخفیف محاسبه می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'تخفیف' ? 'این مبلغ از مبلغ کل کسر می‌شود.' : null,
+                                  helperText: widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ کل' ? 'مبلغ قبل از تخفیف؛ مبلغ نهایی پس از کسر تخفیف محاسبه می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'تخفیف' ? 'این مبلغ از مبلغ کل کسر می‌شود.' : widget.title == 'فاکتور فروش' && widget.fields[i] == 'مبلغ دریافتی' ? 'فقط وجه جدید دریافتی را وارد کنید؛ بیعانه قبلی را دوباره وارد نکنید.' : null,
                                 ),
                               ),
                       ),
