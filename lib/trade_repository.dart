@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'accounting_repository.dart';
+import 'invoice_archive_repository.dart';
 import 'app_database.dart';
 
 class TradeLineDraft {
@@ -286,7 +287,10 @@ class TradeRepository {
     });
   }
 
-  Future<int> recordSale(TradeDocumentDraft draft) async {
+  Future<int> recordSale(
+    TradeDocumentDraft draft, {
+    Map<String, Object?>? invoiceHeaderSnapshot,
+  }) async {
     _validateTradeDraft(draft, type: 'sale');
     if (draft.shippingCost != 0 ||
         draft.freightCost != 0 ||
@@ -425,6 +429,50 @@ class TradeRepository {
             referenceId: documentId.toString(),
             journalEntry: costJournal,
           ),
+        );
+      }
+
+      if (invoiceHeaderSnapshot != null) {
+        final documentRows = await txn.query(
+          'business_documents',
+          where: 'id = ?',
+          whereArgs: [documentId],
+          limit: 1,
+        );
+        final lineRows = await txn.query(
+          'business_document_lines',
+          where: 'document_id = ?',
+          whereArgs: [documentId],
+          orderBy: 'id ASC',
+        );
+        final document = documentRows.single;
+        final snapshot = <String, Object?>{
+          ...invoiceHeaderSnapshot,
+          'documentId': documentId,
+          'documentNumber': document['document_number'],
+          'documentDate': document['document_date'],
+          'counterpartyName': document['counterparty_name'],
+          'subtotal': document['subtotal'],
+          'discountAmount': document['discount_amount'],
+          'chargesAmount': document['charges_amount'],
+          'vatAmount': document['vat_amount'],
+          'totalAmount': document['total_amount'],
+          'paidAmount': document['paid_amount'],
+          'outstandingAmount': (document['total_amount'] as int) -
+              (document['paid_amount'] as int),
+          'items': lineRows.map((row) => <String, Object?>{
+            'productName': row['product_name'],
+            'quantity': row['quantity'],
+            'unitPrice': row['unit_price'],
+            'lineTotal': row['line_total'],
+            'taxAmount': row['tax_amount'],
+          }).toList(),
+        };
+        await InvoiceArchiveRepository.insertInTransaction(
+          txn,
+          businessDocumentId: documentId,
+          snapshot: snapshot,
+          idempotencyKey: 'sale-invoice-archive-${draft.idempotencyKey}',
         );
       }
       return documentId;
