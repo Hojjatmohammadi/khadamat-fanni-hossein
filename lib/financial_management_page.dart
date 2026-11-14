@@ -185,7 +185,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: _expenseAccount,
+                      key: ValueKey(_expenseAccount),
+                      initialValue: _expenseAccount,
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'گروه هزینه'),
                       items: [
@@ -201,7 +202,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: _cashAccount,
+                      key: ValueKey(_cashAccount),
+                      initialValue: _cashAccount,
                       decoration: const InputDecoration(labelText: 'پرداخت از'),
                       items: const [
                         DropdownMenuItem(value: '1000', child: Text('صندوق')),
@@ -280,7 +282,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     children: [
                       const Text('دفتر کل حساب', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
                       DropdownButtonFormField<String>(
-                        value: _ledgerAccount,
+                        key: ValueKey(_ledgerAccount),
+                        initialValue: _ledgerAccount,
                         isExpanded: true,
                         decoration: const InputDecoration(labelText: 'انتخاب حساب'),
                         items: [
