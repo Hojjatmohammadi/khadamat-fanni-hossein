@@ -615,6 +615,259 @@ class DemoStore {
     }
   }
 
+  static double _parseMoney(String raw) {
+    var value = raw.trim();
+    const fa = '۰۱۲۳۴۵۶۷۸۹';
+    const ar = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < 10; i++) {
+      value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
+    }
+    return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+  }
+
+  static Future<void> _postOperationInTransaction(
+    DatabaseExecutor txn, {
+    required int recordId,
+    required Map<String, String> item,
+    required DateTime occurredAt,
+  }) async {
+    final operation = (item['نوع عملیات'] ?? '').trim();
+    if (operation == 'خرید کالا') return;
+    final partyType = (item['نوع طرف حساب'] ?? 'مشتری').trim();
+    final partyName = (item['نام شخص'] ?? '').trim();
+    final amount = _parseMoney(item['مبلغ'] ?? '0');
+    if (partyName.isEmpty || amount <= 0 || !amount.isFinite) {
+      throw StateError('نام طرف حساب و مبلغ معتبر برای ثبت سند مالی لازم است.');
+    }
+    final method = (item['روش'] ?? 'نقدی').trim();
+    final isReceipt = operation == 'دریافت وجه';
+    final isPayment = operation == 'پرداخت وجه';
+    final isDiscountGiven = operation == 'تخفیف دادن' || operation == 'تخفیف دادن به مشتری';
+    final isDiscountReceived = operation == 'تخفیف گرفتن' || operation == 'تخفیف گرفتن از فروشنده';
+    final isPartyOwes = operation == 'متفرقه شخص بدهکار';
+    final isWeOwe = operation == 'متفرقه شخص بستانکار';
+    if (!isReceipt && !isPayment && !isDiscountGiven && !isDiscountReceived &&
+        !isPartyOwes && !isWeOwe) {
+      throw StateError('نوع عملیات مالی پشتیبانی نمی‌شود: ' + operation);
+    }
+
+    int? partyId;
+    if (partyType == 'مشتری') {
+      final people = await txn.query(
+        'customers',
+        columns: ['id'],
+        where: "TRIM(first_name || ' ' || last_name) = ?",
+        whereArgs: [partyName],
+        limit: 2,
+      );
+      if (people.length == 1) partyId = people.first['id'] as int;
+    }
+    item['شناسه مشتری'] = partyId?.toString() ?? '';
+    item['تاریخ میلادی'] = occurredAt.toIso8601String();
+
+    double balanceFor(String code, {String type = '', int? id}) async {
+      final account = await AccountingEngine.accountId(txn, code);
+      final where = <String>['account_id = ?'];
+      final args = <Object?>[account];
+      if (type.isNotEmpty) {
+        where.add('party_type = ?');
+        args.add(type);
+      }
+      if (id != null) {
+        where.add('party_id = ?');
+        args.add(id);
+      }
+      final rows = await txn.rawQuery(
+        'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE ' + where.join(' AND '),
+        args,
+      );
+      return (rows.first['balance'] as num).toDouble();
+    }
+
+    final cashCode = method == 'چک' ? '1020'
+        : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+    final lines = <JournalLineInput>[];
+    if (isReceipt && method == 'چک') {
+      final due = DateTime.tryParse(item['تاریخ سررسید میلادی'] ?? '');
+      final checkNo = (item['شماره چک'] ?? '').trim();
+      if (due == null || checkNo.isEmpty) {
+        throw StateError('برای دریافت وجه با چک، شماره چک و تاریخ سررسید لازم است.');
+      }
+      await AppDatabaseSchema.insertCheck(
+        txn,
+        checkNumber: checkNo,
+        direction: 'received',
+        partyType: partyType,
+        partyName: partyName,
+        partyId: partyId,
+        amount: amount,
+        issueDate: occurredAt,
+        dueDate: due,
+        bankName: item['بانک چک'] ?? '',
+        notes: 'دریافت وجه در عملیات ' + recordId.toString(),
+      );
+    } else if (isPayment && method == 'چک') {
+      final due = DateTime.tryParse(item['تاریخ سررسید میلادی'] ?? '');
+      final checkNo = (item['شماره چک'] ?? '').trim();
+      if (due == null || checkNo.isEmpty) {
+        throw StateError('برای پرداخت وجه با چک، شماره چک و تاریخ سررسید لازم است.');
+      }
+      await AppDatabaseSchema.insertCheck(
+        txn,
+        checkNumber: checkNo,
+        direction: 'issued',
+        partyType: partyType,
+        partyName: partyName,
+        partyId: partyId,
+        amount: amount,
+        issueDate: occurredAt,
+        dueDate: due,
+        bankName: item['بانک چک'] ?? '',
+        notes: 'پرداخت وجه در عملیات ' + recordId.toString(),
+      );
+    }
+
+    if (isReceipt) {
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, cashCode),
+        debit: amount,
+        memo: 'دریافت وجه از ' + partyName,
+      ));
+      if (partyType == 'مشتری') {
+        final receivable = partyId == null ? 0.0
+            : (await balanceFor('1100', type: 'customer', id: partyId)).clamp(0.0, amount).toDouble();
+        if (receivable > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1100'),
+            credit: receivable,
+            partyType: 'customer',
+            partyId: partyId,
+            memo: 'تسویه دریافتنی مشتری ' + partyName,
+          ));
+        }
+        if (amount - receivable > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2010'),
+            credit: amount - receivable,
+            partyType: 'customer',
+            partyId: partyId,
+            memo: 'ثبت اعتبار مازاد مشتری ' + partyName,
+          ));
+        }
+      } else if (partyType == 'فروشنده') {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '1110'),
+          credit: amount,
+          memo: 'دریافت وجه از فروشنده ' + partyName,
+        ));
+      } else {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '4000'),
+          credit: amount,
+          memo: 'درآمد متفرقه از ' + partyName,
+        ));
+      }
+    } else if (isPayment) {
+      final cash = JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, cashCode),
+        credit: amount,
+        memo: 'پرداخت وجه به ' + partyName,
+      );
+      if (partyType == 'فروشنده') {
+        final payable = (await balanceFor('2000')).abs().clamp(0.0, amount).toDouble();
+        if (payable > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2000'),
+            debit: payable,
+            memo: 'کاهش بدهی فروشنده ' + partyName,
+          ));
+        }
+        if (amount - payable > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1110'),
+            debit: amount - payable,
+            memo: 'پیش‌پرداخت به فروشنده ' + partyName,
+          ));
+        }
+      } else if (partyType == 'مشتری') {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '2010'),
+          debit: amount,
+          partyType: 'customer',
+          partyId: partyId,
+          memo: 'بازپرداخت اعتبار به مشتری ' + partyName,
+        ));
+      } else {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '6000'),
+          debit: amount,
+          memo: 'هزینه پرداختی به ' + partyName,
+        ));
+      }
+      lines.add(cash);
+    } else if (isDiscountGiven) {
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '4110'),
+        debit: amount,
+        memo: 'تخفیف اعطایی به ' + partyName,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '1100'),
+        credit: amount,
+        partyType: partyType == 'مشتری' ? 'customer' : '',
+        partyId: partyType == 'مشتری' ? partyId : null,
+        memo: 'کاهش دریافتنی بابت تخفیف ' + partyName,
+      ));
+    } else if (isDiscountReceived) {
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '2000'),
+        debit: amount,
+        memo: 'کاهش بدهی بابت تخفیف فروشنده ' + partyName,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '6010'),
+        credit: amount,
+        memo: 'تخفیف خرید از ' + partyName,
+      ));
+    } else if (isPartyOwes) {
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, partyType == 'فروشنده' ? '1110' : '1100'),
+        debit: amount,
+        partyType: partyType == 'مشتری' ? 'customer' : '',
+        partyId: partyType == 'مشتری' ? partyId : null,
+        memo: 'ثبت بدهکاری ' + partyName,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '4000'),
+        credit: amount,
+        memo: 'درآمد / طلب متفرقه از ' + partyName,
+      ));
+    } else if (isWeOwe) {
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '6000'),
+        debit: amount,
+        memo: 'هزینه / بستانکاری متفرقه ' + partyName,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, partyType == 'مشتری' ? '2010' : '2000'),
+        credit: amount,
+        partyType: partyType == 'مشتری' ? 'customer' : '',
+        partyId: partyType == 'مشتری' ? partyId : null,
+        memo: 'ثبت بستانکاری ' + partyName,
+      ));
+    }
+
+    await AccountingEngine.postJournalInTransaction(
+      txn,
+      entryNumber: 'OP-' + recordId.toString(),
+      occurredAt: occurredAt,
+      description: operation + ' • ' + partyName,
+      sourceType: 'operation',
+      sourceId: recordId.toString(),
+      lines: lines,
+    );
+  }
+
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
     int? newRecordId;
@@ -648,6 +901,16 @@ class DemoStore {
           'snapshot_json': jsonEncode(item),
           'archived_at': createdAt,
         });
+      }
+      if (category == 'operations') {
+        await _postOperationInTransaction(
+          txn,
+          recordId: recordId,
+          item: item,
+          occurredAt: DateTime.tryParse(item['تاریخ میلادی'] ?? '') ?? DateTime.parse(createdAt),
+        );
+        await txn.update('records', {'data': jsonEncode(item)}, where: 'id = ?', whereArgs: [recordId]);
+        await AppDatabaseSchema.updateLegacyRecord(txn, 'operations', item, recordId);
       }
     });
     final target = switch (category) {
