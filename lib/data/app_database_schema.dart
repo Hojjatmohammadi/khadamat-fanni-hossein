@@ -784,6 +784,8 @@ class AppDatabaseSchema {
           dueDate: dueDate,
           bankName: _text(data, 'بانک چک'),
           notes: 'دریافت بابت فاکتور ' + invoiceNumber,
+          sourceType: 'sale',
+          sourceId: sourceId.toString(),
         );
       }
 
