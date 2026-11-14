@@ -292,7 +292,7 @@ class _ReportsPageState extends State<ReportsPage> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: _report,
+          initialValue: _report,
           decoration: const InputDecoration(labelText: 'نوع گزارش'),
           items: const [
             DropdownMenuItem(value: 'documents', child: Text('فاکتورهای خرید، فروش و برگشت')),
@@ -305,7 +305,7 @@ class _ReportsPageState extends State<ReportsPage> {
         if (_report == 'documents') ...[
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _type,
+            initialValue: _type,
             decoration: const InputDecoration(labelText: 'فیلتر نوع سند'),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('همه اسناد')),
