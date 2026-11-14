@@ -2367,8 +2367,28 @@ class _SimpleListPageState extends State<SimpleListPage> {
             return;
           }
           final linkedData = jsonDecode(linkedRows.first['data'] as String) as Map;
-          if ((linkedData['نام مشتری'] ?? '').toString().trim() != (item['نام مشتری'] ?? '').trim()) {
-            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش انتخاب‌شده متعلق به این مشتری نیست.')));
+          final normalizedRepairRows = await DemoStore.database.query(
+            'repairs',
+            columns: ['customer_id'],
+            where: 'legacy_source_id = ?',
+            whereArgs: [int.tryParse(linkedRepairId)],
+            limit: 1,
+          );
+          final repairCustomerId = normalizedRepairRows.isEmpty
+              ? int.tryParse((linkedData['شناسه مشتری'] ?? '').toString())
+              : normalizedRepairRows.first['customer_id'] as int?;
+          final invoiceCustomerId = int.tryParse((item['شناسه مشتری'] ?? '').toString());
+          final sameCustomer = repairCustomerId != null && invoiceCustomerId != null
+              ? repairCustomerId == invoiceCustomerId
+              : (linkedData['نام مشتری'] ?? '').toString().trim() ==
+                  (item['نام مشتری'] ?? '').trim();
+          if (!sameCustomer) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش انتخاب‌شده متعلق به پرونده همین مشتری نیست.')));
+            return;
+          }
+          if (existing == null && DemoStore.sales.any((sale) =>
+              (sale['پذیرش تعمیر مرتبط'] ?? '').trim() == linkedRepairId)) {
+            ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای این پذیرش قبلاً فاکتور صادر شده است. برای اصلاح، فاکتور اصلاحی جداگانه ثبت کنید.')));
             return;
           }
           final repairWage = _ledgerAmount(linkedData['اجرت']);
