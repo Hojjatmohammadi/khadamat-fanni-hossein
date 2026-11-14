@@ -589,9 +589,10 @@ class AccountingRepository {
     required int paidAmount,
     required String cashAccountCode,
     required String idempotencyKey,
+    required String repairId,
     String? customerId,
   }) async {
-    if (DateTime.tryParse(serviceDate) == null ||
+    if (repairId.trim().isEmpty || DateTime.tryParse(serviceDate) == null ||
         description.trim().isEmpty ||
         amount <= 0 ||
         paidAmount < 0 ||
@@ -630,9 +631,64 @@ class AccountingRepository {
       description: 'درآمد خدمات تعمیر: ${description.trim()}',
       idempotencyKey: idempotencyKey,
       referenceType: 'repair_service',
-      referenceId: idempotencyKey,
+      referenceId: repairId,
       lines: lines,
     ));
+  }
+
+  /// Collects a later payment against the unpaid labour charge of one repair.
+  /// It reduces receivables and never credits service income a second time.
+  Future<int> recordRepairServiceReceipt({
+    required String receiptDate,
+    required String repairId,
+    required String customerId,
+    required String description,
+    required int amount,
+    required String cashAccountCode,
+    required String idempotencyKey,
+  }) async {
+    if (DateTime.tryParse(receiptDate) == null || repairId.trim().isEmpty ||
+        customerId.trim().isEmpty || description.trim().isEmpty || amount <= 0 ||
+        idempotencyKey.trim().isEmpty ||
+        (cashAccountCode != '1000' && cashAccountCode != '1010')) {
+      throw ArgumentError('اطلاعات دریافت مانده اجرت معتبر نیست');
+    }
+    final db = await _database.database;
+    return db.transaction((txn) async {
+      final draft = JournalEntryDraft(
+        entryDate: receiptDate,
+        description: 'دریافت مانده اجرت تعمیر: ' + description.trim(),
+        idempotencyKey: idempotencyKey,
+        referenceType: 'repair_service_receipt',
+        referenceId: repairId,
+        lines: [
+          JournalLineDraft(accountCode: cashAccountCode, debit: amount),
+          JournalLineDraft(accountCode: '1100', credit: amount, partyId: customerId),
+        ],
+      );
+      final existing = await txn.query(
+        'journal_entries',
+        where: 'idempotency_key = ?',
+        whereArgs: [idempotencyKey],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) return _postJournalEntry(txn, draft);
+
+      final balanceRows = await txn.rawQuery('''
+        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS outstanding
+        FROM journal_entries e
+        JOIN journal_lines l ON l.journal_entry_id = e.id
+        WHERE e.reference_id = ?
+          AND e.reference_type IN ('repair_service', 'repair_service_receipt')
+          AND l.account_code = '1100'
+          AND l.party_id = ?
+      ''', [repairId, customerId]);
+      final outstanding = (balanceRows.single['outstanding'] as num).toInt();
+      if (outstanding <= 0 || amount > outstanding) {
+        throw StateError('مبلغ دریافتی از مانده اجرت تعمیر بیشتر است یا مانده‌ای وجود ندارد');
+      }
+      return _postJournalEntry(txn, draft);
+    });
   }
 
   /// Expense is posted immediately as a balanced, immutable journal entry.
