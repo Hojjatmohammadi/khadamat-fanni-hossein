@@ -86,9 +86,9 @@ class ReportRepository {
           ELSE COALESCE(SUM(l.debit - l.credit), 0)
         END AS balance
       FROM accounts a
-      LEFT JOIN journal_lines l ON l.account_code = a.code
-      LEFT JOIN journal_entries e ON e.id = l.journal_entry_id
-        AND e.entry_date >= ? AND e.entry_date < ?
+      LEFT JOIN journal_entries e ON e.entry_date >= ? AND e.entry_date < ?
+      LEFT JOIN journal_lines l ON l.journal_entry_id = e.id
+        AND l.account_code = a.code
       WHERE a.account_type IN ('income', 'expense')
       GROUP BY a.code, a.name, a.account_type
       HAVING total_debit != 0 OR total_credit != 0
