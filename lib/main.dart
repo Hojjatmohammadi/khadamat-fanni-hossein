@@ -347,6 +347,7 @@ class DemoStore {
   static final repairs = <Map<String, String>>[];
   static final sales = <Map<String, String>>[];
   static final operations = <Map<String, String>>[];
+  static final returns = <Map<String, String>>[];
   static final archivedSales = <Map<String, String>>[];
 
   static Future<void> init() async {
@@ -397,6 +398,7 @@ class DemoStore {
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
+    await _loadCategory('returns', returns);
     await _backfillInvoiceArchive(_db!);
     await _backfillPurchaseArchive(_db!);
     await AccountingEngine.ensureDefaultAccounts(_db!);
@@ -662,6 +664,245 @@ class DemoStore {
       await AppSettings._prefs.setInt('next_invoice_number', AppSettings.nextInvoiceNumber);
       archivedSales.add(Map<String, String>.from(item));
     }
+  }
+
+  /// Records a partial or full purchase/sales return without changing the original document.
+  static Future<void> addReturn({
+    required String originalCategory,
+    required int originalSourceId,
+    required double quantity,
+    required String reason,
+    required bool settleAsCash,
+  }) async {
+    if (!['sales', 'operations'].contains(originalCategory) ||
+        !quantity.isFinite || quantity <= 0) {
+      throw ArgumentError('نوع سند یا مقدار برگشت معتبر نیست.');
+    }
+    final createdAt = DateTime.now().toIso8601String();
+    late Map<String, String> savedReturn;
+    await _db!.transaction((txn) async {
+      final sourceRows = await txn.query('records',
+        where: 'id = ? AND category = ?',
+        whereArgs: [originalSourceId, originalCategory], limit: 1);
+      if (sourceRows.isEmpty) throw StateError('سند اصلی خرید یا فروش پیدا نشد.');
+      final source = (jsonDecode(sourceRows.first['data'] as String) as Map)
+          .map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+      final isSale = originalCategory == 'sales';
+      if (!isSale && source['نوع عملیات'] != 'خرید کالا') {
+        throw StateError('فقط سند خرید کالا یا فاکتور فروش قابلیت برگشت دارد.');
+      }
+      final originalQuantity = double.tryParse(
+        (isSale ? source['تعداد'] : source['تعداد خرید']) ?? '',
+      ) ?? 0;
+      if (originalQuantity <= 0) {
+        throw StateError('تعداد سند اصلی معتبر نیست؛ برگشت برای سند قدیمی بدون تعداد ممکن نیست.');
+      }
+      final previous = await txn.query('document_returns',
+        columns: ['quantity', 'amount'],
+        where: 'original_category = ? AND original_source_id = ?',
+        whereArgs: [originalCategory, originalSourceId]);
+      final returnedQuantity = previous.fold<double>(
+        0, (sum, row) => sum + (row['quantity'] as num).toDouble());
+      if (quantity > originalQuantity - returnedQuantity + 0.000001) {
+        throw StateError('تعداد برگشتی از مقدار باقیمانده سند اصلی بیشتر است. مقدار قابل برگشت: ' +
+          (originalQuantity - returnedQuantity).toStringAsFixed(3));
+      }
+      final productId = int.tryParse(
+        (source['شناسه کالای انبار'] ?? '').trim());
+      if (!isSale && productId == null) {
+        throw StateError('برای برگشت خرید قدیمی، شناسه کالای انبار ثبت نشده است.');
+      }
+
+      double amount;
+      double costOfGoods = 0;
+      double grossReturn = 0;
+      double discountReturn = 0;
+      double taxReturn = 0;
+      double purchaseUnitCost = 0;
+      if (isSale) {
+        final gross = double.tryParse(source['مبلغ کل'] ?? '0') ?? 0;
+        final discount = double.tryParse(source['تخفیف'] ?? '0') ?? 0;
+        final tax = double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0;
+        final ratio = quantity / originalQuantity;
+        grossReturn = gross * ratio;
+        discountReturn = discount * ratio;
+        taxReturn = tax * ratio;
+        amount = grossReturn - discountReturn + taxReturn;
+        if (amount <= 0) throw StateError('مبلغ برگشت محاسبه‌شده باید بیشتر از صفر باشد.');
+        if (productId != null) {
+          final productsFound = await txn.query('products',
+            columns: ['quantity', 'purchase_price'],
+            where: 'id = ?', whereArgs: [productId], limit: 1);
+          if (productsFound.isEmpty) throw StateError('کالای این فاکتور دیگر در انبار وجود ندارد.');
+          final movements = await txn.query('stock_movements',
+            columns: ['unit_cost'],
+            where: "reference_type = 'sale' AND reference_id = ? AND product_id = ?",
+            whereArgs: [originalSourceId.toString(), productId], limit: 1);
+          costOfGoods = movements.isNotEmpty
+              ? (movements.first['unit_cost'] as num).toDouble() * quantity
+              : (productsFound.first['purchase_price'] as num).toDouble() * quantity;
+        }
+      } else {
+        purchaseUnitCost = double.tryParse(source['بهای تمام‌شده هر واحد'] ?? '') ?? 0;
+        if (purchaseUnitCost <= 0) {
+          final productRows = await txn.query('products',
+            columns: ['purchase_price'], where: 'id = ?', whereArgs: [productId], limit: 1);
+          if (productRows.isNotEmpty) purchaseUnitCost = (productRows.first['purchase_price'] as num).toDouble();
+        }
+        if (purchaseUnitCost <= 0) throw StateError('بهای تمام‌شده خرید برای محاسبه برگشت مشخص نیست.');
+        amount = purchaseUnitCost * quantity;
+        final priorAmount = previous.fold<double>(
+          0, (sum, row) => sum + (row['amount'] as num).toDouble());
+        final purchaseOriginalTotal = double.tryParse(source['مبلغ'] ?? '0') ?? 0;
+        if (amount > purchaseOriginalTotal - priorAmount + 0.01) {
+          throw StateError('مبلغ این برگشت از مانده خرید اصلی بیشتر است.');
+        }
+      }
+
+      final priorAmount = previous.fold<double>(
+        0, (sum, row) => sum + (row['amount'] as num).toDouble());
+      final sourceNumber = isSale
+          ? (source['شماره فاکتور'] ?? originalSourceId.toString())
+          : (source['شماره فاکتور خرید'] ?? ('PUR-' + originalSourceId.toString()));
+      final productName = (source['کالای انبار'] ?? source['نام کالا'] ?? source['شرح کالا/خدمت'] ?? '').toString();
+      final returnId = await txn.insert('document_returns', {
+        'original_category': originalCategory,
+        'original_source_id': originalSourceId,
+        'product_id': productId,
+        'quantity': quantity,
+        'amount': amount,
+        'reason': reason.trim(),
+        'occurred_at': createdAt,
+        'created_at': createdAt,
+      });
+      savedReturn = {
+        'شماره برگشت': 'RET-' + returnId.toString().padLeft(6, '0'),
+        'نوع برگشت': isSale ? 'برگشت از فروش' : 'برگشت از خرید',
+        'شماره سند اصلی': sourceNumber,
+        'نام طرف حساب': (isSale ? source['نام مشتری'] : source['نام شخص']) ?? '',
+        'نام کالا': productName,
+        'تعداد برگشتی': quantity.toStringAsFixed(3),
+        'مبلغ برگشت': amount.toStringAsFixed(0),
+        'توضیحات': reason.trim(),
+        'تاریخ': createdAt,
+        'روش تسویه': settleAsCash ? 'نقدی' : 'ثبت بستانکاری / کسر از حساب',
+      };
+      await txn.insert('records', {
+        'category': 'returns',
+        'data': jsonEncode(savedReturn),
+        'created_at': createdAt,
+      });
+      if (productId != null) {
+        final movementType = isSale ? 'sale_return' : 'purchase_return';
+        await AccountingEngine.recordStockMovementInTransaction(
+          txn,
+          productId: productId,
+          movementType: movementType,
+          quantityDelta: isSale ? quantity : -quantity,
+          unitCost: isSale ? (costOfGoods / quantity) : purchaseUnitCost,
+          referenceType: movementType,
+          referenceId: returnId.toString(),
+          notes: (isSale ? 'برگشت از فروش ' : 'برگشت به فروشنده ') + sourceNumber,
+          occurredAt: DateTime.parse(createdAt),
+        );
+      }
+
+      final lines = <JournalLineInput>[];
+      final originalJournal = await txn.query('journal_entries',
+        columns: ['id'],
+        where: 'source_type = ? AND source_id = ?',
+        whereArgs: [isSale ? 'sale' : 'purchase', originalSourceId.toString()],
+        limit: 1);
+      final reversalOf = originalJournal.isEmpty ? null : originalJournal.first['id'] as int;
+      if (isSale) {
+        if (grossReturn > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '4100'),
+            debit: grossReturn,
+            memo: 'برگشت از فروش فاکتور ' + sourceNumber,
+          ));
+        }
+        if (taxReturn > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2200'),
+            debit: taxReturn,
+            memo: 'اصلاح مالیات بابت برگشت فاکتور ' + sourceNumber,
+          ));
+        }
+        if (discountReturn > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '4110'),
+            credit: discountReturn,
+            memo: 'برگشت تخفیف فاکتور ' + sourceNumber,
+          ));
+        }
+        if (settleAsCash) {
+          final originalTotal = (double.tryParse(source['مبلغ کل'] ?? '0') ?? 0) -
+              (double.tryParse(source['تخفیف'] ?? '0') ?? 0) +
+              (double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0);
+          final received = double.tryParse(source['مبلغ دریافتی'] ?? '0') ?? 0;
+          final receivableRemaining = (originalTotal - received - priorAmount).clamp(0.0, amount);
+          if (receivableRemaining > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(txn, '1100'),
+              credit: receivableRemaining,
+              memo: 'کاهش دریافتنی مشتری بابت برگشت فاکتور ' + sourceNumber,
+            ));
+          }
+          final refundCash = amount - receivableRemaining;
+          if (refundCash > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(txn, '1000'),
+              credit: refundCash,
+              memo: 'بازپرداخت وجه برگشت فروش ' + sourceNumber,
+            ));
+          }
+        } else {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2010'),
+            credit: amount,
+            partyType: 'customer',
+            memo: 'اعتبار مشتری بابت برگشت فاکتور ' + sourceNumber,
+          ));
+        }
+        if (costOfGoods > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1200'),
+            debit: costOfGoods,
+            memo: 'بازگشت کالا به انبار',
+          ));
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '5000'),
+            credit: costOfGoods,
+            memo: 'برگشت بهای تمام‌شده کالای فروش‌رفته',
+          ));
+        }
+      } else {
+        final settlementCode = settleAsCash ? '1000' : '2000';
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, settlementCode),
+          debit: amount,
+          partyType: 'supplier',
+          memo: (settleAsCash ? 'استرداد وجه از فروشنده ' : 'کسر از بدهی فروشنده ') + source['نام شخص'].toString(),
+        ));
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '1200'),
+          credit: amount,
+          memo: 'خروج موجودی بابت برگشت خرید ' + sourceNumber,
+        ));
+      }
+      await AccountingEngine.postJournalInTransaction(
+        txn,
+        entryNumber: 'RETURN-' + returnId.toString(),
+        occurredAt: DateTime.parse(createdAt),
+        description: savedReturn['نوع برگشت']! + ' ' + sourceNumber,
+        sourceType: 'document_return',
+        sourceId: returnId.toString(),
+        lines: lines,
+        reversalOf: reversalOf,
+      );
+    });
+    returns.add(savedReturn);
   }
 
   /// Saves purchase document, supplier balance, inventory movement and journal atomically.
