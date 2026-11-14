@@ -37,6 +37,7 @@ dependencies:
   speech_to_text: ^7.4.0
   url_launcher: ^6.3.2
   workmanager: ^0.10.10
+  flutter_local_notifications: 19.5.0
 
 dev_dependencies:
   flutter_test:
