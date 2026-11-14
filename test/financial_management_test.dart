@@ -188,7 +188,19 @@ void main() {
 
     await expectLater(save(account: '1100'), throwsArgumentError);
     await expectLater(save(date: 'not-a-date'), throwsArgumentError);
-    await expectLater(save(balance: -1), throwsArgumentError);
+    await expectLater(save(account: '1000', balance: -1), throwsArgumentError);
+  });
+
+
+  test('bank reconciliation accepts an overdraft but cash cannot be negative', () async {
+    final id = await accounting.createBankReconciliation(
+      accountCode: '1010',
+      statementDate: '2026-11-14',
+      statementBalance: -25000,
+      idempotencyKey: 'bank-overdraft-001',
+    );
+    final row = (await accounting.getBankReconciliations()).singleWhere((r) => r['id'] == id);
+    expect(row['statement_balance'], -25000);
   });
 
 }
