@@ -1,5 +1,3 @@
-import 'package:sqflite/sqflite.dart';
-
 import 'app_database.dart';
 
 class PartyDraft {
