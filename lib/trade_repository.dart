@@ -941,6 +941,36 @@ class TradeRepository {
     });
   }
 
+  Future<int> getOutstandingAmount(int documentId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'business_documents',
+      where: 'id = ?',
+      whereArgs: [documentId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('فاکتور پیدا نشد');
+    final document = rows.single;
+    final type = document['document_type'];
+    final paymentType = type == 'sale'
+        ? 'customer_receipt'
+        : type == 'purchase'
+            ? 'supplier_payment'
+            : null;
+    if (paymentType == null) {
+      throw ArgumentError('این نوع سند تسویه دریافت یا پرداخت ندارد');
+    }
+    final payments = await db.rawQuery(
+      'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
+      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
+      [documentId, paymentType],
+    );
+    final totalPaid = (document['paid_amount'] as num).toInt() +
+        (payments.single['paid'] as num).toInt();
+    final total = (document['total_amount'] as num).toInt();
+    return total - totalPaid;
+  }
+
   Future<List<Map<String, Object?>>> getDocuments({
     String? type,
     String? counterpartyId,
