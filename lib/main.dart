@@ -1102,8 +1102,6 @@ class DemoStore {
         }
       }
 
-      final priorAmount = previous.fold<double>(
-        0, (sum, row) => sum + (row['amount'] as num).toDouble());
       final sourceNumber = isSale
           ? (source['شماره فاکتور'] ?? originalSourceId.toString())
           : (source['شماره فاکتور خرید'] ?? ('PUR-' + originalSourceId.toString()));
