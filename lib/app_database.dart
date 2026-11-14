@@ -398,6 +398,34 @@ class AppDatabase {
     );
 
     await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS check_records_immutable_fields
+      BEFORE UPDATE ON check_records
+      WHEN OLD.direction != NEW.direction
+        OR OLD.check_number != NEW.check_number
+        OR OLD.bank_name != NEW.bank_name
+        OR OLD.drawer_name != NEW.drawer_name
+        OR OLD.party_id IS NOT NEW.party_id
+        OR OLD.party_name != NEW.party_name
+        OR OLD.amount != NEW.amount
+        OR OLD.issue_date != NEW.issue_date
+        OR OLD.due_date != NEW.due_date
+        OR OLD.source_document_id IS NOT NEW.source_document_id
+        OR OLD.acceptance_journal_id != NEW.acceptance_journal_id
+        OR OLD.idempotency_key != NEW.idempotency_key
+        OR OLD.payload_json != NEW.payload_json
+        OR OLD.note IS NOT NEW.note
+      BEGIN
+        SELECT RAISE(ABORT, 'check details are immutable after registration');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS check_records_no_delete
+      BEFORE DELETE ON check_records
+      BEGIN
+        SELECT RAISE(ABORT, 'registered checks cannot be deleted');
+      END
+    """);
+    await db.execute("""
       CREATE TRIGGER IF NOT EXISTS immutable_check_events_update
       BEFORE UPDATE ON check_events
       BEGIN
