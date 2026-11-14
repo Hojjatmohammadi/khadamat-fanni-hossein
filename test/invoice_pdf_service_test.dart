@@ -40,6 +40,29 @@ void main() {
     expect(utf8.decode(bytes.take(4).toList()), '%PDF');
   });
 
+
+  test('builds a PNG image from the same immutable invoice snapshot', () async {
+    final bytes = await InvoicePdfService().buildImage({
+      'shopName': 'خدمات فنی حسین',
+      'documentNumber': 'SAL-1405-0002',
+      'documentDate': '1405/08/25',
+      'counterpartyName': 'مشتری تصویر',
+      'items': [
+        {'productName': 'قطعه آزمایشی', 'quantity': 1, 'unitPrice': 25000, 'lineTotal': 25000},
+      ],
+      'subtotal': 25000,
+      'discountAmount': 0,
+      'chargesAmount': 0,
+      'vatAmount': 0,
+      'totalAmount': 25000,
+      'paidAmount': 25000,
+      'outstandingAmount': 0,
+    });
+
+    expect(bytes, isNotEmpty);
+    expect(bytes.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
   test('rejects an empty snapshot', () async {
     expect(
       () => InvoicePdfService().build({}),
