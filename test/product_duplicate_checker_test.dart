@@ -30,6 +30,44 @@ void main() {
     expect(duplicates, hasLength(1));
   });
 
+  test('does not treat similar names with different non-empty codes as duplicates', () {
+    final duplicates = ProductDuplicateChecker.findDuplicates([
+      {
+        'نام کالا': 'خازن 100 میکرو',
+        'گروه اصلی': 'الکترونیک',
+        'زیرگروه': 'خازن',
+        'کد کالا': 'CAP-100',
+      },
+    ], {
+      'نام کالا': 'خازن 100 میکرو',
+      'گروه اصلی': 'الکترونیک',
+      'زیرگروه': 'خازن',
+      'کد کالا': 'CAP-200',
+    });
+
+    expect(duplicates, isEmpty);
+  });
+
+  test('falls back to name, group and subgroup when either code is missing', () {
+    final existing = [
+      {
+        'نام کالا': 'خازن 100 میکرو',
+        'گروه اصلی': 'الکترونیک',
+        'زیرگروه': 'خازن',
+        'کد کالا': 'CAP-100',
+      },
+    ];
+
+    final duplicates = ProductDuplicateChecker.findDuplicates(existing, {
+      'نام کالا': 'خازن 100 میکرو',
+      'گروه اصلی': 'الکترونیک',
+      'زیرگروه': 'خازن',
+      'کد کالا': '',
+    });
+
+    expect(duplicates, hasLength(1));
+  });
+
   test('normalizes Arabic and Persian character variants and whitespace', () {
     final duplicates = ProductDuplicateChecker.findDuplicates([
       {'نام کالا': 'آی سی   کاربردی', 'گروه اصلی': 'الکترونیک', 'زیرگروه': ''},
