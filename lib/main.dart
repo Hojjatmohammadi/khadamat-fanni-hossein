@@ -1193,7 +1193,8 @@ class _ProductPageState extends State<ProductPage> {
             ),
           ],
         ),
-      );
+      ),
+    );
 
     for (final controller in controllers) {
       controller.dispose();
