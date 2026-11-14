@@ -1466,7 +1466,24 @@ class DemoStore {
       throw ArgumentError('اطلاعات خرید، تعداد، بهای تمام‌شده، فروشنده یا مبلغ پرداخت معتبر نیست.');
     }
     await _db!.transaction((txn) async {
-      final supplierId = await AppDatabaseSchema.ensureSupplier(txn, supplier);
+      final selectedSupplierId = int.tryParse((operation['شناسه فروشنده'] ?? '').trim());
+      late final int supplierId;
+      if (selectedSupplierId != null) {
+        final selectedRows = await txn.query(
+          'suppliers',
+          columns: ['id', 'name'],
+          where: 'id = ?',
+          whereArgs: [selectedSupplierId],
+          limit: 1,
+        );
+        if (selectedRows.isEmpty ||
+            (selectedRows.first['name'] ?? '').toString().trim() != supplier) {
+          throw StateError('پرونده فروشنده انتخاب‌شده معتبر نیست؛ فروشنده را دوباره انتخاب کنید.');
+        }
+        supplierId = selectedSupplierId;
+      } else {
+        supplierId = await AppDatabaseSchema.ensureSupplier(txn, supplier);
+      }
       operation['شناسه فروشنده'] = supplierId.toString();
       final productRecordId = await txn.insert('records', {
         'category': 'products',
@@ -3322,6 +3339,12 @@ class _ProductPageState extends State<ProductPage> {
     final freight = TextEditingController(text: '0');
     final other = TextEditingController(text: '0');
     final supplier = TextEditingController();
+    final supplierRows = await DemoStore.database.query(
+      'suppliers',
+      columns: ['id', 'name', 'phone'],
+      orderBy: 'name COLLATE NOCASE ASC, id ASC',
+    );
+    var selectedSupplierId = '';
     final purchasePaid = TextEditingController(text: '0');
     final purchaseCheckNumber = TextEditingController();
     final purchaseCheckBank = TextEditingController();
@@ -3569,7 +3592,43 @@ class _ProductPageState extends State<ProductPage> {
                     const SizedBox(height: 10),
                     const Align(alignment: Alignment.centerRight, child: Text('اطلاعات طرف حساب خرید', style: TextStyle(fontWeight: FontWeight.bold))),
                     const SizedBox(height: 8),
-                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اجباری)')),
+                    if (supplierRows.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: supplierRows.any((row) => row['id'].toString() == selectedSupplierId)
+                            ? selectedSupplierId : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'انتخاب فروشنده ثبت‌شده',
+                          helperText: 'با انتخاب پرونده، خرید و مانده حساب به همان فروشنده متصل می‌شود.',
+                        ),
+                        items: supplierRows.map((row) {
+                          final name = (row['name'] ?? '').toString();
+                          final phone = (row['phone'] ?? '').toString().trim();
+                          return DropdownMenuItem<String>(
+                            value: row['id'].toString(),
+                            child: Text(phone.isEmpty ? name : name + ' • ' + phone,
+                              overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
+                        onChanged: (value) => refresh(() {
+                          selectedSupplierId = value ?? '';
+                          if (value != null) {
+                            final row = supplierRows.firstWhere((r) => r['id'].toString() == value);
+                            supplier.text = (row['name'] ?? '').toString();
+                          }
+                        }),
+                      ),
+                    TextField(
+                      controller: supplier,
+                      onChanged: (value) {
+                        if (selectedSupplierId.isNotEmpty &&
+                            !supplierRows.any((row) => row['id'].toString() == selectedSupplierId &&
+                              (row['name'] ?? '').toString() == value.trim())) {
+                          refresh(() => selectedSupplierId = '');
+                        }
+                      },
+                      decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (یا فروشنده جدید)'),
+                    ),
                     const SizedBox(height: 8),
                     TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (تومان)')),
                     DropdownButtonFormField<String>(value: purchaseMethod, decoration: const InputDecoration(labelText: 'روش پرداخت خرید'), items: const ['نقدی','کارت به کارت','حواله بانکی','چک'].map((m) => DropdownMenuItem(value:m, child:Text(m))).toList(), onChanged: (v) => refresh(() => purchaseMethod = v ?? 'نقدی')),
@@ -3692,6 +3751,7 @@ class _ProductPageState extends State<ProductPage> {
                   }
                   final purchaseOperation = <String, String>{
                     'نوع عملیات':'خرید کالا', 'نوع طرف حساب':'فروشنده', 'نام شخص':supplier.text.trim(),
+                    'شناسه فروشنده':selectedSupplierId,
                     'مبلغ':total.toStringAsFixed(0), 'مبلغ پرداخت‌شده':number(purchasePaid).toStringAsFixed(0),
                     'روش':purchaseMethod, 'تاریخ':_parsePersianOrIsoDate(saleDate.text).toIso8601String(),
                     'شماره چک':purchaseCheckNumber.text.trim(), 'بانک چک':purchaseCheckBank.text.trim(),
