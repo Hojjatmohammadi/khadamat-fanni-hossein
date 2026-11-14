@@ -714,6 +714,8 @@ class DemoStore {
       throw StateError('نام طرف حساب و مبلغ معتبر برای ثبت سند مالی لازم است.');
     }
     final method = (item['روش'] ?? 'نقدی').trim();
+    final isExpense = operation == 'ثبت هزینه';
+    final expenseCategory = (item['دسته هزینه'] ?? 'سایر').trim();
     final isDeposit = operation == 'ثبت بیعانه';
     final isReceipt = operation == 'دریافت وجه' || isDeposit;
     final isPayment = operation == 'پرداخت وجه';
@@ -722,12 +724,16 @@ class DemoStore {
     final isPartyOwes = operation == 'متفرقه شخص بدهکار';
     final isWeOwe = operation == 'متفرقه شخص بستانکار';
     if (!isReceipt && !isPayment && !isDiscountGiven && !isDiscountReceived &&
-        !isPartyOwes && !isWeOwe && !isDeposit) {
+        !isPartyOwes && !isWeOwe && !isDeposit && !isExpense) {
       throw StateError('نوع عملیات مالی پشتیبانی نمی‌شود: ' + operation);
     }
 
     int? partyId;
-    if (partyType == 'مشتری') {
+    if (isExpense) {
+      if (partyName.isEmpty || expenseCategory.isEmpty) {
+        throw StateError('شرح و دسته‌بندی هزینه الزامی است.');
+      }
+    } else if (partyType == 'مشتری') {
       final selectedCustomerId = int.tryParse((item['شناسه مشتری'] ?? '').trim());
       if (selectedCustomerId != null) {
         final selected = await txn.query('customers',
@@ -843,7 +849,23 @@ class DemoStore {
       );
     }
 
-    if (isReceipt) {
+    if (isExpense) {
+      if (method == 'چک' || method == 'خرج چک') {
+        throw StateError('برای ثبت هزینه، پرداخت نقدی یا بانکی را انتخاب کنید؛ پرداخت چکی باید از مسیر پرداخت به طرف حساب ثبت شود.');
+      }
+      final expenseCashCode = method.contains('کارت') || method.contains('حواله')
+          ? '1010' : '1000';
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '6000'),
+        debit: amount,
+        memo: 'هزینه ' + expenseCategory + ': ' + partyName,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, expenseCashCode),
+        credit: amount,
+        memo: 'پرداخت هزینه ' + expenseCategory,
+      ));
+    } else if (isReceipt) {
       lines.add(JournalLineInput(
         accountId: await AccountingEngine.accountId(txn, cashCode),
         debit: amount,
@@ -1022,7 +1044,7 @@ class DemoStore {
       txn,
       entryNumber: 'OP-' + recordId.toString(),
       occurredAt: occurredAt,
-      description: operation + ' • ' + partyName,
+      description: operation + ' • ' + (isExpense ? expenseCategory + ' • ' : '') + partyName,
       sourceType: 'operation',
       sourceId: recordId.toString(),
       lines: lines,
@@ -4463,7 +4485,7 @@ class OperationsPage extends StatefulWidget {
 }
 
 class _OperationsPageState extends State<OperationsPage> {
-  static const options = ['تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
+  static const options = ['ثبت هزینه', 'تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
   Future<void> _postCheckStatusJournal(
@@ -5190,8 +5212,11 @@ class _OperationsPageState extends State<OperationsPage> {
     final initialAmount = amount.text;
     final initialNote = note.text;
     String method = existing?['روش'] ?? 'نقدی';
+    String expenseCategory = existing?['دسته هزینه'] ?? 'سایر';
+    const expenseCategories = ['اجاره', 'آب و برق و گاز', 'تلفن و اینترنت', 'حمل و نقل', 'تعمیر و نگهداری', 'حقوق و دستمزد', 'لوازم مصرفی', 'اقساط', 'هزینه شخصی', 'سایر'];
+    const expenseMethods = ['نقدی', 'کارت‌خوان', 'حواله بانکی'];
     String partyType = existing?['نوع طرف حساب'] ??
-        (op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
+        (op == 'ثبت هزینه' ? 'هزینه' : op == 'تخفیف گرفتن از فروشنده' || op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری');
     final initialMethod = method;
     final initialPartyType = partyType;
     final initialCheckNumber = checkNumber.text;
@@ -5202,7 +5227,7 @@ class _OperationsPageState extends State<OperationsPage> {
     bool dirty() => existing == null
         ? name.text.trim().isNotEmpty || amount.text.trim().isNotEmpty ||
           note.text.trim().isNotEmpty || method != 'نقدی' ||
-          partyType != initialPartyType || checkNumber.text.trim().isNotEmpty ||
+          partyType != initialPartyType || expenseCategory != (existing?['دسته هزینه'] ?? 'سایر') || checkNumber.text.trim().isNotEmpty ||
           checkBank.text.trim().isNotEmpty || checkDueDate != null
         : name.text.trim() != initialName || amount.text.trim() != initialAmount ||
           note.text.trim() != initialNote || method != initialMethod ||
@@ -5246,7 +5271,7 @@ class _OperationsPageState extends State<OperationsPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    DropdownButtonFormField<String>(
+                    if (op != 'ثبت هزینه') DropdownButtonFormField<String>(
                       value: partyType,
                       decoration: const InputDecoration(labelText: 'نوع طرف حساب'),
                       items: const [
@@ -5256,7 +5281,7 @@ class _OperationsPageState extends State<OperationsPage> {
                       ],
                       onChanged: (value) => set(() => partyType = value ?? 'مشتری'),
                     ),
-                    if (partyType == 'مشتری' && customerPartyRows.isNotEmpty)
+                    if (op != 'ثبت هزینه' && partyType == 'مشتری' && customerPartyRows.isNotEmpty)
                       DropdownButtonFormField<String>(
                         value: customerPartyRows.any((row) => row['id'].toString() == selectedCustomerPartyId)
                             ? selectedCustomerPartyId : null,
@@ -5281,7 +5306,7 @@ class _OperationsPageState extends State<OperationsPage> {
                           set(() {});
                         },
                       ),
-                    if (partyType == 'فروشنده' && supplierPartyRows.isNotEmpty)
+                    if (op != 'ثبت هزینه' && partyType == 'فروشنده' && supplierPartyRows.isNotEmpty)
                       DropdownButtonFormField<String>(
                         value: supplierPartyRows.any((row) => row['id'].toString() == selectedSupplierPartyId)
                             ? selectedSupplierPartyId : null,
@@ -5304,13 +5329,29 @@ class _OperationsPageState extends State<OperationsPage> {
                           set(() {});
                         },
                       ),
-                    TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
+                    TextField(controller: name, decoration: InputDecoration(labelText: op == 'ثبت هزینه' ? 'شرح هزینه (مثلاً خرید لوازم یا کرایه)' : 'نام شخص / مشتری')),
                     TextField(
                       controller: amount,
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
                     ),
+                    if (op == 'ثبت هزینه') ...[
+                      DropdownButtonFormField<String>(
+                        value: expenseCategories.contains(expenseCategory) ? expenseCategory : 'سایر',
+                        decoration: const InputDecoration(labelText: 'دسته‌بندی هزینه'),
+                        items: expenseCategories.map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value))).toList(),
+                        onChanged: (value) => set(() => expenseCategory = value ?? 'سایر'),
+                      ),
+                      DropdownButtonFormField<String>(
+                        value: expenseMethods.contains(method) ? method : 'نقدی',
+                        decoration: const InputDecoration(labelText: 'روش پرداخت هزینه'),
+                        items: expenseMethods.map((value) =>
+                          DropdownMenuItem(value: value, child: Text(value))).toList(),
+                        onChanged: (value) => set(() => method = value ?? 'نقدی'),
+                      ),
+                    ],
                     if (op == 'پرداخت وجه' || op == 'دریافت وجه')
                       DropdownButtonFormField<String>(
                         value: methods.contains(method) ? method : 'نقدی',
@@ -5396,6 +5437,7 @@ class _OperationsPageState extends State<OperationsPage> {
                     final data = <String, String>{
                       'نوع عملیات': canonicalOp,
                       'نوع طرف حساب': partyType,
+                      'دسته هزینه': expenseCategory,
                       'نام شخص': name.text.trim(),
                       'شناسه مشتری': partyType == 'مشتری' ? selectedCustomerPartyId : '',
                       'شناسه فروشنده': partyType == 'فروشنده' ? selectedSupplierPartyId : '',
