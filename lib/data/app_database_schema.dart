@@ -1259,60 +1259,61 @@ class AppDatabaseSchema {
         limit: 1,
       );
       final delta = newLabor - oldLabor;
-      if (delta.abs() > 0.01) {
-        if (previousRepairJournal.isEmpty) {
-          if (newLabor > 0) {
-            await AccountingEngine.postJournalInTransaction(
-              db,
-              entryNumber: 'REPAIR-' + sourceId.toString(),
-              occurredAt: DateTime.tryParse(_text(item, 'تاریخ میلادی')) ?? DateTime.now(),
-              description: 'ثبت اجرت پذیرش تعمیر ' + sourceId.toString(),
-              sourceType: 'repair',
-              sourceId: sourceId.toString(),
-              lines: [
-                JournalLineInput(
-                  accountId: await AccountingEngine.accountId(db, '1100'),
-                  debit: newLabor,
-                  partyType: 'customer',
-                  partyId: repairCustomerId,
-                  memo: 'دریافتنی اجرت تعمیر',
-                ),
-                JournalLineInput(
-                  accountId: await AccountingEngine.accountId(db, '4010'),
-                  credit: newLabor,
-                  memo: 'درآمد اجرت تعمیر',
-                ),
-              ],
-            );
-          }
-        } else {
-          final adjustmentId = DateTime.now().microsecondsSinceEpoch.toString();
-          final increase = delta > 0;
+      if (previousRepairJournal.isEmpty) {
+        // Older repairs with ambiguous or missing customer IDs may have been
+        // left unposted. Once a user assigns the correct customer, establish
+        // the missing opening journal even when the labor amount is unchanged.
+        if (newLabor > 0) {
           await AccountingEngine.postJournalInTransaction(
             db,
-            entryNumber: 'REPAIR-ADJ-' + sourceId.toString() + '-' + adjustmentId,
-            occurredAt: DateTime.now(),
-            description: 'تعدیل اجرت پذیرش تعمیر ' + sourceId.toString(),
-            sourceType: 'repair_adjustment',
-            sourceId: sourceId.toString() + '-' + adjustmentId,
+            entryNumber: 'REPAIR-' + sourceId.toString(),
+            occurredAt: DateTime.tryParse(_text(item, 'تاریخ میلادی')) ?? DateTime.now(),
+            description: 'ثبت اجرت پذیرش تعمیر ' + sourceId.toString(),
+            sourceType: 'repair',
+            sourceId: sourceId.toString(),
             lines: [
               JournalLineInput(
-                accountId: await AccountingEngine.accountId(db, increase ? '1100' : '4010'),
-                debit: delta.abs(),
-                partyType: increase ? 'customer' : '',
-                partyId: increase ? repairCustomerId : null,
-                memo: increase ? 'افزایش دریافتنی اجرت تعمیر' : 'کاهش درآمد اجرت تعمیر',
+                accountId: await AccountingEngine.accountId(db, '1100'),
+                debit: newLabor,
+                partyType: 'customer',
+                partyId: repairCustomerId,
+                memo: 'دریافتنی اجرت تعمیر',
               ),
               JournalLineInput(
-                accountId: await AccountingEngine.accountId(db, increase ? '4010' : '1100'),
-                credit: delta.abs(),
-                partyType: increase ? '' : 'customer',
-                partyId: increase ? null : repairCustomerId,
-                memo: increase ? 'افزایش درآمد اجرت تعمیر' : 'کاهش دریافتنی اجرت تعمیر',
+                accountId: await AccountingEngine.accountId(db, '4010'),
+                credit: newLabor,
+                memo: 'درآمد اجرت تعمیر',
               ),
             ],
           );
         }
+      } else if (delta.abs() > 0.01) {
+        final adjustmentId = DateTime.now().microsecondsSinceEpoch.toString();
+        final increase = delta > 0;
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: 'REPAIR-ADJ-' + sourceId.toString() + '-' + adjustmentId,
+          occurredAt: DateTime.now(),
+          description: 'تعدیل اجرت پذیرش تعمیر ' + sourceId.toString(),
+          sourceType: 'repair_adjustment',
+          sourceId: sourceId.toString() + '-' + adjustmentId,
+          lines: [
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, increase ? '1100' : '4010'),
+              debit: delta.abs(),
+              partyType: increase ? 'customer' : '',
+              partyId: increase ? repairCustomerId : null,
+              memo: increase ? 'افزایش دریافتنی اجرت تعمیر' : 'کاهش درآمد اجرت تعمیر',
+            ),
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, increase ? '4010' : '1100'),
+              credit: delta.abs(),
+              partyType: increase ? '' : 'customer',
+              partyId: increase ? null : repairCustomerId,
+              memo: increase ? 'افزایش درآمد اجرت تعمیر' : 'کاهش دریافتنی اجرت تعمیر',
+            ),
+          ],
+        );
       }
     } else if (category != 'operations') {
       throw ArgumentError('ویرایش این دسته اطلاعات پشتیبانی نمی‌شود: ' + category);
