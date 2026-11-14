@@ -1288,62 +1288,133 @@ class AppDatabaseSchema {
         'legacy_source_id': sourceId,
       });
 
-      final description = _text(data, 'شرح کالا/خدمت').isEmpty
-          ? 'مورد ثبت‌شده در نسخه قبلی'
-          : _text(data, 'شرح کالا/خدمت');
-      final selectedProductName = _text(data, 'کالای انبار');
-      final selectedProductId = int.tryParse(_text(data, 'شناسه کالای انبار'));
-      int? productId;
+      final structuredLinesJson = _text(data, 'ردیف‌های فاکتور');
+      final rawInvoiceLines = <Map<String, Object?>>[];
+      if (structuredLinesJson.isNotEmpty) {
+        final decodedLines = jsonDecode(structuredLinesJson);
+        if (decodedLines is! List || decodedLines.isEmpty) {
+          throw StateError('ردیف‌های فاکتور معتبر نیستند.');
+        }
+        for (final rawLine in decodedLines) {
+          if (rawLine is! Map) throw StateError('ساختار یکی از ردیف‌های فاکتور معتبر نیست.');
+          rawInvoiceLines.add(rawLine.map(
+            (key, value) => MapEntry(key.toString(), value),
+          ));
+        }
+      } else {
+        rawInvoiceLines.add({
+          'product_id': _text(data, 'شناسه کالای انبار'),
+          'description': _text(data, 'کالای انبار').isNotEmpty
+              ? _text(data, 'کالای انبار')
+              : (_text(data, 'شرح کالا/خدمت').isEmpty
+                  ? 'مورد ثبت‌شده در نسخه قبلی' : _text(data, 'شرح کالا/خدمت')),
+          'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
+          'quantity': quantity,
+          'unit_price': gross / quantity,
+          'line_total': gross,
+        });
+      }
+
       double costOfGoods = 0;
-      var productIsUsed = false;
-      if (selectedProductName.isNotEmpty || selectedProductId != null) {
-        final matches = await db.query(
+      double productRevenue = 0;
+      double serviceRevenue = 0;
+      double computedLineGross = 0;
+      final stockByProduct = <int, Map<String, double>>{};
+      for (final rawLine in rawInvoiceLines) {
+        final lineQuantityRaw = rawLine['quantity'];
+        final lineTotalRaw = rawLine['line_total'];
+        final lineUnitPriceRaw = rawLine['unit_price'];
+        final lineQuantity = lineQuantityRaw is num
+            ? lineQuantityRaw.toDouble() : double.tryParse(lineQuantityRaw?.toString() ?? '') ?? 0;
+        final lineTotal = lineTotalRaw is num
+            ? lineTotalRaw.toDouble() : double.tryParse(lineTotalRaw?.toString() ?? '') ?? 0;
+        final lineUnitPrice = lineUnitPriceRaw is num
+            ? lineUnitPriceRaw.toDouble() : double.tryParse(lineUnitPriceRaw?.toString() ?? '') ?? 0;
+        if (!lineQuantity.isFinite || lineQuantity <= 0 ||
+            !lineTotal.isFinite || lineTotal < 0 ||
+            !lineUnitPrice.isFinite || lineUnitPrice < 0 ||
+            (lineQuantity * lineUnitPrice - lineTotal).abs() > 0.02) {
+          throw StateError('تعداد یا مبلغ یکی از ردیف‌های فاکتور نامعتبر است.');
+        }
+        computedLineGross += lineTotal;
+        final productId = int.tryParse((rawLine['product_id'] ?? '').toString());
+        final lineDescription = (rawLine['description'] ?? '').toString().trim();
+        final lineUnit = (rawLine['unit'] ?? 'عدد').toString();
+        if (productId != null) {
+          final matches = await db.query(
+            'products',
+            columns: ['id', 'name', 'quantity', 'purchase_price', 'is_used', 'unit'],
+            where: 'id = ?',
+            whereArgs: [productId],
+            limit: 1,
+          );
+          if (matches.isEmpty) throw StateError('یکی از کالاهای فاکتور در انبار پیدا نشد.');
+          final product = matches.first;
+          final unitCost = await AccountingEngine.averageUnitCost(
+            db,
+            productId,
+            fallback: (product['purchase_price'] as num).toDouble(),
+          );
+          costOfGoods += unitCost * lineQuantity;
+          productRevenue += lineTotal;
+          final aggregate = stockByProduct.putIfAbsent(
+            productId,
+            () => {'quantity': 0.0, 'cost': 0.0},
+          );
+          aggregate['quantity'] = aggregate['quantity']! + lineQuantity;
+          aggregate['cost'] = aggregate['cost']! + unitCost * lineQuantity;
+          await db.insert('invoice_items', {
+            'invoice_id': invoiceId,
+            'product_id': productId,
+            'product_name_snapshot': (product['name'] ?? lineDescription).toString(),
+            'unit': lineUnit.isEmpty ? (product['unit'] ?? 'عدد') : lineUnit,
+            'is_used': (product['is_used'] == 1 || rawLine['is_used'] == '1') ? 1 : 0,
+            'quantity': lineQuantity,
+            'unit_price': lineUnitPrice,
+            'line_total': lineTotal,
+          });
+        } else {
+          if (lineDescription.isEmpty) throw StateError('شرح یکی از ردیف‌های خدمت خالی است.');
+          serviceRevenue += lineTotal;
+          await db.insert('invoice_items', {
+            'invoice_id': invoiceId,
+            'product_id': null,
+            'product_name_snapshot': lineDescription,
+            'unit': lineUnit.isEmpty ? 'خدمت' : lineUnit,
+            'is_used': 0,
+            'quantity': lineQuantity,
+            'unit_price': lineUnitPrice,
+            'line_total': lineTotal,
+          });
+        }
+      }
+      if ((computedLineGross - gross).abs() > 0.02) {
+        throw StateError('جمع ردیف‌های فاکتور با مبلغ کل فاکتور برابر نیست.');
+      }
+      for (final entry in stockByProduct.entries) {
+        final productRows = await db.query(
           'products',
-          columns: ['id', 'name', 'quantity', 'purchase_price', 'is_used'],
-          where: selectedProductId != null ? 'id = ?' : 'name = ?',
-          whereArgs: [selectedProductId ?? selectedProductName],
-          limit: 2,
+          columns: ['quantity'],
+          where: 'id = ?',
+          whereArgs: [entry.key],
+          limit: 1,
         );
-        if (matches.length != 1) {
-          throw StateError(matches.isEmpty
-              ? 'کالای انتخاب‌شده در انبار پیدا نشد.'
-              : 'نام این کالا تکراری است؛ برای فروش، شناسه یکتا لازم است.');
+        final onHand = (productRows.first['quantity'] as num).toDouble();
+        final outgoing = entry.value['quantity']!;
+        if (outgoing > onHand + 0.000001) {
+          throw StateError('موجودی یکی از کالاهای فاکتور کافی نیست. موجودی فعلی: ' + onHand.toString());
         }
-        final product = matches.first;
-        productId = product['id'] as int;
-        final onHand = (product['quantity'] as num).toDouble();
-        if (quantity > onHand + 0.000001) {
-          throw StateError('موجودی کالا کافی نیست. موجودی فعلی: ' + onHand.toString());
-        }
-        final unitCost = await AccountingEngine.averageUnitCost(
-          db,
-          productId,
-          fallback: (product['purchase_price'] as num).toDouble(),
-        );
-        productIsUsed = product['is_used'] == 1;
-        costOfGoods = unitCost * quantity;
         await AccountingEngine.recordStockMovementInTransaction(
           db,
-          productId: productId,
+          productId: entry.key,
           movementType: 'sale',
-          quantityDelta: -quantity,
-          unitCost: unitCost,
+          quantityDelta: -outgoing,
+          unitCost: entry.value['cost']! / outgoing,
           referenceType: 'sale',
           referenceId: sourceId.toString(),
           notes: 'خروج کالا بابت فاکتور ' + invoiceNumber,
         );
       }
-
-      await db.insert('invoice_items', {
-        'invoice_id': invoiceId,
-        'product_id': productId,
-        'product_name_snapshot': selectedProductName.isEmpty ? description : selectedProductName,
-        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
-        'is_used': productIsUsed ? 1 : 0,
-        'quantity': quantity,
-        'unit_price': gross / quantity,
-        'line_total': gross,
-      });
 
       final paymentMethod = _text(data, 'روش پرداخت');
       if (paymentMethod == 'چک' && received > 0) {
@@ -1409,12 +1480,18 @@ class AppDatabaseSchema {
           memo: 'اعتبار مازاد مشتری در فاکتور ' + invoiceNumber,
         ));
       }
-      if (gross > 0) {
-        final revenueCode = selectedProductName.isEmpty ? '4010' : '4000';
+      if (productRevenue > 0) {
         lines.add(JournalLineInput(
-          accountId: await AccountingEngine.accountId(db, revenueCode),
-          credit: gross,
-          memo: 'فروش فاکتور ' + invoiceNumber,
+          accountId: await AccountingEngine.accountId(db, '4000'),
+          credit: productRevenue,
+          memo: 'فروش قطعات فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (serviceRevenue > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '4010'),
+          credit: serviceRevenue,
+          memo: 'درآمد خدمات و اجرت فاکتور ' + invoiceNumber,
         ));
       }
       if (discount > 0) {
