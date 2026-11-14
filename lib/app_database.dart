@@ -169,6 +169,49 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_inventory_product_date ON inventory_movements(product_id, occurred_at)',
     );
+
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_journal_entries_update
+      BEFORE UPDATE ON journal_entries
+      BEGIN
+        SELECT RAISE(ABORT, 'posted journal entries are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_journal_entries_delete
+      BEFORE DELETE ON journal_entries
+      BEGIN
+        SELECT RAISE(ABORT, 'posted journal entries are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_journal_lines_update
+      BEFORE UPDATE ON journal_lines
+      BEGIN
+        SELECT RAISE(ABORT, 'posted journal lines are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_journal_lines_delete
+      BEFORE DELETE ON journal_lines
+      BEGIN
+        SELECT RAISE(ABORT, 'posted journal lines are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_inventory_movements_update
+      BEFORE UPDATE ON inventory_movements
+      BEGIN
+        SELECT RAISE(ABORT, 'inventory movements are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_inventory_movements_delete
+      BEFORE DELETE ON inventory_movements
+      BEGIN
+        SELECT RAISE(ABORT, 'inventory movements are immutable');
+      END
+    """);
   }
 
   static Future<void> _seedAccounts(DatabaseExecutor db) async {
@@ -336,10 +379,13 @@ class AppDatabase {
       // Initial quantity is recorded exactly once as opening stock.
       if (category == 'products') {
         final quantity = _number(item['موجودی']);
+        final unitCost = _number(
+          item['بهای تمام‌شده هر واحد'] ?? item['قیمت خرید هر واحد'],
+        ).round();
+        if (quantity < 0 || unitCost < 0) {
+          throw ArgumentError('موجودی و بهای تمام‌شده کالا نمی‌تواند منفی باشد');
+        }
         if (quantity > 0) {
-          final unitCost = _number(
-            item['بهای تمام‌شده هر واحد'] ?? item['قیمت خرید هر واحد'],
-          ).round();
           final payload = jsonEncode({
             'productId': id,
             'type': 'opening_balance',
