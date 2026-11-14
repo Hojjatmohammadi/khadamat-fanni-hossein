@@ -426,6 +426,88 @@ class AppDatabaseSchema {
   /// source unique index; original JSON documents remain unchanged.
   static Future<void> migrateHistoricalJournals(DatabaseExecutor db) async {
     await AccountingEngine.ensureDefaultAccounts(db);
+    // Reconcile normalized on-hand quantities with the movements available
+    // before this migration. The difference is a dated opening stock movement.
+    final stockProducts = await db.query(
+      'products',
+      columns: ['id', 'quantity', 'purchase_price', 'created_at'],
+      orderBy: 'id ASC',
+    );
+    for (final product in stockProducts) {
+      final productId = product['id'] as int;
+      final currentQuantity = (product['quantity'] as num).toDouble();
+      final movementRows = await db.rawQuery(
+        'SELECT COALESCE(SUM(quantity_delta), 0) AS moved FROM stock_movements WHERE product_id = ?',
+        [productId],
+      );
+      final movedQuantity = (movementRows.first['moved'] as num).toDouble();
+      final openingQuantity = currentQuantity - movedQuantity;
+      if (openingQuantity.abs() <= 0.000001) continue;
+      final firstMovement = await db.query(
+        'stock_movements',
+        columns: ['occurred_at'],
+        where: 'product_id = ?',
+        whereArgs: [productId],
+        orderBy: 'occurred_at ASC, id ASC',
+        limit: 1,
+      );
+      final firstDate = firstMovement.isEmpty
+          ? null : DateTime.tryParse((firstMovement.first['occurred_at'] ?? '').toString());
+      final createdAt = DateTime.tryParse((product['created_at'] ?? '').toString());
+      final openingDate = firstDate != null
+          ? firstDate.subtract(const Duration(microseconds: 1))
+          : createdAt ?? DateTime.now();
+      final unitCost = (product['purchase_price'] as num).toDouble();
+      final openingValue = openingQuantity.abs() * unitCost;
+      await db.insert('stock_movements', {
+        'product_id': productId,
+        'movement_type': 'opening_balance',
+        'quantity_delta': openingQuantity,
+        'unit_cost': unitCost,
+        'total_cost': openingValue,
+        'reference_type': 'legacy_opening_balance',
+        'reference_id': productId.toString(),
+        'occurred_at': openingDate.toIso8601String(),
+        'notes': 'مانده افتتاحیه مهاجرت از نسخه قدیمی',
+      });
+      if (openingValue > 0.0001) {
+        final lines = openingQuantity > 0
+            ? <JournalLineInput>[
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '1200'),
+                  debit: openingValue,
+                  memo: 'موجودی افتتاحیه مهاجرت‌شده',
+                ),
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '3000'),
+                  credit: openingValue,
+                  memo: 'طرف مقابل موجودی افتتاحیه',
+                ),
+              ]
+            : <JournalLineInput>[
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '6000'),
+                  debit: openingValue,
+                  memo: 'کسری موجودی افتتاحیه مهاجرت‌شده',
+                ),
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '1200'),
+                  credit: openingValue,
+                  memo: 'اصلاح مانده موجودی افتتاحیه',
+                ),
+              ];
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: 'MIG-OPEN-STOCK-' + productId.toString(),
+          occurredAt: openingDate,
+          description: 'مانده افتتاحیه کالا ' + productId.toString(),
+          sourceType: 'legacy_stock_opening',
+          sourceId: productId.toString(),
+          lines: lines,
+        );
+      }
+    }
+
     final records = await db.query(
       'records',
       columns: ['id', 'category', 'data', 'created_at'],
@@ -457,7 +539,6 @@ class AppDatabaseSchema {
     for (final record in records) {
       final sourceId = record['id'] as int;
       final category = (record['category'] ?? '').toString();
-      final sourceType = category == 'sales' ? 'sale' : null;
       final data = _decode(record['data']);
       final operation = _text(data, 'نوع عملیات');
       final isPurchase = category == 'operations' && operation == 'خرید کالا';
@@ -486,8 +567,7 @@ class AppDatabaseSchema {
         final total = gross - discount + tax;
         if (gross < 0 || discount < 0 || tax < 0 || received < 0 ||
             deposit < 0 || discount > gross || deposit > total + 0.01) {
-          throw StateError('مبالغ فاکتور قدیمی شماره ' +
-            _text(data, 'شماره فاکتور') + ' معتبر نیست؛ مهاجرت حسابداری متوقف شد.');
+          continue;
         }
         final customerIdValue = int.tryParse(_text(data, 'شناسه مشتری'));
         final method = _text(data, 'روش پرداخت');
@@ -555,8 +635,7 @@ class AppDatabaseSchema {
         final total = _number(data, 'مبلغ');
         final paid = _number(data, 'مبلغ پرداخت‌شده');
         if (total <= 0 || paid < 0 || paid > total + 0.01) {
-          throw StateError('مبلغ خرید قدیمی شماره ' + sourceId.toString() +
-            ' معتبر نیست؛ مهاجرت حسابداری متوقف شد.');
+          continue;
         }
         final supplierName = _text(data, 'نام شخص');
         final supplierIdValue = int.tryParse(_text(data, 'شناسه فروشنده')) ??
