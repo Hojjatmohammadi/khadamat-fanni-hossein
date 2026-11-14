@@ -354,7 +354,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 9,
+      version: 10,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -397,6 +397,9 @@ class DemoStore {
         }
         if (oldVersion < 9) {
           await AppDatabaseSchema.migrateSupplierPartyIds(db);
+        }
+        if (oldVersion < 10) {
+          await AppDatabaseSchema.ensureCheckSourceColumns(db);
         }
       },
     );
@@ -785,6 +788,8 @@ class DemoStore {
         dueDate: due,
         bankName: item['بانک چک'] ?? '',
         notes: 'دریافت وجه در عملیات ' + recordId.toString(),
+        sourceType: 'operation',
+        sourceId: recordId.toString(),
       );
     } else if (isPayment && method == 'چک') {
       final due = DateTime.tryParse(item['تاریخ سررسید میلادی'] ?? '');
@@ -804,6 +809,8 @@ class DemoStore {
         dueDate: due,
         bankName: item['بانک چک'] ?? '',
         notes: 'پرداخت وجه در عملیات ' + recordId.toString(),
+        sourceType: 'operation',
+        sourceId: recordId.toString(),
       );
     }
 
@@ -1426,6 +1433,8 @@ class DemoStore {
           dueDate: dueDate,
           bankName: operation['بانک چک'] ?? '',
           notes: 'پرداخت بابت خرید کالا از ' + supplier,
+          sourceType: 'purchase',
+          sourceId: operationId.toString(),
         );
       }
 
