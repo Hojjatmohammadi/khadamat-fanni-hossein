@@ -114,4 +114,81 @@ void main() {
     expect(trial.firstWhere((r) => r['account_code'] == '6100')['total_debit'], 0);
     expect(trial.firstWhere((r) => r['account_code'] == '6200')['total_debit'], 2000);
   });
+
+  test('bank reconciliation compares statement with same-day book balance and is immutable', () async {
+    await accounting.postJournalEntry(const JournalEntryDraft(
+      entryDate: '2026-11-14',
+      description: 'واریز افتتاحیه بانک',
+      idempotencyKey: 'bank-opening-001',
+      lines: [
+        JournalLineDraft(accountCode: '1010', debit: 1000000),
+        JournalLineDraft(accountCode: '3000', credit: 1000000),
+      ],
+    ));
+    final matching = await accounting.createBankReconciliation(
+      accountCode: '1010',
+      statementDate: '2026-11-14',
+      statementBalance: 1000000,
+      note: 'صورت‌حساب آبان',
+      idempotencyKey: 'reconcile-bank-001',
+    );
+    final duplicate = await accounting.createBankReconciliation(
+      accountCode: '1010',
+      statementDate: '2026-11-14',
+      statementBalance: 1000000,
+      note: 'صورت‌حساب آبان',
+      idempotencyKey: 'reconcile-bank-001',
+    );
+    expect(duplicate, matching);
+    final rows = await accounting.getBankReconciliations(accountCode: '1010');
+    expect(rows, hasLength(1));
+    expect(rows.single['book_balance'], 1000000);
+    expect(rows.single['difference'], 0);
+
+    final db = await database.database;
+    expect(
+      () => db.update('bank_reconciliations', {'note': 'تغییر غیرمجاز'},
+        where: 'id = ?', whereArgs: [matching]),
+      throwsA(anything),
+    );
+  });
+
+  test('bank reconciliation reports positive and negative differences', () async {
+    await accounting.postJournalEntry(const JournalEntryDraft(
+      entryDate: '2026-11-14',
+      description: 'واریز بانک',
+      idempotencyKey: 'bank-opening-002',
+      lines: [
+        JournalLineDraft(accountCode: '1010', debit: 500000),
+        JournalLineDraft(accountCode: '3000', credit: 500000),
+      ],
+    ));
+    final id = await accounting.createBankReconciliation(
+      accountCode: '1010',
+      statementDate: '2026-11-14',
+      statementBalance: 450000,
+      idempotencyKey: 'reconcile-bank-002',
+    );
+    final row = (await accounting.getBankReconciliations()).singleWhere((r) => r['id'] == id);
+    expect(row['book_balance'], 500000);
+    expect(row['difference'], -50000);
+  });
+
+  test('bank reconciliation rejects invalid accounts, dates and negative balances', () async {
+    Future<int> save({
+      String account = '1010',
+      String date = '2026-11-14',
+      int balance = 100,
+    }) => accounting.createBankReconciliation(
+      accountCode: account,
+      statementDate: date,
+      statementBalance: balance,
+      idempotencyKey: 'invalid-reconcile-$account-$date-$balance',
+    );
+
+    await expectLater(save(account: '1100'), throwsArgumentError);
+    await expectLater(save(date: 'not-a-date'), throwsArgumentError);
+    await expectLater(save(balance: -1), throwsArgumentError);
+  });
+
 }
