@@ -335,8 +335,7 @@ class AppDatabase {
         source_category TEXT,
         source_id TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE (party_type, normalized_name)
+        updated_at TEXT NOT NULL
       )
     ''');
 
