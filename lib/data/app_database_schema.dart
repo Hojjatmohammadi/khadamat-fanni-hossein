@@ -1664,6 +1664,46 @@ class AppDatabaseSchema {
         );
       }
 
+      final linkedRepairIdRaw = _text(data, 'پذیرش تعمیر مرتبط').trim();
+      var linkedRepairWageToClear = 0.0;
+      if (linkedRepairIdRaw.isNotEmpty) {
+        final linkedRepairSourceId = int.tryParse(linkedRepairIdRaw);
+        if (linkedRepairSourceId == null) {
+          throw StateError('شناسه پذیرش تعمیر مرتبط در فاکتور معتبر نیست.');
+        }
+        final linkedRepairRows = await db.query(
+          'repairs',
+          columns: ['customer_id', 'labor_cost'],
+          where: 'legacy_source_id = ?',
+          whereArgs: [linkedRepairSourceId],
+          limit: 1,
+        );
+        if (linkedRepairRows.isEmpty) {
+          throw StateError('پذیرش تعمیر مرتبط با فاکتور پیدا نشد.');
+        }
+        final repairCustomerId = linkedRepairRows.first['customer_id'] as int?;
+        final repairWage = (linkedRepairRows.first['labor_cost'] as num).toDouble();
+        if (repairWage > 0.01) {
+          if (customerIdValue == null || repairCustomerId != customerIdValue) {
+            throw StateError('پذیرش تعمیر و فاکتور به پرونده مشتری یکسان متصل نیستند.');
+          }
+          if (serviceRevenue + 0.01 < repairWage) {
+            throw StateError('جمع ردیف‌های خدمت فاکتور باید حداقل به اندازه اجرت پذیرش تعمیر باشد.');
+          }
+          final repairJournal = await db.query(
+            'journal_entries',
+            columns: ['id'],
+            where: "source_type = 'repair' AND source_id = ?",
+            whereArgs: [linkedRepairSourceId.toString()],
+            limit: 1,
+          );
+          if (repairJournal.isEmpty) {
+            throw StateError('سند اجرت پذیرش تعمیر در دفتر کل پیدا نشد؛ فاکتور صادر نشد.');
+          }
+          linkedRepairWageToClear = repairWage;
+        }
+      }
+
       final lines = <JournalLineInput>[];
       if (received > 0) {
         final method = _text(data, 'روش پرداخت');
@@ -1713,11 +1753,22 @@ class AppDatabaseSchema {
           memo: 'فروش قطعات فاکتور ' + invoiceNumber,
         ));
       }
-      if (serviceRevenue > 0) {
+      final newlyRecognizedServiceRevenue =
+          serviceRevenue - linkedRepairWageToClear;
+      if (newlyRecognizedServiceRevenue > 0.01) {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(db, '4010'),
-          credit: serviceRevenue,
-          memo: 'درآمد خدمات و اجرت فاکتور ' + invoiceNumber,
+          credit: newlyRecognizedServiceRevenue,
+          memo: 'درآمد خدمات جدید فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (linkedRepairWageToClear > 0.01) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1100'),
+          credit: linkedRepairWageToClear,
+          partyType: 'customer',
+          partyId: customerIdValue,
+          memo: 'تسویه دریافتنی اجرت پذیرش تعمیر ' + _text(data, 'پذیرش تعمیر مرتبط'),
         ));
       }
       if (discount > 0) {
