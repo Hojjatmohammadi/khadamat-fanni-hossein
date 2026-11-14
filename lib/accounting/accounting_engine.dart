@@ -26,14 +26,18 @@ class AccountingEngine {
   static const defaultAccounts = <Map<String, String>>[
     {'code':'1000','name':'صندوق','type':'asset'},
     {'code':'1010','name':'بانک','type':'asset'},
+    {'code':'1020','name':'چک‌های دریافتنی','type':'asset'},
     {'code':'1100','name':'حساب‌های دریافتنی مشتریان','type':'asset'},
     {'code':'1200','name':'موجودی کالا','type':'asset'},
     {'code':'2000','name':'حساب‌های پرداختنی فروشندگان','type':'liability'},
-    {'code':'2100','name':'چک‌های پرداختنی','type':'liability'},
+    {'code':'2010','name':'اعتبار و بستانکاری مشتریان','type':'liability'},
+    {'code':'2110','name':'چک‌های پرداختنی','type':'liability'},
     {'code':'3000','name':'سرمایه','type':'equity'},
     {'code':'4000','name':'فروش کالا','type':'income'},
     {'code':'4010','name':'درآمد اجرت تعمیر','type':'income'},
     {'code':'4100','name':'برگشت از فروش','type':'income'},
+    {'code':'4110','name':'تخفیفات فروش','type':'income'},
+    {'code':'2200','name':'مالیات بر ارزش افزوده پرداختنی','type':'liability'},
     {'code':'5000','name':'بهای تمام‌شده کالای فروش‌رفته','type':'expense'},
     {'code':'6000','name':'هزینه‌های جاری','type':'expense'},
     {'code':'6010','name':'هزینه حمل و خرید','type':'expense'},
@@ -121,6 +125,34 @@ class AccountingEngine {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS checks_due_status_idx ON checks_register(due_date, status)');
     await db.execute('CREATE INDEX IF NOT EXISTS checks_party_idx ON checks_register(party_type, party_id)');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS checks_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        check_id INTEGER NOT NULL,
+        old_status TEXT NOT NULL DEFAULT '',
+        new_status TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY(check_id) REFERENCES checks_register(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS checks_history_check_idx ON checks_history(check_id, occurred_at, id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS document_returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        original_category TEXT NOT NULL CHECK(original_category IN ('sales','operations')),
+        original_source_id INTEGER NOT NULL,
+        product_id INTEGER,
+        quantity REAL NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+        amount REAL NOT NULL CHECK(amount > 0),
+        reason TEXT NOT NULL DEFAULT '',
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS document_returns_source_idx ON document_returns(original_category, original_source_id, occurred_at)');
   }
 
   static Future<void> ensureDefaultAccounts(DatabaseExecutor db) async {
@@ -135,6 +167,12 @@ class AccountingEngine {
 
   /// Posts a permanent double-entry document. Source identity prevents the
   /// same invoice/payment from being posted twice.
+  static Future<int> accountId(DatabaseExecutor db, String code) async {
+    final rows = await db.query('accounts', columns: ['id'], where: 'code = ? AND is_active = 1', whereArgs: [code], limit: 1);
+    if (rows.isEmpty) throw StateError('حساب با کد ' + code + ' در دفتر کل تعریف نشده است.');
+    return rows.first['id'] as int;
+  }
+
   static Future<int> postJournal(
     Database db, {
     required String entryNumber,
@@ -144,14 +182,39 @@ class AccountingEngine {
     String? sourceId,
     required List<JournalLineInput> lines,
     int? reversalOf,
+  }) {
+    return db.transaction((txn) => postJournalInTransaction(
+      txn,
+      entryNumber: entryNumber,
+      occurredAt: occurredAt,
+      description: description,
+      sourceType: sourceType,
+      sourceId: sourceId,
+      lines: lines,
+      reversalOf: reversalOf,
+    ));
+  }
+
+  /// Posts a balanced immutable entry inside an existing SQLite transaction.
+  /// This lets stock, invoice and ledger changes either all commit or all roll back.
+  static Future<int> postJournalInTransaction(
+    DatabaseExecutor db, {
+    required String entryNumber,
+    required DateTime occurredAt,
+    required String description,
+    required String sourceType,
+    String? sourceId,
+    required List<JournalLineInput> lines,
+    int? reversalOf,
   }) async {
-    if (entryNumber.trim().isEmpty || lines.length < 2) {
-      throw ArgumentError('شماره سند و حداقل دو ردیف حسابداری لازم است.');
+    if (entryNumber.trim().isEmpty || sourceType.trim().isEmpty || lines.length < 2) {
+      throw ArgumentError('شماره سند، نوع سند و حداقل دو ردیف حسابداری لازم است.');
     }
     var debitTotal = 0.0;
     var creditTotal = 0.0;
     for (final line in lines) {
-      if (line.debit < 0 || line.credit < 0 ||
+      if (!line.debit.isFinite || !line.credit.isFinite ||
+          line.debit < 0 || line.credit < 0 ||
           (line.debit > 0 && line.credit > 0) ||
           (line.debit == 0 && line.credit == 0)) {
         throw ArgumentError('مبلغ بدهکار یا بستانکار هر ردیف نامعتبر است.');
@@ -162,36 +225,34 @@ class AccountingEngine {
     if ((debitTotal - creditTotal).abs() > 0.01) {
       throw StateError('سند حسابداری تراز نیست؛ جمع بدهکار و بستانکار باید برابر باشد.');
     }
-    return db.transaction((txn) async {
-      for (final line in lines) {
-        final account = await txn.query('accounts', columns: ['id','is_active'],
-          where: 'id = ?', whereArgs: [line.accountId], limit: 1);
-        if (account.isEmpty || account.first['is_active'] != 1) {
-          throw StateError('حساب انتخاب‌شده وجود ندارد یا غیرفعال است.');
-        }
+    for (final line in lines) {
+      final account = await db.query('accounts', columns: ['id','is_active'],
+        where: 'id = ?', whereArgs: [line.accountId], limit: 1);
+      if (account.isEmpty || account.first['is_active'] != 1) {
+        throw StateError('حساب انتخاب‌شده وجود ندارد یا غیرفعال است.');
       }
-      final entryId = await txn.insert('journal_entries', {
-        'entry_number': entryNumber.trim(),
-        'occurred_at': occurredAt.toIso8601String(),
-        'description': description.trim(),
-        'source_type': sourceType,
-        'source_id': sourceId,
-        'reversal_of': reversalOf,
-        'created_at': DateTime.now().toIso8601String(),
-      });
-      for (final line in lines) {
-        await txn.insert('journal_lines', {
-          'entry_id': entryId,
-          'account_id': line.accountId,
-          'debit': line.debit,
-          'credit': line.credit,
-          'party_type': line.partyType,
-          'party_id': line.partyId,
-          'memo': line.memo,
-        });
-      }
-      return entryId;
+    }
+    final entryId = await db.insert('journal_entries', {
+      'entry_number': entryNumber.trim(),
+      'occurred_at': occurredAt.toIso8601String(),
+      'description': description.trim(),
+      'source_type': sourceType,
+      'source_id': sourceId,
+      'reversal_of': reversalOf,
+      'created_at': DateTime.now().toIso8601String(),
     });
+    for (final line in lines) {
+      await db.insert('journal_lines', {
+        'entry_id': entryId,
+        'account_id': line.accountId,
+        'debit': line.debit,
+        'credit': line.credit,
+        'party_type': line.partyType,
+        'party_id': line.partyId,
+        'memo': line.memo,
+      });
+    }
+    return entryId;
   }
 
   /// Returns chronological party activity with a running debit-minus-credit balance.
@@ -249,33 +310,59 @@ class AccountingEngine {
     String notes = '',
     bool allowNegative = false,
     DateTime? occurredAt,
+  }) {
+    return db.transaction((txn) => recordStockMovementInTransaction(
+      txn,
+      productId: productId,
+      movementType: movementType,
+      quantityDelta: quantityDelta,
+      unitCost: unitCost,
+      referenceType: referenceType,
+      referenceId: referenceId,
+      notes: notes,
+      allowNegative: allowNegative,
+      occurredAt: occurredAt,
+    ));
+  }
+
+  /// Applies a stock movement inside the caller's transaction.
+  static Future<int> recordStockMovementInTransaction(
+    DatabaseExecutor txn, {
+    required int productId,
+    required String movementType,
+    required double quantityDelta,
+    double unitCost = 0,
+    String referenceType = '',
+    String? referenceId,
+    String notes = '',
+    bool allowNegative = false,
+    DateTime? occurredAt,
   }) async {
-    if (quantityDelta == 0 || unitCost < 0) {
+    if (!quantityDelta.isFinite || !unitCost.isFinite ||
+        quantityDelta == 0 || unitCost < 0) {
       throw ArgumentError('مقدار گردش باید غیرصفر و بهای واحد نامنفی باشد.');
     }
-    return db.transaction((txn) async {
-      final products = await txn.query('products', columns: ['quantity'],
-        where: 'id = ?', whereArgs: [productId], limit: 1);
-      if (products.isEmpty) throw StateError('کالای موردنظر پیدا نشد.');
-      final current = (products.first['quantity'] as num).toDouble();
-      final next = current + quantityDelta;
-      if (!allowNegative && next < -0.000001) {
-        throw StateError('موجودی کافی نیست؛ ثبت خروجی بیشتر از موجودی مجاز نیست.');
-      }
-      final id = await txn.insert('stock_movements', {
-        'product_id': productId,
-        'movement_type': movementType,
-        'quantity_delta': quantityDelta,
-        'unit_cost': unitCost,
-        'total_cost': quantityDelta.abs() * unitCost,
-        'reference_type': referenceType,
-        'reference_id': referenceId,
-        'occurred_at': (occurredAt ?? DateTime.now()).toIso8601String(),
-        'notes': notes,
-      });
-      await txn.update('products', {'quantity': next}, where: 'id = ?', whereArgs: [productId]);
-      return id;
+    final products = await txn.query('products', columns: ['quantity'],
+      where: 'id = ?', whereArgs: [productId], limit: 1);
+    if (products.isEmpty) throw StateError('کالای موردنظر پیدا نشد.');
+    final current = (products.first['quantity'] as num).toDouble();
+    final next = current + quantityDelta;
+    if (!allowNegative && next < -0.000001) {
+      throw StateError('موجودی کافی نیست؛ ثبت خروجی بیشتر از موجودی مجاز نیست.');
+    }
+    final id = await txn.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': movementType,
+      'quantity_delta': quantityDelta,
+      'unit_cost': unitCost,
+      'total_cost': quantityDelta.abs() * unitCost,
+      'reference_type': referenceType,
+      'reference_id': referenceId,
+      'occurred_at': (occurredAt ?? DateTime.now()).toIso8601String(),
+      'notes': notes,
     });
+    await txn.update('products', {'quantity': next}, where: 'id = ?', whereArgs: [productId]);
+    return id;
   }
 
   static Future<List<Map<String, Object?>>> stockCardex(
