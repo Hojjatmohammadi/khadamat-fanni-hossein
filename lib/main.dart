@@ -1151,6 +1151,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       if (!mounted) return;
       setState(() {
         _lines.clear();
+        _documentDate = DateTime.now();
         _partyController.clear();
         _selectedPartyId = null;
         _discountController.text = '0';
