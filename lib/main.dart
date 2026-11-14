@@ -36,6 +36,14 @@ class AppSettings {
   static late SharedPreferences _prefs;
   static final revision = ValueNotifier<int>(0);
   static String storeName = 'خدمات فنی حسین';
+  static String appName = 'خدمات فنی حسین';
+  static String currency = 'تومان';
+  static double vatPercent = 0;
+  static double defaultDiscountPercent = 0;
+  static String invoicePrefix = 'HOS';
+  static int nextInvoiceNumber = 1;
+  static bool pinEnabled = false;
+  static String pinCode = '';
   static String managerName = '';
   static String phone = '';
   static String address = '';
@@ -53,6 +61,14 @@ class AppSettings {
   static Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     storeName = _prefs.getString('store_name') ?? storeName;
+    appName = _prefs.getString('app_name') ?? appName;
+    currency = _prefs.getString('currency') ?? 'تومان';
+    vatPercent = _prefs.getDouble('vat_percent') ?? 0;
+    defaultDiscountPercent = _prefs.getDouble('default_discount_percent') ?? 0;
+    invoicePrefix = _prefs.getString('invoice_prefix') ?? 'HOS';
+    nextInvoiceNumber = _prefs.getInt('next_invoice_number') ?? 1;
+    pinEnabled = _prefs.getBool('pin_enabled') ?? false;
+    pinCode = _prefs.getString('pin_code') ?? '';
     managerName = _prefs.getString('manager_name') ?? '';
     phone = _prefs.getString('store_phone') ?? '';
     address = _prefs.getString('store_address') ?? '';
@@ -100,6 +116,14 @@ class AppSettings {
     await _prefs.setString('theme_mode', themeMode);
     await _prefs.setString('drawer_image', drawerImage);
     await _prefs.setDouble('font_scale', fontScale);
+    await _prefs.setString('app_name', appName);
+    await _prefs.setString('currency', currency);
+    await _prefs.setDouble('vat_percent', vatPercent);
+    await _prefs.setDouble('default_discount_percent', defaultDiscountPercent);
+    await _prefs.setString('invoice_prefix', invoicePrefix);
+    await _prefs.setInt('next_invoice_number', nextInvoiceNumber);
+    await _prefs.setBool('pin_enabled', pinEnabled);
+    await _prefs.setString('pin_code', pinCode);
     revision.value++;
   }
 
@@ -127,6 +151,14 @@ class AppSettings {
 
   static Future<void> restoreBackup(Map<String, dynamic> data) async {
     if (data['store_name'] is String) { storeName = data['store_name']; await _prefs.setString('store_name', storeName); }
+    if (data['app_name'] is String) { appName = data['app_name']; await _prefs.setString('app_name', appName); }
+    if (data['currency'] is String) { currency = data['currency']; await _prefs.setString('currency', currency); }
+    if (data['vat_percent'] is num) { vatPercent = (data['vat_percent'] as num).toDouble(); await _prefs.setDouble('vat_percent', vatPercent); }
+    if (data['default_discount_percent'] is num) { defaultDiscountPercent = (data['default_discount_percent'] as num).toDouble(); await _prefs.setDouble('default_discount_percent', defaultDiscountPercent); }
+    if (data['invoice_prefix'] is String) { invoicePrefix = data['invoice_prefix']; await _prefs.setString('invoice_prefix', invoicePrefix); }
+    if (data['next_invoice_number'] is num) { nextInvoiceNumber = (data['next_invoice_number'] as num).toInt(); await _prefs.setInt('next_invoice_number', nextInvoiceNumber); }
+    if (data['pin_enabled'] is bool) { pinEnabled = data['pin_enabled']; await _prefs.setBool('pin_enabled', pinEnabled); }
+    if (data['pin_code'] is String) { pinCode = data['pin_code']; await _prefs.setString('pin_code', pinCode); }
     if (data['manager_name'] is String) { managerName = data['manager_name']; await _prefs.setString('manager_name', managerName); }
     if (data['phone'] is String) { phone = data['phone']; await _prefs.setString('store_phone', phone); }
     if (data['address'] is String) { address = data['address']; await _prefs.setString('store_address', address); }
@@ -191,7 +223,7 @@ class HoseinApp extends StatelessWidget {
               : yellow;
           return MaterialApp(
             debugShowCheckedModeBanner: false,
-            title: 'خدمات فنی حسین',
+            title: AppSettings.appName,
             locale: const Locale('fa', 'IR'),
             supportedLocales: const [Locale('fa', 'IR'), Locale('en', 'US')],
             localizationsDelegates: const [
@@ -373,6 +405,19 @@ class DemoStore {
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
     int? newRecordId;
+    String? assignedInvoiceNumber;
+    if (category == 'sales') {
+      assignedInvoiceNumber = '${AppSettings.invoicePrefix}-${AppSettings.nextInvoiceNumber.toString().padLeft(5, '0')}';
+      item = <String, String>{...item,
+        'شماره فاکتور': assignedInvoiceNumber,
+        'نام فروشگاه در زمان صدور': AppSettings.storeName,
+        'نام صاحب فروشگاه در زمان صدور': AppSettings.managerName,
+        'تلفن فروشگاه در زمان صدور': AppSettings.phone,
+        'نشانی فروشگاه در زمان صدور': AppSettings.address,
+        'کد پستی در زمان صدور': AppSettings.postalCode,
+        'واحد پول در زمان صدور': AppSettings.currency,
+      };
+    }
     await _db!.transaction((txn) async {
       final recordId = await txn.insert('records', {
         'category': category,
@@ -386,7 +431,7 @@ class DemoStore {
       if (category == 'sales') {
         await txn.insert('invoice_archive', {
           'legacy_source_id': recordId,
-          'invoice_number': 'HOS-$recordId',
+          'invoice_number': assignedInvoiceNumber ?? 'HOS-$recordId',
           'snapshot_json': jsonEncode(item),
           'archived_at': createdAt,
         });
@@ -402,7 +447,9 @@ class DemoStore {
     };
     target.add(Map<String, String>.from(item));
     if (category == 'sales' && newRecordId != null) {
-      archivedSales.add({...item, 'شماره فاکتور': 'HOS-$newRecordId'});
+      AppSettings.nextInvoiceNumber++;
+      await AppSettings._prefs.setInt('next_invoice_number', AppSettings.nextInvoiceNumber);
+      archivedSales.add(Map<String, String>.from(item));
     }
   }
 }
@@ -2483,6 +2530,14 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
     final settingsData = <String, Object?>{
       'store_name': AppSettings.storeName,
+      'app_name': AppSettings.appName,
+      'currency': AppSettings.currency,
+      'vat_percent': AppSettings.vatPercent,
+      'default_discount_percent': AppSettings.defaultDiscountPercent,
+      'invoice_prefix': AppSettings.invoicePrefix,
+      'next_invoice_number': AppSettings.nextInvoiceNumber,
+      'pin_enabled': AppSettings.pinEnabled,
+      'pin_code': AppSettings.pinCode,
       'manager_name': AppSettings.managerName,
       'phone': AppSettings.phone,
       'address': AppSettings.address,
@@ -2688,10 +2743,10 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       child: DefaultTextStyle(
         style: const TextStyle(color: Colors.black, fontSize: 15),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
+          Text(item['نام فروشگاه در زمان صدور'] ?? AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
           const SizedBox(height: 5),
-          if (AppSettings.address.isNotEmpty) Text(AppSettings.address, textAlign: TextAlign.center),
-          if (AppSettings.phone.isNotEmpty) Text('تلفن: ${AppSettings.phone}', textAlign: TextAlign.center),
+          if ((item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address).isNotEmpty) Text(item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address, textAlign: TextAlign.center),
+          if ((item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone).isNotEmpty) Text('تلفن: ${item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone}', textAlign: TextAlign.center),
           const Divider(color: Colors.black, height: 28),
           Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
@@ -2717,7 +2772,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(title),
-      Text('${value.toStringAsFixed(0)} تومان', style: const TextStyle(fontWeight: FontWeight.bold)),
+      Text('${value.toStringAsFixed(0)} ${item['واحد پول در زمان صدور'] ?? AppSettings.currency}', style: const TextStyle(fontWeight: FontWeight.bold)),
     ]),
   );
 
