@@ -160,6 +160,58 @@ void main() {
     expect(returnDocuments.single['counterparty_name'], 'فروشنده دفتر');
   });
 
+  test('party ledger pages preserve opening and closing balances', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'قطعه صفحه‌بندی دفتر',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+    const customerId = 'customer-ledger-pages';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری صفحه‌بندی',
+      preferredId: customerId,
+    ));
+    await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-10',
+      counterpartyName: 'مشتری صفحه‌بندی',
+      counterpartyId: customerId,
+      idempotencyKey: 'ledger-page-sale-1',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1000)],
+    ));
+    await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-12',
+      counterpartyName: 'مشتری صفحه‌بندی',
+      counterpartyId: customerId,
+      idempotencyKey: 'ledger-page-sale-2',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 2000)],
+    ));
+
+    final first = await parties.getPartyStatementPage(
+      customerId,
+      fromDate: '2026-11-11',
+      toDate: '2026-11-12',
+      limit: 1,
+    );
+    expect(first['opening_balance'], 1000);
+    expect(first['closing_balance'], 3000);
+    expect(first['total_lines'], 2);
+    expect(first['lines'], hasLength(1));
+    expect(first['has_more'], isTrue);
+    expect((first['lines'] as List<Map<String, Object?>>).single['running_balance'], 3000);
+
+    final second = await parties.getPartyStatementPage(
+      customerId,
+      fromDate: '2026-11-11',
+      toDate: '2026-11-12',
+      limit: 1,
+      offset: 1,
+    );
+    expect(second['has_more'], isFalse);
+    expect(second['offset'], 1);
+    expect(second['closing_balance'], 3000);
+  });
+
   test('a linked settlement cannot be posted to a different party', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه کنترل طرف حساب',
