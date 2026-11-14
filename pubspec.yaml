@@ -1,4 +1,3 @@
-
 name: khadamat_fanni_hosein
 description: نرم افزار مدیریت خدمات فنی حسین
 publish_to: 'none'
@@ -25,12 +24,8 @@ dependencies:
   printing: ^5.14.2
   excel: ^4.0.6
 
-  intl: ^0.20.2
   share_plus: ^10.1.4
   file_picker: ^8.1.7
-  permission_handler: ^11.4.0
-
-  shared_preferences: ^2.5.3
   flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
