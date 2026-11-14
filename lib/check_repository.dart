@@ -286,7 +286,8 @@ class CheckRepository {
           ),
         );
       } else if (newStatus == 'bounced' || newStatus == 'cancelled') {
-        reversalJournalId = await _accounting.reverseJournalEntry(
+        reversalJournalId = await _accounting.reverseJournalEntryInTransaction(
+          txn,
           journalEntryId: check['acceptance_journal_id'] as int,
           reversalDate: date,
           reason: reason,
