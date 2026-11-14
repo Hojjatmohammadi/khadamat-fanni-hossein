@@ -8,7 +8,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -62,7 +62,6 @@ class AppDatabase {
         await _createCommerceSchema(db);
         await _createPartyAndCheckSchema(db);
         await _createBankReconciliationSchema(db);
-        await _createSyncSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -90,8 +89,11 @@ class AppDatabase {
         if (oldVersion < 7) {
           await _createBankReconciliationSchema(db);
         }
-        if (oldVersion < 8) {
-          await _createSyncSchema(db);
+        if (oldVersion < 9) {
+          // This app is intentionally single-device and offline-first. Remove
+          // the unused multi-device synchronization tables from older builds.
+          await db.execute('DROP TABLE IF EXISTS sync_conflicts');
+          await db.execute('DROP TABLE IF EXISTS sync_outbox');
         }
       },
     );
@@ -493,54 +495,6 @@ class AppDatabase {
         SELECT RAISE(ABORT, 'bank reconciliation snapshots are immutable');
       END
     """);
-  }
-
-  static Future<void> _createSyncSchema(DatabaseExecutor db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sync_outbox (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id TEXT NOT NULL UNIQUE,
-        device_id TEXT NOT NULL,
-        entity_type TEXT NOT NULL,
-        entity_id TEXT NOT NULL,
-        operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
-        payload_json TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending'
-          CHECK (status IN ('pending', 'synced', 'conflict')),
-        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
-        last_error TEXT,
-        created_at TEXT NOT NULL,
-        synced_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_sync_outbox_pending
-      ON sync_outbox(status, created_at, id)
-    ''');
-    await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity
-      ON sync_outbox(entity_type, entity_id, created_at)
-    ''');
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sync_conflicts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        conflict_key TEXT NOT NULL UNIQUE,
-        event_id TEXT NOT NULL,
-        local_payload_json TEXT NOT NULL,
-        remote_payload_json TEXT NOT NULL,
-        resolution TEXT CHECK (
-          resolution IS NULL OR resolution IN ('keep_local', 'keep_remote', 'manual')
-        ),
-        resolved_payload_json TEXT,
-        created_at TEXT NOT NULL,
-        resolved_at TEXT,
-        FOREIGN KEY (event_id) REFERENCES sync_outbox(event_id) ON DELETE RESTRICT
-      )
-    ''');
-    await db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_sync_conflicts_unresolved
-      ON sync_conflicts(resolved_at, created_at)
-    ''');
   }
 
   static Future<void> _migrateParties(DatabaseExecutor db) async {
