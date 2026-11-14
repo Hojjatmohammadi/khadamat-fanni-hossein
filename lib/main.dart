@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
+import 'backup_service.dart';
+import 'backup_page.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -50,6 +52,7 @@ class DemoStore {
   static final AccountingRepository accounting = AccountingRepository(_database);
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
+  static final BackupService backups = BackupService(_database);
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
@@ -144,7 +147,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -217,6 +220,7 @@ class _HomePageState extends State<HomePage> {
       ),
       const ReportsPage(),
       FinancialManagementPage(repository: DemoStore.accounting),
+      BackupPage(service: DemoStore.backups),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -259,7 +263,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book, Icons.backup][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
