@@ -51,12 +51,12 @@ void main() {
     );
 
     await trades.recordCustomerReceipt(
-      const PartyPaymentDraft(
+      PartyPaymentDraft(
         documentDate: '2026-11-14',
         counterpartyName: 'مشتری دفتر',
         amount: 1000,
         idempotencyKey: 'ledger-customer-receipt',
-        referenceId: '1',
+        referenceId: saleId.toString(),
       ),
     );
 
@@ -112,12 +112,12 @@ void main() {
     );
 
     await trades.recordSupplierPayment(
-      const PartyPaymentDraft(
+      PartyPaymentDraft(
         documentDate: '2026-11-14',
         counterpartyName: 'فروشنده دفتر',
         amount: 1000,
         idempotencyKey: 'ledger-supplier-payment',
-        referenceId: '1',
+        referenceId: purchaseId.toString(),
       ),
     );
 
