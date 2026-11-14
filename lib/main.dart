@@ -580,6 +580,18 @@ class DemoStore {
         where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(oldItem)], limit: 1);
       if (rows.isEmpty) throw StateError('سند برای ویرایش پیدا نشد.');
       final recordId = rows.first['id'] as int;
+      if (category == 'operations') {
+        final posted = await txn.query(
+          'journal_entries',
+          columns: ['id'],
+          where: 'source_id = ? AND source_type IN (?, ?)',
+          whereArgs: [recordId.toString(), 'operation', 'purchase'],
+          limit: 1,
+        );
+        if (posted.isNotEmpty) {
+          throw StateError('سند مالی ثبت‌شده قابل ویرایش مستقیم نیست؛ برای اصلاح، سند اصلاحی یا برگشت ثبت کنید.');
+        }
+      }
       await txn.update('records', {'data': jsonEncode(newItem)},
         where: 'id = ? AND category = ?', whereArgs: [recordId, category]);
       await AppDatabaseSchema.updateLegacyRecord(txn, category, newItem, recordId);
@@ -600,6 +612,39 @@ class DemoStore {
         final rows = await txn.query('records', columns: ['id'], where: 'category = ? AND data = ?', whereArgs: [category, jsonEncode(item)]);
         for (final row in rows) {
           final id = row['id'] as int;
+          if (category == 'operations') {
+            final posted = await txn.query(
+              'journal_entries',
+              columns: ['id'],
+              where: 'source_id = ? AND source_type IN (?, ?)',
+              whereArgs: [id.toString(), 'operation', 'purchase'],
+              limit: 1,
+            );
+            if (posted.isNotEmpty) {
+              throw StateError('سند مالی ثبت‌شده حذف نمی‌شود؛ برای اصلاح، سند برگشت یا اصلاحی ثبت کنید.');
+            }
+          }
+          if (category == 'products') {
+            final productRows = await txn.query(
+              'products',
+              columns: ['id'],
+              where: 'legacy_source_id = ?',
+              whereArgs: [id],
+              limit: 1,
+            );
+            if (productRows.isNotEmpty) {
+              final movements = await txn.query(
+                'stock_movements',
+                columns: ['id'],
+                where: 'product_id = ?',
+                whereArgs: [productRows.first['id']],
+                limit: 1,
+              );
+              if (movements.isNotEmpty) {
+                throw StateError('کالایی که گردش انبار یا فاکتور دارد حذف نمی‌شود؛ آن را غیرفعال کنید یا موجودی را صفر نگه دارید.');
+              }
+            }
+          }
           if (table != null) await txn.delete(table, where: 'legacy_source_id = ?', whereArgs: [id]);
           await txn.delete('records', where: 'id = ?', whereArgs: [id]);
         }
@@ -3735,9 +3780,17 @@ class _OperationsPageState extends State<OperationsPage> {
     final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x)) && x['نوع عملیات'] != 'خرید کالا').toList();
     if (items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سند خرید از این فهرست حذف نمی‌شود؛ اطلاعات خرید را از بخش انبار اصلاح کنید.'))); return; }
     if (!await _confirmDelete(context, items.length)) return;
-    await DemoStore.delete('operations', items);
-    if (mounted) setState(() => _selected.clear());
-    widget.onChanged();
+    try {
+      await DemoStore.delete('operations', items);
+      if (mounted) setState(() => _selected.clear());
+      widget.onChanged();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حذف سند ناموفق بود: $error')),
+        );
+      }
+    }
   }
 
   @override
