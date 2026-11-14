@@ -874,11 +874,22 @@ class TradeRepository {
             isCustomerReceipt ? 'customer_receipt' : 'supplier_payment',
           ],
         );
+        final returnRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(total_amount), 0) AS returned '
+          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
+          [
+            sourceDocumentId,
+            isCustomerReceipt ? 'customer_return' : 'supplier_return',
+          ],
+        );
         final alreadySettled =
             (source['paid_amount'] as num).toInt() +
             (paymentRows.single['paid'] as num).toInt();
+        final returnedAmount = (returnRows.single['returned'] as num).toInt();
         final outstanding =
-            (source['total_amount'] as num).toInt() - alreadySettled;
+            (source['total_amount'] as num).toInt() -
+            alreadySettled -
+            returnedAmount;
         if (draft.amount > outstanding) {
           throw StateError('مبلغ دریافت یا پرداخت از مانده فاکتور بیشتر است');
         }
@@ -965,10 +976,17 @@ class TradeRepository {
       'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
       [documentId, paymentType],
     );
+    final returnType = type == 'sale' ? 'customer_return' : 'supplier_return';
+    final returns = await db.rawQuery(
+      'SELECT COALESCE(SUM(total_amount), 0) AS returned '
+      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
+      [documentId, returnType],
+    );
     final totalPaid = (document['paid_amount'] as num).toInt() +
         (payments.single['paid'] as num).toInt();
+    final totalReturned = (returns.single['returned'] as num).toInt();
     final total = (document['total_amount'] as num).toInt();
-    return total - totalPaid;
+    return total - totalPaid - totalReturned;
   }
 
   Future<List<Map<String, Object?>>> getDocuments({
