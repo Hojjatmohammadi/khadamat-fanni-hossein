@@ -45,6 +45,19 @@ void main() {
       'بهای تمام‌شده هر واحد': '350',
     });
     expect(await store.getStockOnHand(productId), 12);
+    final db = await store.database;
+    final openingEntries = await db.query('journal_entries');
+    expect(openingEntries, hasLength(1));
+    final openingLines = await db.query(
+      'journal_lines',
+      where: 'journal_entry_id = ?',
+      whereArgs: [openingEntries.single['id']],
+      orderBy: 'line_no ASC',
+    );
+    expect(openingLines[0]['account_code'], '1200');
+    expect(openingLines[0]['debit'], 4200);
+    expect(openingLines[1]['account_code'], '3000');
+    expect(openingLines[1]['credit'], 4200);
   });
 
   test('migrates version 1 records and opening product balances', () async {
@@ -101,6 +114,12 @@ void main() {
     expect(migratedProducts.single['id'], 19);
     final stock = await migrated.getStockOnHand(19);
     expect(stock, 4);
+    final openingEntries = await db.query('journal_entries');
+    expect(openingEntries, hasLength(1));
+    final openingLines = await db.query('journal_lines');
+    expect(openingLines, hasLength(2));
+    expect(openingLines[0]['debit'], 100);
+    expect(openingLines[1]['credit'], 100);
     await migrated.close();
   });
 
@@ -318,7 +337,7 @@ void main() {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه تراکنش اتمی',
       'موجودی': '5',
-      'بهای تمام‌شده هر واحد': '200',
+      'بهای تمام‌شده هر واحد': '0',
     });
 
     await expectLater(
