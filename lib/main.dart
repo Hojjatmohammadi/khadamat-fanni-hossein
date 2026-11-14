@@ -1383,10 +1383,13 @@ class _ProductPageState extends State<ProductPage> {
                               switch (action) {
                                 case 'edit':
                                   editProduct(item);
+                                  break;
                                 case 'history':
                                   viewProductMovements(item);
+                                  break;
                                 case 'count':
                                   adjustProductStock(item);
+                                  break;
                               }
                             },
                             itemBuilder: (context) => const [
