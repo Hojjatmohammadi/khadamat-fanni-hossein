@@ -23,11 +23,45 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:workmanager/workmanager.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 
+const _dailyBackupTask = 'khadamatDailyLocalBackup';
+
+@pragma('vm:entry-point')
+void _backgroundTaskDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    ui.DartPluginRegistrant.ensureInitialized();
+    WidgetsFlutterBinding.ensureInitialized();
+    if (task != _dailyBackupTask) return true;
+    try {
+      await DemoStore.init();
+      await AppSettings.load();
+      await DemoStore.autoBackupIfDue();
+      await DemoStore.database.close();
+      DemoStore._db = null;
+      return true;
+    } catch (_) {
+      try {
+        final db = DemoStore._db;
+        if (db != null && db.isOpen) await db.close();
+        DemoStore._db = null;
+      } catch (_) {}
+      return false;
+    }
+  });
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Workmanager().initialize(_backgroundTaskDispatcher);
+  await Workmanager().registerPeriodicTask(
+    'khadamat-daily-local-backup',
+    _dailyBackupTask,
+    frequency: const Duration(hours: 24),
+    existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+  );
   await DemoStore.init();
   await AppSettings.load();
   await DemoStore.autoBackupIfDue();
@@ -538,6 +572,8 @@ class DemoStore {
         'theme_mode': AppSettings.themeMode,
         'dark_mode': AppSettings.darkMode,
         'drawer_image': AppSettings.drawerImage,
+        'invoice_stamp_image': AppSettings.stampImage,
+        'invoice_signature_image': AppSettings.signatureImage,
         'font_scale': AppSettings.fontScale,
         'product_image_mode': AppSettings.productImageMode,
         'product_groups': AppSettings.productGroups,
