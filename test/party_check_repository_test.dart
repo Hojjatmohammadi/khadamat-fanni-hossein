@@ -85,6 +85,26 @@ void main() {
     );
   });
 
+  test('same-name customers can remain separate registered parties', () async {
+    final first = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        preferredId: 'customer:101',
+        displayName: 'محمد رضایی',
+      ),
+    );
+    final second = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        preferredId: 'customer:102',
+        displayName: 'محمد رضایی',
+      ),
+    );
+    expect(first, 'customer:101');
+    expect(second, 'customer:102');
+    expect((await parties.getParties(partyType: 'customer')).length, 2);
+  });
+
   test('party registration is idempotent and party statement calculates customer balance', () async {
     final partyId = await parties.ensureParty(
       const PartyDraft(
@@ -185,6 +205,33 @@ void main() {
     expect(await checks.getCheckEvents(checkId), hasLength(3));
 
     final db = await store.database;
+    await expectLater(
+      db.update(
+        'check_records',
+        {'bank_name': 'بانک تغییرکرده'},
+        where: 'id = ?',
+        whereArgs: [checkId],
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      db.delete(
+        'check_records',
+        where: 'id = ?',
+        whereArgs: [checkId],
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+    final event = (await checks.getCheckEvents(checkId)).first;
+    await expectLater(
+      db.update(
+        'check_events',
+        {'description': 'ویرایش سابقه'},
+        where: 'id = ?',
+        whereArgs: [event['id']],
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
     final checkAsset = await db.rawQuery(
       "SELECT COALESCE(SUM(debit-credit), 0) AS balance FROM journal_lines WHERE account_code = '1020'",
     );
