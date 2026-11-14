@@ -15,6 +15,7 @@ import 'party_ledger_page.dart';
 import 'checks_page.dart';
 import 'jalali_date_field.dart';
 import 'check_reminder_service.dart';
+import 'product_duplicate_checker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -724,11 +725,90 @@ class _ProductPageState extends State<ProductPage> {
                   item['درصد ارزش افزوده'] = vatIncluded ? vatRate.text : '0';
                   item['جمع بهای تمام‌شده'] = total.toStringAsFixed(0);
                   item['بهای تمام‌شده هر واحد'] = (qty > 0 ? total / qty : 0).toStringAsFixed(0);
-                  DemoStore.add('products', item).then((_) {
-                    if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  }).catchError((error) {
-                    if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
+                  final duplicates = ProductDuplicateChecker.findDuplicates(
+                    DemoStore.products,
+                    item,
+                  );
+
+                  Future<void> saveProduct() async {
+                    try {
+                      await DemoStore.add('products', item);
+                      if (dialogContext.mounted) {
+                        Navigator.pop(dialogContext, true);
+                      }
+                    } catch (error) {
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
+                        );
+                      }
+                    }
+                  }
+
+                  if (duplicates.isEmpty) {
+                    saveProduct();
+                    return;
+                  }
+
+                  var allowDuplicate = false;
+                  showDialog<bool>(
+                    context: dialogContext,
+                    builder: (warningContext) => StatefulBuilder(
+                      builder: (warningContext, refreshWarning) => Directionality(
+                        textDirection: TextDirection.rtl,
+                        child: AlertDialog(
+                          title: const Text('احتمال ثبت کالای تکراری'),
+                          content: SizedBox(
+                            width: 360,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('کالایی با مشخصات مشابه قبلاً ثبت شده است:'),
+                                const SizedBox(height: 8),
+                                for (final duplicate in duplicates.take(3))
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    dense: true,
+                                    leading: const Icon(Icons.inventory_2_outlined),
+                                    title: Text(duplicate['نام کالا'] ?? 'بدون نام'),
+                                    subtitle: Text(
+                                      'کد: ${duplicate['کد کالا'] ?? '—'}  •  موجودی: ${duplicate['موجودی'] ?? '—'}',
+                                    ),
+                                  ),
+                                if (duplicates.length > 3)
+                                  Text('و ${duplicates.length - 3} مورد مشابه دیگر'),
+                                const SizedBox(height: 8),
+                                CheckboxListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: allowDuplicate,
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  title: const Text('با اطلاع از تکراری بودن، اجازه ثبت می‌دهم'),
+                                  onChanged: (value) => refreshWarning(
+                                    () => allowDuplicate = value ?? false,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(warningContext, false),
+                              child: const Text('بازگشت و اصلاح'),
+                            ),
+                            FilledButton(
+                              onPressed: allowDuplicate
+                                  ? () => Navigator.pop(warningContext, true)
+                                  : null,
+                              child: const Text('ثبت با وجود تکراری بودن'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ).then((approved) {
+                    if (approved == true && dialogContext.mounted) {
+                      saveProduct();
                     }
                   });
                 },
