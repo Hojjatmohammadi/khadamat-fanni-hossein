@@ -711,9 +711,15 @@ class DemoStore {
     if (partyType == 'مشتری') {
       final selectedCustomerId = int.tryParse((item['شناسه مشتری'] ?? '').trim());
       if (selectedCustomerId != null) {
-        final selected = await txn.query('customers', columns: ['id'],
+        final selected = await txn.query('customers',
+          columns: ['id', 'first_name', 'last_name'],
           where: 'id = ?', whereArgs: [selectedCustomerId], limit: 1);
         if (selected.isEmpty) throw StateError('پرونده مشتری انتخاب‌شده پیدا نشد.');
+        final selectedName = ((selected.first['first_name'] ?? '').toString() + ' ' +
+          (selected.first['last_name'] ?? '').toString()).trim();
+        if (selectedName != partyName) {
+          throw StateError('نام شخص با پرونده انتخاب‌شده مطابقت ندارد؛ مشتری را دوباره انتخاب کنید.');
+        }
         partyId = selectedCustomerId;
       } else {
         final people = await txn.query(
@@ -732,9 +738,13 @@ class DemoStore {
     } else if (partyType == 'فروشنده') {
       final selectedSupplierId = int.tryParse((item['شناسه فروشنده'] ?? '').trim());
       if (selectedSupplierId != null) {
-        final selected = await txn.query('suppliers', columns: ['id'],
+        final selected = await txn.query('suppliers',
+          columns: ['id', 'name'],
           where: 'id = ?', whereArgs: [selectedSupplierId], limit: 1);
         if (selected.isEmpty) throw StateError('پرونده فروشنده انتخاب‌شده پیدا نشد.');
+        if ((selected.first['name'] ?? '').toString().trim() != partyName) {
+          throw StateError('نام شخص با پرونده انتخاب‌شده مطابقت ندارد؛ فروشنده را دوباره انتخاب کنید.');
+        }
         partyId = selectedSupplierId;
       } else {
         partyId = await AppDatabaseSchema.ensureSupplier(txn, partyName);
@@ -4374,8 +4384,20 @@ class _OperationsPageState extends State<OperationsPage> {
   }
 
   Future<void> _openOperation(BuildContext context, String op, {Map<String,String>? existing}) async {
+    final customerPartyRows = await DemoStore.database.query(
+      'customers',
+      columns: ['id', 'first_name', 'last_name', 'phone'],
+      orderBy: 'last_name COLLATE NOCASE ASC, first_name COLLATE NOCASE ASC, id ASC',
+    );
+    final supplierPartyRows = await DemoStore.database.query(
+      'suppliers',
+      columns: ['id', 'name', 'phone'],
+      orderBy: 'name COLLATE NOCASE ASC, id ASC',
+    );
     final name = TextEditingController(text: existing?['نام شخص'] ?? '');
     final amount = TextEditingController(text: existing?['مبلغ'] ?? '');
+    var selectedCustomerPartyId = (existing?['شناسه مشتری'] ?? '').trim();
+    var selectedSupplierPartyId = (existing?['شناسه فروشنده'] ?? '').trim();
     final note = TextEditingController(text: existing?['توضیحات'] ?? '');
     final checkNumber = TextEditingController(text: existing?['شماره چک'] ?? '');
     final checkBank = TextEditingController(text: existing?['بانک چک'] ?? '');
@@ -4451,25 +4473,52 @@ class _OperationsPageState extends State<OperationsPage> {
                       ],
                       onChanged: (value) => set(() => partyType = value ?? 'مشتری'),
                     ),
-                    if (partyType == 'مشتری' &&
-                        ['تخفیف دادن','تخفیف دادن به مشتری','دریافت وجه','پرداخت وجه'].contains(op) &&
-                        DemoStore.customers.isNotEmpty)
+                    if (partyType == 'مشتری' && customerPartyRows.isNotEmpty)
                       DropdownButtonFormField<String>(
-                        value: DemoStore.customers.any((customer) => customer['نام مشتری'] == name.text.trim())
-                            ? name.text.trim() : null,
+                        value: customerPartyRows.any((row) => row['id'].toString() == selectedCustomerPartyId)
+                            ? selectedCustomerPartyId : null,
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'انتخاب مشتری (اختیاری)'),
-                        items: DemoStore.customers
-                            .map((customer) => customer['نام مشتری'] ?? '')
-                            .where((value) => value.trim().isNotEmpty)
-                            .toSet()
-                            .map((value) => DropdownMenuItem(value: value, child: Text(value)))
-                            .toList(),
+                        decoration: const InputDecoration(labelText: 'انتخاب پرونده مشتری'),
+                        items: customerPartyRows.map((row) {
+                          final customerName = ((row['first_name'] ?? '').toString() + ' ' +
+                            (row['last_name'] ?? '').toString()).trim();
+                          final phone = (row['phone'] ?? '').toString().trim();
+                          return DropdownMenuItem<String>(
+                            value: row['id'].toString(),
+                            child: Text(phone.isEmpty ? customerName : customerName + ' • ' + phone,
+                              overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
                         onChanged: (value) {
-                          if (value != null) {
-                            name.text = value;
-                            set(() {});
-                          }
+                          if (value == null) return;
+                          selectedCustomerPartyId = value;
+                          final row = customerPartyRows.firstWhere((r) => r['id'].toString() == value);
+                          name.text = ((row['first_name'] ?? '').toString() + ' ' +
+                            (row['last_name'] ?? '').toString()).trim();
+                          set(() {});
+                        },
+                      ),
+                    if (partyType == 'فروشنده' && supplierPartyRows.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: supplierPartyRows.any((row) => row['id'].toString() == selectedSupplierPartyId)
+                            ? selectedSupplierPartyId : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'انتخاب پرونده فروشنده'),
+                        items: supplierPartyRows.map((row) {
+                          final supplierName = (row['name'] ?? '').toString();
+                          final phone = (row['phone'] ?? '').toString().trim();
+                          return DropdownMenuItem<String>(
+                            value: row['id'].toString(),
+                            child: Text(phone.isEmpty ? supplierName : supplierName + ' • ' + phone,
+                              overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          selectedSupplierPartyId = value;
+                          final row = supplierPartyRows.firstWhere((r) => r['id'].toString() == value);
+                          name.text = (row['name'] ?? '').toString();
+                          set(() {});
                         },
                       ),
                     TextField(controller: name, decoration: const InputDecoration(labelText: 'نام شخص / مشتری')),
@@ -4565,6 +4614,8 @@ class _OperationsPageState extends State<OperationsPage> {
                       'نوع عملیات': canonicalOp,
                       'نوع طرف حساب': partyType,
                       'نام شخص': name.text.trim(),
+                      'شناسه مشتری': partyType == 'مشتری' ? selectedCustomerPartyId : '',
+                      'شناسه فروشنده': partyType == 'فروشنده' ? selectedSupplierPartyId : '',
                       'مبلغ': amount.text.trim(),
                       'روش': method,
                       'تاریخ': existing?['تاریخ'] ?? occurredAt.toIso8601String(),
