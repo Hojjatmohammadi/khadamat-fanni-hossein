@@ -188,7 +188,9 @@ class AppDatabaseSchema {
         'subcategory': _text(data, 'زیرگروه'),
         'unit': unit,
         'quantity': _number(data, 'موجودی'),
-        'purchase_price': _number(data, 'قیمت خرید هر واحد'),
+        'purchase_price': _number(data, 'بهای تمام‌شده هر واحد') > 0
+            ? _number(data, 'بهای تمام‌شده هر واحد')
+            : _number(data, 'قیمت خرید هر واحد'),
         'sale_price': _number(data, 'قیمت فروش'),
         'is_used': _text(data, 'وضعیت کالا') == 'دست دوم' ||
                 _text(data, 'این کالا دست دوم است') == 'بله'
@@ -343,30 +345,161 @@ class AppDatabaseSchema {
         'legacy_source_id': sourceId,
       });
     } else if (category == 'sales') {
-      _assertNumeric(data, ['تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی']);
-      final quantity = _number(data, 'تعداد') <= 0 ? 1 : _number(data, 'تعداد');
-      final total = _number(data, 'مبلغ کل');
+      _assertNumeric(data, ['تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مبلغ مالیات']);
+      final quantity = _number(data, 'تعداد');
+      final gross = _number(data, 'مبلغ کل');
       final discount = _number(data, 'تخفیف');
+      final tax = _number(data, 'مبلغ مالیات');
+      final received = _number(data, 'مبلغ دریافتی');
+      if (quantity <= 0 || gross < 0 || discount < 0 || tax < 0 || received < 0) {
+        throw StateError('تعداد و مبالغ فاکتور باید معتبر و نامنفی باشند.');
+      }
+      if (discount > gross) {
+        throw StateError('تخفیف نمی‌تواند از مبلغ کل فاکتور بیشتر باشد.');
+      }
+      final total = gross - discount + tax;
+      final customerIdValue = int.tryParse(_text(data, 'شناسه مشتری'));
+      final invoiceNumber = _text(data, 'شماره فاکتور').isEmpty
+          ? 'LEGACY-' + sourceId.toString()
+          : _text(data, 'شماره فاکتور');
       final invoiceId = await db.insert('invoices', {
-        'invoice_number': 'LEGACY-' + sourceId.toString(),
+        'invoice_number': invoiceNumber,
+        'customer_id': customerIdValue,
         'customer_name_snapshot': _text(data, 'نام مشتری'),
-        'subtotal': total,
+        'subtotal': gross,
         'discount': discount,
-        'total': (total - discount).clamp(0, total),
-        'received_amount': _number(data, 'مبلغ دریافتی'),
+        'tax': tax,
+        'total': total,
+        'received_amount': received,
         'created_at': createdAt,
+        'notes': _text(data, 'توضیحات فاکتور'),
         'legacy_source_id': sourceId,
       });
+
       final description = _text(data, 'شرح کالا/خدمت').isEmpty
           ? 'مورد ثبت‌شده در نسخه قبلی'
           : _text(data, 'شرح کالا/خدمت');
+      final selectedProductName = _text(data, 'کالای انبار');
+      int? productId;
+      double costOfGoods = 0;
+      var productIsUsed = false;
+      if (selectedProductName.isNotEmpty) {
+        final matches = await db.query(
+          'products',
+          columns: ['id', 'quantity', 'purchase_price', 'is_used'],
+          where: 'name = ?',
+          whereArgs: [selectedProductName],
+          limit: 2,
+        );
+        if (matches.length != 1) {
+          throw StateError(matches.isEmpty
+              ? 'کالای انتخاب‌شده در انبار پیدا نشد.'
+              : 'نام این کالا تکراری است؛ کد کالا باید یکتا شود و فروش از روی نام مبهم مجاز نیست.');
+        }
+        final product = matches.first;
+        productId = product['id'] as int;
+        final onHand = (product['quantity'] as num).toDouble();
+        if (quantity > onHand + 0.000001) {
+          throw StateError('موجودی کالا کافی نیست. موجودی فعلی: ' + onHand.toString());
+        }
+        final unitCost = (product['purchase_price'] as num).toDouble();
+        productIsUsed = product['is_used'] == 1;
+        costOfGoods = unitCost * quantity;
+        await AccountingEngine.recordStockMovementInTransaction(
+          db,
+          productId: productId,
+          movementType: 'sale',
+          quantityDelta: -quantity,
+          unitCost: unitCost,
+          referenceType: 'sale',
+          referenceId: sourceId.toString(),
+          notes: 'خروج کالا بابت فاکتور ' + invoiceNumber,
+        );
+      }
+
       await db.insert('invoice_items', {
         'invoice_id': invoiceId,
-        'product_name_snapshot': description,
+        'product_id': productId,
+        'product_name_snapshot': selectedProductName.isEmpty ? description : selectedProductName,
+        'unit': _text(data, 'واحد شمارش').isEmpty ? 'عدد' : _text(data, 'واحد شمارش'),
+        'is_used': productIsUsed ? 1 : 0,
         'quantity': quantity,
-        'unit_price': total / quantity,
-        'line_total': total,
+        'unit_price': gross / quantity,
+        'line_total': gross,
       });
+
+      final lines = <JournalLineInput>[];
+      if (received > 0) {
+        final method = _text(data, 'روش پرداخت');
+        final cashCode = method == 'چک' ? '1020'
+            : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, cashCode),
+          debit: received,
+          memo: 'دریافت فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (received < total) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1100'),
+          debit: total - received,
+          partyType: 'customer',
+          partyId: customerIdValue,
+          memo: 'مانده فاکتور ' + invoiceNumber,
+        ));
+      } else if (received > total) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2010'),
+          credit: received - total,
+          partyType: 'customer',
+          partyId: customerIdValue,
+          memo: 'اعتبار مازاد پرداخت مشتری در فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (gross > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '4000'),
+          credit: gross,
+          memo: 'فروش فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (discount > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '4110'),
+          debit: discount,
+          memo: 'تخفیف فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (tax > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2200'),
+          credit: tax,
+          memo: 'مالیات فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (costOfGoods > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '5000'),
+          debit: costOfGoods,
+          memo: 'بهای تمام‌شده فاکتور ' + invoiceNumber,
+        ));
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          credit: costOfGoods,
+          memo: 'کاهش موجودی بابت فاکتور ' + invoiceNumber,
+        ));
+      }
+      if (lines.length >= 2) {
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: 'SALE-' + sourceId.toString(),
+          occurredAt: DateTime.tryParse(_text(data, 'تاریخ میلادی')) ?? DateTime.parse(createdAt),
+          description: 'ثبت فروش ' + invoiceNumber,
+          sourceType: 'sale',
+          sourceId: sourceId.toString(),
+          lines: lines,
+        );
+      }
     } else if (category == 'operations' || category == 'checks' || category == 'returns' ||
         category == 'stockMovements' || category == 'journalEntries') {
       // These ledgers remain in the canonical JSON records table until their
