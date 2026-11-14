@@ -64,11 +64,11 @@ jobs:
         run: flutter analyze --no-fatal-infos lib
 
       - name: Build release APK (manual request only)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: flutter build apk --release
 
       - name: Upload installable APK (manual request only)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: khadamat-fanni-hossein-release-apk
