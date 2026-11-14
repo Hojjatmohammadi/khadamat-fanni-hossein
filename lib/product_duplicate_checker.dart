@@ -1,5 +1,3 @@
-import 'localized_number.dart';
-
 /// Detects likely duplicate inventory items before they are added.
 class ProductDuplicateChecker {
   const ProductDuplicateChecker._();
