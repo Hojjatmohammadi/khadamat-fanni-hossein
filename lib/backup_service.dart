@@ -234,7 +234,12 @@ class BackupService {
       }
 
       await selected.copy(staged.path);
-      await staged.open(mode: FileMode.append).then((handle) => handle.flush());
+      final stagedHandle = await staged.open(mode: FileMode.append);
+      try {
+        await stagedHandle.flush();
+      } finally {
+        await stagedHandle.close();
+      }
       if (await target.exists()) await target.delete();
       await staged.rename(targetPath);
 
