@@ -123,6 +123,75 @@ void main() {
     await migrated.close();
   });
 
+  test('version 4 migration normalizes whitespace in migrated party names', () async {
+    final legacyPath = '${tempDir.path}/legacy-v4.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 4,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE customers (
+              id INTEGER PRIMARY KEY,
+              data_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE business_documents (
+              id INTEGER PRIMARY KEY,
+              document_type TEXT NOT NULL,
+              counterparty_id TEXT,
+              counterparty_name TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE accounts (
+              code TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              account_type TEXT NOT NULL,
+              normal_side TEXT NOT NULL,
+              is_system INTEGER NOT NULL DEFAULT 1
+            )
+          ''');
+          await db.insert('customers', {
+            'id': 7,
+            'data_json': '{"نام مشتری":"  علی   محمدی  "}',
+            'created_at': '2026-01-01T00:00:00.000',
+            'updated_at': '2026-01-01T00:00:00.000',
+          });
+          await db.insert('business_documents', {
+            'id': 12,
+            'document_type': 'purchase',
+            'counterparty_id': 'supplier:legacy-12',
+            'counterparty_name': '  فروشنده   قدیمی  ',
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final migrated = AppDatabase(databasePath: legacyPath);
+    final db = await migrated.database;
+    final customer = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: ['customer:7'],
+      limit: 1,
+    );
+    final supplier = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: ['supplier:legacy-12'],
+      limit: 1,
+    );
+
+    expect(customer.single['normalized_name'], 'علی محمدی');
+    expect(supplier.single['normalized_name'], 'فروشنده قدیمی');
+    await migrated.close();
+  });
+
   test('editing product details preserves live stock and immutable accounting history', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'خازن قدیمی',
