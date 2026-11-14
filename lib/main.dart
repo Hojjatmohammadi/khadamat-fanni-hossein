@@ -1607,6 +1607,48 @@ class _RepairPageState extends State<RepairPage> {
     }
   }
 
+  Future<void> _recordRepairServiceIncome() async {
+    final repair = DemoStore.repairs.firstWhere(
+      (item) => int.tryParse(item['__database_id'] ?? '') != null,
+      orElse: () => <String, String>{},
+    );
+    if (repair.isEmpty) return;
+    final amount = LocalizedNumber.tryParseInt(repair['اجرت'] ?? '');
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('برای این پذیرش اجرت معتبر ثبت نشده است')));
+      return;
+    }
+    final paidController = TextEditingController(text: amount.toString());
+    final paid = await showDialog<int>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('ثبت درآمد اجرت تعمیر'),
+      content: TextField(controller: paidController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافت‌شده (تومان)')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, LocalizedNumber.tryParseInt(paidController.text)), child: const Text('ثبت')),
+      ],
+    ));
+    paidController.dispose();
+    if (paid == null || paid < 0 || paid > amount || !mounted) return;
+    try {
+      final customerName = (repair['نام مشتری'] ?? '').trim();
+      if (customerName.isEmpty) throw ArgumentError('نام مشتری ثبت نشده است');
+      final customerId = await DemoStore.parties.ensureParty(PartyDraft(partyType: 'customer', displayName: customerName));
+      await DemoStore.accounting.recordRepairServiceIncome(
+        serviceDate: DateTime.now().toIso8601String().split('T').first,
+        description: 'اجرت تعمیر ' + (repair['نوع دستگاه'] ?? ''),
+        amount: amount,
+        paidAmount: paid,
+        cashAccountCode: '1000',
+        customerId: customerId,
+        idempotencyKey: 'repair-service-income-' + repair['__database_id']!,
+      );
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('درآمد اجرت ثبت شد')));
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت درآمد ناموفق بود: ' + error.toString())));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Column(
         children: [
