@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import 'localized_number.dart';
+
 /// Versioned SQLite storage for the shop.
 class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
@@ -621,19 +623,8 @@ class AppDatabase {
     }
   }
 
-  static String _normalizeDigits(String value) {
-    const persian = '۰۱۲۳۴۵۶۷۸۹';
-    const arabic = '٠١٢٣٤٥٦٧٨٩';
-    var result = value;
-    for (var i = 0; i < 10; i++) {
-      result = result.replaceAll(persian[i], '$i');
-      result = result.replaceAll(arabic[i], '$i');
-    }
-    return result.replaceAll(',', '').replaceAll('٬', '').replaceAll('٫', '.').trim();
-  }
-
   static double _number(Object? value) {
-    return double.tryParse(_normalizeDigits(value?.toString() ?? '')) ?? 0;
+    return LocalizedNumber.parseDoubleOrZero(value?.toString() ?? '');
   }
 
   static Future<int?> _insertOpeningStockJournal({
