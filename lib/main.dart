@@ -1021,6 +1021,57 @@ class DemoStore {
     );
   }
 
+  static Future<int> importProductsBulk(List<Map<String, String>> items) async {
+    if (items.isEmpty) throw ArgumentError('هیچ کالایی برای واردکردن وجود ندارد.');
+    final createdAt = DateTime.now().toIso8601String();
+    final imported = <Map<String, String>>[];
+    await _db!.transaction((txn) async {
+      final batchCodes = <String>{};
+      final batchNamesWithoutCode = <String>{};
+      for (var i = 0; i < items.length; i++) {
+        final item = Map<String, String>.from(items[i]);
+        final name = (item['نام کالا'] ?? '').trim();
+        if (name.isEmpty) throw StateError('نام کالا در ردیف ' + (i + 2).toString() + ' خالی است.');
+        final code = (item['کد کالا'] ?? '').trim();
+        if (code.isNotEmpty) {
+          if (!batchCodes.add(code)) throw StateError('کد کالا ' + code + ' در فایل Excel تکراری است.');
+          final duplicate = await txn.query('products',
+            columns: ['id'], where: 'code = ? AND code != ?', whereArgs: [code, ''], limit: 1);
+          if (duplicate.isNotEmpty) throw StateError('کد کالا ' + code + ' قبلاً در انبار ثبت شده است.');
+        } else {
+          final normalizedName = name.toLowerCase();
+          if (!batchNamesWithoutCode.add(normalizedName)) {
+            throw StateError('کالای «' + name + '» بدون کد، در فایل چندبار تکرار شده است.');
+          }
+          final duplicate = await txn.query('products',
+            columns: ['id'], where: 'LOWER(name) = ?', whereArgs: [normalizedName], limit: 1);
+          if (duplicate.isNotEmpty) throw StateError('کالای «' + name + '» بدون کد، قبلاً ثبت شده است.');
+        }
+        final quantity = _parseMoney(item['موجودی'] ?? '0');
+        final unitCost = _parseMoney(item['قیمت خرید هر واحد'] ?? '0');
+        final salePrice = _parseMoney(item['قیمت فروش'] ?? '0');
+        if (!quantity.isFinite || quantity < 0 || !unitCost.isFinite || unitCost < 0 ||
+            !salePrice.isFinite || salePrice < 0) {
+          throw StateError('موجودی یا قیمت در ردیف ' + (i + 2).toString() + ' معتبر نیست.');
+        }
+        if (quantity > 0 && unitCost <= 0) {
+          throw StateError('برای کالای دارای موجودی در ردیف ' + (i + 2).toString() + ' قیمت خرید الزامی است.');
+        }
+        final recordId = await txn.insert('records', {
+          'category': 'products',
+          'data': jsonEncode(item),
+          'created_at': createdAt,
+        });
+        await AppDatabaseSchema.insertLegacyRecord(
+          txn, 'products', item, recordId, createdAt,
+        );
+        imported.add(item);
+      }
+    });
+    products.addAll(imported.map((item) => Map<String, String>.from(item)));
+    return imported.length;
+  }
+
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
     int? newRecordId;
@@ -2847,6 +2898,92 @@ class _ProductPageState extends State<ProductPage> {
     widget.onChanged();
   }
 
+  Future<void> _importProductsExcel() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+      final bytes = picked.files.single.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('محتوای فایل Excel خوانده نشد؛ فایل را دوباره انتخاب کنید.');
+      }
+      final workbook = Excel.decodeBytes(bytes);
+      if (workbook.tables.isEmpty) throw StateError('در فایل Excel هیچ برگه‌ای وجود ندارد.');
+      final sheet = workbook.tables.values.first;
+      if (sheet.rows.length < 2) throw StateError('فایل باید یک ردیف عنوان و حداقل یک ردیف کالا داشته باشد.');
+      String cellText(Data? cell) => cell?.value?.toString().trim() ?? '';
+      final headers = sheet.rows.first.map(cellText).toList();
+      final indexOf = <String, int>{};
+      for (var i = 0; i < headers.length; i++) {
+        final header = headers[i].replaceAll('\u200c', '').trim();
+        if (header.isNotEmpty) indexOf[header] = i;
+      }
+      int? column(String key, [List<String> aliases = const []]) {
+        for (final candidate in [key, ...aliases]) {
+          if (indexOf.containsKey(candidate)) return indexOf[candidate];
+        }
+        return null;
+      }
+      final nameCol = column('نام کالا', ['نام محصول']);
+      final quantityCol = column('موجودی', ['تعداد موجودی', 'تعداد']);
+      final costCol = column('قیمت خرید هر واحد', ['قیمت خرید', 'بهای خرید']);
+      if (nameCol == null || quantityCol == null || costCol == null) {
+        throw StateError('ستون‌های اجباری باید وجود داشته باشند: نام کالا، موجودی، قیمت خرید هر واحد.');
+      }
+      final codeCol = column('کد کالا', ['بارکد', 'کد']);
+      final saleCol = column('قیمت فروش', ['قیمت فروش هر واحد']);
+      final unitCol = column('واحد شمارش', ['واحد']);
+      final groupCol = column('گروه اصلی', ['گروه']);
+      final subgroupCol = column('زیرگروه');
+      final vatCol = column('درصد ارزش افزوده', ['درصد مالیات']);
+      final usedCol = column('وضعیت کالا', ['دست دوم']);
+      final rows = <Map<String, String>>[];
+      for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+        final row = sheet.rows[rowIndex];
+        if (row.every((cell) => cellText(cell).isEmpty)) continue;
+        String read(int? index) =>
+            index == null || index >= row.length ? '' : cellText(row[index]);
+        final vatText = read(vatCol);
+        final item = <String, String>{
+          'نام کالا': read(nameCol),
+          'کد کالا': read(codeCol),
+          'موجودی': read(quantityCol).isEmpty ? '0' : read(quantityCol),
+          'قیمت خرید هر واحد': read(costCol).isEmpty ? '0' : read(costCol),
+          'قیمت فروش': read(saleCol).isEmpty ? '0' : read(saleCol),
+          'واحد شمارش': read(unitCol).isEmpty ? 'عدد' : read(unitCol),
+          'گروه اصلی': read(groupCol),
+          'زیرگروه': read(subgroupCol),
+          'درصد ارزش افزوده': vatText.isEmpty ? '0' : vatText,
+          'مشمول ارزش افزوده': vatText.isEmpty || vatText == '0' ? 'خیر' : 'بله',
+          'وضعیت کالا': read(usedCol).contains('دوم') || read(usedCol) == 'بله' ? 'دست دوم' : 'نو',
+          'تاریخ ثبت کالا': Jalali.now().formatCompactDate(),
+          'تصویر کالا': '',
+          'هزینه پست': '0',
+          'هزینه باربری / حمل': '0',
+          'سایر هزینه‌ها': '0',
+        };
+        rows.add(item);
+      }
+      if (rows.isEmpty) throw StateError('هیچ ردیف کالای معتبری در فایل پیدا نشد.');
+      final count = await DemoStore.importProductsBulk(rows);
+      if (!mounted) return;
+      setState(() {});
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(count.toString() + ' کالا با موفقیت از Excel وارد انبار شد.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ورود Excel انجام نشد؛ هیچ‌کدام از ردیف‌ها ثبت نشد: ' + error.toString())),
+        );
+      }
+    }
+  }
+
   Future<void> addProduct() async {
     final names = ['نام کالا', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
     final saleDate = TextEditingController(text: Jalali.now().formatCompactDate());
@@ -3365,6 +3502,14 @@ class _ProductPageState extends State<ProductPage> {
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
         body: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: OutlinedButton.icon(
+              onPressed: _importProductsExcel,
+              icon: const Icon(Icons.file_upload_outlined),
+              label: const Text('واردکردن فهرست کالا از Excel'),
+            ),
+          ),
           if (_selectedProducts.isNotEmpty)
             Material(color: Theme.of(context).colorScheme.secondaryContainer, child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
