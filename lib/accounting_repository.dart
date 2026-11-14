@@ -52,6 +52,7 @@ class JournalEntryDraft {
   Map<String, Object?> toPayload() => {
         'entryDate': entryDate,
         'description': description,
+        'idempotencyKey': idempotencyKey,
         'referenceType': referenceType,
         'referenceId': referenceId,
         'reversalOfId': reversalOfId,
@@ -268,7 +269,6 @@ class AccountingRepository {
         );
       }).toList();
 
-      final original = originals.single;
       final draft = JournalEntryDraft(
         entryDate: reversalDate,
         description: 'برگشت سند ' + journalEntryId.toString() + ': ' + reason.trim(),
