@@ -1236,6 +1236,19 @@ class DemoStore {
       if (!isSale && source['نوع عملیات'] != 'خرید کالا') {
         throw StateError('فقط سند خرید کالا یا فاکتور فروش قابلیت برگشت دارد.');
       }
+      if (!isSale) {
+        final unsettledChecks = await txn.query(
+          'checks_register',
+          columns: ['check_number', 'status'],
+          where: "source_type = 'purchase' AND source_id = ? AND direction = 'issued' AND status IN ('pending','deposited')",
+          whereArgs: [originalSourceId.toString()],
+          limit: 5,
+        );
+        if (unsettledChecks.isNotEmpty) {
+          final numbers = unsettledChecks.map((row) => (row['check_number'] ?? '').toString()).join('، ');
+          throw StateError('برای برگشت این خرید، ابتدا چک‌های پرداختی در انتظار را لغو کنید: ' + numbers);
+        }
+      }
       Map<String, dynamic>? selectedSaleLine;
       final invoiceLinesJson = (source['ردیف‌های فاکتور'] ?? '').trim();
       if (isSale && invoiceLinesJson.isNotEmpty) {
