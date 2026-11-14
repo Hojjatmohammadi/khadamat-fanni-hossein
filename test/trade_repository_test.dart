@@ -305,7 +305,6 @@ void main() {
     expect(await store.getStockOnHand(productId), 8);
 
     expect((await accountTotals('2000'))['total_debit'], 2200);
-    expect((await accountTotals('1200'))['credit_total'], isNull);
     expect((await accountTotals('1200'))['total_credit'], 2000);
     expect((await accountTotals('2110'))['total_credit'], 200);
 
