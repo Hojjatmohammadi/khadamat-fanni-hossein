@@ -905,6 +905,7 @@ class TradeRepository {
       if (duplicate != null) return duplicate;
 
       final sourceDocumentId = int.tryParse(draft.referenceId ?? '');
+      var effectiveCounterpartyId = draft.counterpartyId;
       if (draft.referenceId != null && sourceDocumentId == null) {
         throw ArgumentError('شناسه فاکتور مرتبط با دریافت یا پرداخت معتبر نیست');
       }
@@ -928,8 +929,7 @@ class TradeRepository {
         }
         // A linked settlement always inherits the invoice party when the
         // caller omits it, so its journal line remains visible in the ledger.
-        final effectiveCounterpartyId =
-            draft.counterpartyId ?? source['counterparty_id']?.toString();
+        effectiveCounterpartyId ??= source['counterparty_id']?.toString();
         final paymentRows = await txn.rawQuery(
           'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
           'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
