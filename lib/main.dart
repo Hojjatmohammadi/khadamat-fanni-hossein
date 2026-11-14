@@ -4438,6 +4438,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'تعمیرات': DemoStore.repairs,
       'فاکتورها': DemoStore.sales,
       'عملیات مالی': DemoStore.operations,
+      'برگشت خرید و فروش': DemoStore.returns,
     };
     var first = true;
     for (final entry in dataSets.entries) {
@@ -4826,6 +4827,7 @@ class _ReportsPageState extends State<ReportsPage> {
         ('تعمیرات', 'repairs', Icons.build_outlined),
         ('فروش‌ها', 'sales', Icons.receipt_long_outlined),
         ('عملیات مالی', 'operations', Icons.account_balance_wallet_outlined),
+        ('برگشت خرید و فروش', 'returns', Icons.assignment_return_outlined),
       ];
       final counts = categories.map((e) => count(e.$2)).toList();
       final maxCount = counts.fold<int>(1, (a, b) => a > b ? a : b);
