@@ -819,7 +819,7 @@ class DemoStore {
         memo: 'پرداخت وجه به ' + partyName,
       );
       if (partyType == 'فروشنده') {
-        final payable = (await balanceFor('2000')).abs().clamp(0.0, amount).toDouble();
+        final payable = (-(await balanceFor('2000'))).clamp(0.0, amount).toDouble();
         if (payable > 0) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '2000'),
@@ -835,13 +835,24 @@ class DemoStore {
           ));
         }
       } else if (partyType == 'مشتری') {
-        lines.add(JournalLineInput(
-          accountId: await AccountingEngine.accountId(txn, '2010'),
-          debit: amount,
-          partyType: 'customer',
-          partyId: partyId,
-          memo: 'بازپرداخت اعتبار به مشتری ' + partyName,
-        ));
+        final creditBalance = partyId == null ? 0.0
+            : (-(await balanceFor('2010', type: 'customer', id: partyId))).clamp(0.0, amount).toDouble();
+        if (creditBalance > 0) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2010'),
+            debit: creditBalance,
+            partyType: 'customer',
+            partyId: partyId,
+            memo: 'بازپرداخت اعتبار به مشتری ' + partyName,
+          ));
+        }
+        if (amount - creditBalance > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '6000'),
+            debit: amount - creditBalance,
+            memo: 'بازپرداخت متفرقه به مشتری ' + partyName,
+          ));
+        }
       } else {
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '6000'),
@@ -851,24 +862,48 @@ class DemoStore {
       }
       lines.add(cash);
     } else if (isDiscountGiven) {
+      final receivable = partyType == 'مشتری' && partyId != null
+          ? (await balanceFor('1100', type: 'customer', id: partyId)).clamp(0.0, amount).toDouble()
+          : 0.0;
       lines.add(JournalLineInput(
         accountId: await AccountingEngine.accountId(txn, '4110'),
         debit: amount,
         memo: 'تخفیف اعطایی به ' + partyName,
       ));
-      lines.add(JournalLineInput(
-        accountId: await AccountingEngine.accountId(txn, '1100'),
-        credit: amount,
-        partyType: partyType == 'مشتری' ? 'customer' : '',
-        partyId: partyType == 'مشتری' ? partyId : null,
-        memo: 'کاهش دریافتنی بابت تخفیف ' + partyName,
-      ));
+      if (receivable > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '1100'),
+          credit: receivable,
+          partyType: 'customer',
+          partyId: partyId,
+          memo: 'کاهش دریافتنی بابت تخفیف ' + partyName,
+        ));
+      }
+      if (amount - receivable > 0.001) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '2010'),
+          credit: amount - receivable,
+          partyType: 'customer',
+          partyId: partyId,
+          memo: 'اعتبار تخفیف مشتری ' + partyName,
+        ));
+      }
     } else if (isDiscountReceived) {
-      lines.add(JournalLineInput(
-        accountId: await AccountingEngine.accountId(txn, '2000'),
-        debit: amount,
-        memo: 'کاهش بدهی بابت تخفیف فروشنده ' + partyName,
-      ));
+      final payable = (-(await balanceFor('2000'))).clamp(0.0, amount).toDouble();
+      if (payable > 0) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '2000'),
+          debit: payable,
+          memo: 'کاهش بدهی بابت تخفیف فروشنده ' + partyName,
+        ));
+      }
+      if (amount - payable > 0.001) {
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '1110'),
+          debit: amount - payable,
+          memo: 'طلب مازاد تخفیف از فروشنده ' + partyName,
+        ));
+      }
       lines.add(JournalLineInput(
         accountId: await AccountingEngine.accountId(txn, '6010'),
         credit: amount,
