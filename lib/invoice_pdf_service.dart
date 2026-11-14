@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Builds a PDF from the immutable invoice snapshot.
 /// Persian text is rasterized by Flutter's text engine first, preserving RTL
@@ -15,7 +18,7 @@ class InvoicePdfService {
   static const double _height = 1754;
   static const double _margin = 68;
 
-  Future<Uint8List> build(Map<String, dynamic> snapshot) async {
+  Future<Uint8List> buildImage(Map<String, dynamic> snapshot) async {
     if (snapshot.isEmpty) {
       throw ArgumentError('اطلاعات فاکتور برای ساخت PDF خالی است');
     }
@@ -197,18 +200,36 @@ class InvoicePdfService {
     picture.dispose();
     if (png == null) throw StateError('ساخت تصویر فاکتور ناموفق بود');
 
+    return png.buffer.asUint8List();
+  }
+
+  Future<Uint8List> build(Map<String, dynamic> snapshot) async {
+    final imageBytes = await buildImage(snapshot);
     final document = pw.Document();
     document.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
         margin: pw.EdgeInsets.zero,
         build: (_) => pw.Image(
-          pw.MemoryImage(png.buffer.asUint8List()),
+          pw.MemoryImage(imageBytes),
           fit: pw.BoxFit.fill,
         ),
       ),
     );
     return document.save();
+  }
+
+  Future<void> shareImage(Map<String, dynamic> snapshot) async {
+    final bytes = await buildImage(snapshot);
+    final directory = await getTemporaryDirectory();
+    final number = (snapshot['documentNumber']?.toString() ?? 'invoice')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final file = File('${directory.path}/invoice_$number.png');
+    await file.writeAsBytes(bytes, flush: true);
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'image/png')],
+      text: 'تصویر فاکتور فروش $number',
+    );
   }
 
   Future<void> share(Map<String, dynamic> snapshot) async {
