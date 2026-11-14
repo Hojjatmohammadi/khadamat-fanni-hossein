@@ -41,13 +41,16 @@ class _ReportsPageState extends State<ReportsPage> {
     }
     setState(() => _loading = true);
     try {
-      final rows = _report == 'stock'
-          ? await _repository.getInventoryMovements(from: _from, to: _to)
-          : await _repository.getTradeDocuments(
+      final rows = switch (_report) {
+        'stock' => await _repository.getInventoryMovements(from: _from, to: _to),
+        'profit' => await _repository.getProfitAndLoss(from: _from, to: _to),
+        'item_profit' => await _repository.getItemProfit(from: _from, to: _to),
+        _ => await _repository.getTradeDocuments(
               from: _from,
               to: _to,
               type: _type == 'all' ? null : _type,
-            );
+            ),
+      };
       if (mounted) setState(() => _rows = rows);
     } catch (error) {
       _message('دریافت گزارش ناموفق بود: $error');
@@ -103,6 +106,29 @@ class _ReportsPageState extends State<ReportsPage> {
             IntCellValue((row['total_cost'] as num).toInt()),
           ]);
         }
+      } else if (_report == 'profit') {
+        sheet.appendRow([TextCellValue('کد حساب'), TextCellValue('نام حساب'), TextCellValue('نوع'), TextCellValue('بدهکار'), TextCellValue('بستانکار'), TextCellValue('مانده')]);
+        for (final row in _rows) {
+          sheet.appendRow([
+            TextCellValue(row['account_code']?.toString() ?? ''),
+            TextCellValue(row['account_name']?.toString() ?? ''),
+            TextCellValue(row['account_type'] == 'income' ? 'درآمد' : 'هزینه'),
+            IntCellValue((row['total_debit'] as num).toInt()),
+            IntCellValue((row['total_credit'] as num).toInt()),
+            IntCellValue((row['balance'] as num).toInt()),
+          ]);
+        }
+      } else if (_report == 'item_profit') {
+        sheet.appendRow([TextCellValue('کالا'), TextCellValue('تعداد خالص'), TextCellValue('فروش خالص'), TextCellValue('بهای تمام‌شده'), TextCellValue('سود ناخالص')]);
+        for (final row in _rows) {
+          sheet.appendRow([
+            TextCellValue(row['product_name']?.toString() ?? ''),
+            DoubleCellValue((row['net_quantity'] as num).toDouble()),
+            IntCellValue((row['net_revenue'] as num).toInt()),
+            IntCellValue((row['net_cost'] as num).toInt()),
+            IntCellValue((row['gross_profit'] as num).toInt()),
+          ]);
+        }
       } else {
         sheet.appendRow([
           TextCellValue('تاریخ'), TextCellValue('شماره سند'),
@@ -141,9 +167,12 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final total = _report == 'stock'
-        ? _rows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble())
-        : _rows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt());
+    final total = switch (_report) {
+      'stock' => _rows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
+      'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
+      'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
+      _ => _rows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt()),
+    };
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -167,6 +196,8 @@ class _ReportsPageState extends State<ReportsPage> {
           items: const [
             DropdownMenuItem(value: 'documents', child: Text('فاکتورهای خرید، فروش و برگشت')),
             DropdownMenuItem(value: 'stock', child: Text('کاردکس و گردش انبار')),
+            DropdownMenuItem(value: 'profit', child: Text('سود و زیان حسابداری')),
+            DropdownMenuItem(value: 'item_profit', child: Text('سود هر کالا')),
           ],
           onChanged: (value) { if (value != null) setState(() { _report = value; }); _load(); },
         ),
@@ -206,7 +237,9 @@ class _ReportsPageState extends State<ReportsPage> {
           title: Text('تعداد ردیف‌ها: ${_rows.length}'),
           subtitle: Text(_report == 'stock'
               ? 'خالص تغییر موجودی در بازه: $total'
-              : 'جمع مبلغ اسناد: ${_money(total)} تومان'),
+              : _report == 'documents'
+                  ? 'جمع مبلغ اسناد: ${_money(total)} تومان'
+                  : 'سود خالص/ناخالص گزارش: ${_money(total)} تومان'),
         )),
         if (_loading) const Center(child: Padding(
           padding: EdgeInsets.all(20), child: CircularProgressIndicator(),
@@ -220,6 +253,20 @@ class _ReportsPageState extends State<ReportsPage> {
               subtitle: Text('${row['document_date']} • ${row['counterparty_name']}'),
               trailing: Text('${_money(row['total_amount'])} تومان'),
             )),
+        if (_report == 'profit')
+          for (final row in _rows)
+            Card(child: ListTile(
+              title: Text('${row['account_code']} — ${row['account_name']}'),
+              subtitle: Text(row['account_type'] == 'income' ? 'درآمد' : 'هزینه'),
+              trailing: Text('${_money(row['balance'])} تومان'),
+            )),
+        if (_report == 'item_profit')
+          for (final row in _rows)
+            Card(child: ListTile(
+              title: Text('${row['product_name']}'),
+              subtitle: Text('فروش خالص: ${_money(row['net_revenue'])} • بهای تمام‌شده: ${_money(row['net_cost'])}'),
+              trailing: Text('سود: ${_money(row['gross_profit'])} تومان'),
+            )),
         if (_report == 'stock')
           for (final row in _rows)
             Card(child: ListTile(
@@ -229,7 +276,7 @@ class _ReportsPageState extends State<ReportsPage> {
             )),
         const SizedBox(height: 12),
         const Text(
-          'مبالغ بر اساس اسناد ثبت‌شده در پایگاه داده محلی هستند. گزارش سود خالص در این بخش محاسبه نمی‌شود؛ برای آن باید بهای تمام‌شده، برگشت‌ها و هزینه‌ها با هم تطبیق داده شوند.',
+          'گزارش سود و زیان از اسناد حسابداری ثبت‌شده و برگشت‌های حسابداری محاسبه می‌شود. سود هر کالا بر پایه فروش خالص، برگشت مشتری و بهای تمام‌شده ثبت‌شده در ردیف فاکتور است. هزینه‌های عملیاتی فقط در صورت ثبت در حساب‌های درآمد/هزینه دفترکل لحاظ می‌شوند.',
           style: TextStyle(fontSize: 12, color: Colors.black54),
         ),
       ],
