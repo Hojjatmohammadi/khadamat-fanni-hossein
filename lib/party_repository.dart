@@ -252,6 +252,21 @@ class PartyRepository {
       filters.add('e.entry_date < ?');
       args.add(toExclusive.toIso8601String().substring(0, 10));
     }
+    if (offset > 0) {
+      final priorRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(prior.debit - prior.credit), 0) AS balance
+        FROM (
+          SELECT l.debit, l.credit
+          FROM journal_lines l
+          JOIN journal_entries e ON e.id = l.journal_entry_id
+          WHERE ${filters.join(' AND ')}
+          ORDER BY e.entry_date ASC, e.id ASC, l.line_no ASC
+          LIMIT ?
+        ) AS prior
+      ''', [...args, offset]);
+      runningRaw += (priorRows.single['balance'] as num).toInt();
+    }
+
     final rows = await db.rawQuery('''
       SELECT e.id AS journal_entry_id, e.entry_date, e.description,
         e.reference_type, e.reference_id, l.id AS line_id, l.account_code,
