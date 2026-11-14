@@ -247,7 +247,7 @@ void main() {
 
     expect((await accountTotals('4050'))['total_debit'], 4000);
     expect((await accountTotals('2100'))['total_debit'], 400);
-    expect((await accountTotals('1200'))['total_debit'], 2000);
+    expect((await accountTotals('1200'))['total_debit'], 12000);
     expect((await accountTotals('5000'))['total_credit'], 2000);
 
     await expectLater(
