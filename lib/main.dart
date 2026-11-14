@@ -24,10 +24,71 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 
 const _dailyBackupTask = 'khadamatDailyLocalBackup';
+final FlutterLocalNotificationsPlugin _checkNotifications =
+    FlutterLocalNotificationsPlugin();
+
+Future<void> _initializeCheckNotifications({bool requestPermission = false}) async {
+  await _checkNotifications.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    ),
+  );
+  if (requestPermission) {
+    await _checkNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+  }
+}
+
+Future<void> _notifyDueCheckNotifications() async {
+  final android = _checkNotifications
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  final notificationsEnabled = await android?.areNotificationsEnabled();
+  if (notificationsEnabled == false) return;
+
+  final now = DateTime.now();
+  final dueLimit = now.add(const Duration(hours: 24));
+  final rows = await DemoStore.database.query(
+    'checks_register',
+    where: "status IN ('pending','deposited') AND due_date <= ?",
+    whereArgs: [dueLimit.toIso8601String()],
+    orderBy: 'due_date ASC',
+  );
+  const details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'check_due_reminders',
+      'یادآوری سررسید چک‌ها',
+      channelDescription: 'یادآوری چک‌های دریافتی و پرداختی در آستانه سررسید',
+      importance: Importance.high,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.reminder,
+      playSound: true,
+      enableVibration: true,
+    ),
+  );
+  for (final row in rows) {
+    final id = row['id'] as int;
+    final dueRaw = (row['due_date'] ?? '').toString();
+    final dueDate = DateTime.tryParse(dueRaw);
+    if (dueDate == null) continue;
+    final dateKey = dueRaw.length >= 10 ? dueRaw.substring(0, 10) : dueRaw;
+    final reminderKey = 'check_due_notification_' + id.toString() + '_' + dateKey;
+    if (AppSettings._prefs.getBool(reminderKey) == true) continue;
+    final incoming = row['direction'] == 'received';
+    final title = incoming ? 'چک دریافتی سررسید دارد' : 'چک پرداختی سررسید دارد';
+    final amount = (row['amount'] as num).toStringAsFixed(0);
+    final body = 'شماره ' + (row['check_number'] ?? '').toString() +
+        ' • ' + (row['party_name_snapshot'] ?? '').toString() +
+        ' • ' + amount + ' تومان • ' + Jalali.fromDateTime(dueDate).formatCompactDate();
+    await _checkNotifications.show(id, title, body, details);
+    await AppSettings._prefs.setBool(reminderKey, true);
+  }
+}
 
 @pragma('vm:entry-point')
 void _backgroundTaskDispatcher() {
@@ -38,7 +99,9 @@ void _backgroundTaskDispatcher() {
     try {
       await DemoStore.init();
       await AppSettings.load();
+      await _initializeCheckNotifications();
       await DemoStore.autoBackupIfDue();
+      await _notifyDueCheckNotifications();
       await DemoStore.database.close();
       DemoStore._db = null;
       return true;
@@ -59,11 +122,12 @@ Future<void> main() async {
   await Workmanager().registerPeriodicTask(
     'khadamat-daily-local-backup',
     _dailyBackupTask,
-    frequency: const Duration(hours: 24),
+    frequency: const Duration(hours: 12),
     existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
   );
   await DemoStore.init();
   await AppSettings.load();
+  await _initializeCheckNotifications(requestPermission: true);
   await DemoStore.autoBackupIfDue();
   runApp(const HoseinApp());
 }
