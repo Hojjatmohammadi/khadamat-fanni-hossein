@@ -349,8 +349,7 @@ class CheckRepository {
 
   Future<List<Map<String, Object?>>> getDueChecks({DateTime? asOfDate}) async {
     final today = asOfDate ?? DateTime.now();
-    final dueThrough = today.add(const Duration(days: 1));
-    final through = DateTime(dueThrough.year, dueThrough.month, dueThrough.day);
+    final through = DateTime(today.year, today.month, today.day + 1);
     final db = await _database.database;
     return db.query(
       'check_records',
