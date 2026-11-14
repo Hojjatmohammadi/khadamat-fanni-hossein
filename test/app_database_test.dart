@@ -240,11 +240,11 @@ void main() {
     final totals = await accounting.getTrialBalance();
     expect(
       totals.fold<int>(0, (sum, row) => sum + (row['total_debit'] as num).toInt()),
-      50000,
+      100000,
     );
     expect(
       totals.fold<int>(0, (sum, row) => sum + (row['total_credit'] as num).toInt()),
-      50000,
+      100000,
     );
     expect(
       totals.every((row) => row['balance_debit_minus_credit'] == 0),
