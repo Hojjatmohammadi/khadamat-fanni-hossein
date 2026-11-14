@@ -622,7 +622,10 @@ class TradeRepository {
         final sourceLine = sourceLines.single;
         final originalQuantity = (sourceLine['quantity'] as num).toDouble();
         final returnedRows = await txn.rawQuery('''
-          SELECT COALESCE(SUM(return_line.quantity), 0) AS returned_quantity
+          SELECT
+            COALESCE(SUM(return_line.quantity), 0) AS returned_quantity,
+            COALESCE(SUM(return_line.line_total), 0) AS returned_base,
+            COALESCE(SUM(return_line.tax_amount), 0) AS returned_tax
           FROM business_document_lines return_line
           INNER JOIN business_documents return_doc
             ON return_doc.id = return_line.document_id
@@ -640,11 +643,16 @@ class TradeRepository {
         final unitCost = sourceLine['unit_cost'] as int;
         final lineBase = sourceLine['line_total'] as int;
         final lineTax = sourceLine['tax_amount'] as int;
-        final baseAmount =
-            (lineBase * returnLine.quantity / originalQuantity).round();
-        final taxAmount =
-            (lineTax * returnLine.quantity / originalQuantity).round();
+        final isFinalReturn = (returnLine.quantity - remaining).abs() < 0.0000001;
         final costAmount = (unitCost * returnLine.quantity).round();
+        final baseAmount = isCustomerReturn
+            ? (isFinalReturn
+                ? lineBase - (returnedRows.single['returned_base'] as num).toInt()
+                : (lineBase * returnLine.quantity / originalQuantity).round())
+            : costAmount;
+        final taxAmount = isFinalReturn
+            ? lineTax - (returnedRows.single['returned_tax'] as num).toInt()
+            : (lineTax * returnLine.quantity / originalQuantity).round();
         baseTotal += baseAmount;
         taxTotal += taxAmount;
         costTotal += costAmount;
@@ -686,35 +694,6 @@ class TradeRepository {
               description: 'برگشت از فروش به ${draft.counterpartyName.trim()}',
               idempotencyKey: 'customer-return-journal-${draft.idempotencyKey}',
               referenceType: 'customer_return',
-              referenceId: draft.sourceDocumentId.toString(),
-              lines: lines,
-            ),
-          );
-        }
-      } else {
-        final lines = <JournalLineDraft>[];
-        final settlement = baseTotal + taxTotal;
-        if (settlement > 0) {
-          lines.add(JournalLineDraft(
-            accountCode: '2000',
-            debit: settlement,
-            partyId: draft.counterpartyId,
-          ));
-        }
-        if (baseTotal > 0) {
-          lines.add(JournalLineDraft(accountCode: '1200', credit: baseTotal));
-        }
-        if (taxTotal > 0) {
-          lines.add(JournalLineDraft(accountCode: '2110', credit: taxTotal));
-        }
-        if (lines.isNotEmpty) {
-          mainJournalId = await _accounting.postJournalEntryInTransaction(
-            txn,
-            JournalEntryDraft(
-              entryDate: draft.documentDate,
-              description: 'برگشت از خرید به ${draft.counterpartyName.trim()}',
-              idempotencyKey: 'supplier-return-journal-${draft.idempotencyKey}',
-              referenceType: 'supplier_return',
               referenceId: draft.sourceDocumentId.toString(),
               lines: lines,
             ),
@@ -794,19 +773,31 @@ class TradeRepository {
             ),
           );
         } else {
-          final supplierReturnJournal = JournalEntryDraft(
-            entryDate: draft.documentDate,
-            description: 'برگشت موجودی به فروشنده',
-            idempotencyKey: 'supplier-return-stock-${draft.idempotencyKey}-$i',
-            referenceType: type,
-            referenceId: documentId.toString(),
-            lines: [
-              if (costAmount > 0)
-                JournalLineDraft(accountCode: '2000', debit: costAmount),
-              if (costAmount > 0)
-                JournalLineDraft(accountCode: '1200', credit: costAmount),
-            ],
-          );
+          final supplierReturnAmount = costAmount + (line['taxAmount'] as int);
+          JournalEntryDraft? supplierReturnJournal;
+          if (supplierReturnAmount > 0) {
+            supplierReturnJournal = JournalEntryDraft(
+              entryDate: draft.documentDate,
+              description: 'برگشت موجودی به فروشنده',
+              idempotencyKey: 'supplier-return-stock-${draft.idempotencyKey}-$i',
+              referenceType: type,
+              referenceId: documentId.toString(),
+              lines: [
+                JournalLineDraft(
+                  accountCode: '2000',
+                  debit: supplierReturnAmount,
+                  partyId: draft.counterpartyId,
+                ),
+                if (costAmount > 0)
+                  JournalLineDraft(accountCode: '1200', credit: costAmount),
+                if ((line['taxAmount'] as int) > 0)
+                  JournalLineDraft(
+                    accountCode: '2110',
+                    credit: line['taxAmount'] as int,
+                  ),
+              ],
+            );
+          }
           await _accounting.recordStockMovementInTransaction(
             txn,
             StockMovementDraft(
@@ -818,7 +809,7 @@ class TradeRepository {
               idempotencyKey: 'supplier-return-stock-${draft.idempotencyKey}-$i',
               referenceType: type,
               referenceId: documentId.toString(),
-              journalEntry: costAmount > 0 ? supplierReturnJournal : null,
+              journalEntry: supplierReturnJournal,
             ),
           );
         }
