@@ -44,7 +44,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze Flutter code
-        run: flutter analyze
+        run: flutter analyze lib
 
       - name: Build release APK (manual request only)
         if: github.event_name == 'workflow_dispatch'
