@@ -47,26 +47,28 @@ class PartyRepository {
         if (byId.isNotEmpty) return draft.preferredId!;
       }
 
-      final existing = await txn.query(
-        'parties',
-        where: 'party_type = ? AND normalized_name = ?',
-        whereArgs: [type, normalized],
-        limit: 1,
-      );
-      if (existing.isNotEmpty) {
-        final id = existing.single['id'] as String;
-        await txn.update(
+      if (draft.preferredId?.trim().isEmpty != false) {
+        final existing = await txn.query(
           'parties',
-          {
-            if (draft.phone != null) 'phone': draft.phone,
-            if (draft.address != null) 'address': draft.address,
-            if (draft.notes != null) 'notes': draft.notes,
-            'updated_at': DateTime.now().toIso8601String(),
-          },
-          where: 'id = ?',
-          whereArgs: [id],
+          where: 'party_type = ? AND normalized_name = ?',
+          whereArgs: [type, normalized],
+          limit: 1,
         );
-        return id;
+        if (existing.isNotEmpty) {
+          final id = existing.single['id'] as String;
+          await txn.update(
+            'parties',
+            {
+              if (draft.phone != null) 'phone': draft.phone,
+              if (draft.address != null) 'address': draft.address,
+              if (draft.notes != null) 'notes': draft.notes,
+              'updated_at': DateTime.now().toIso8601String(),
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+          return id;
+        }
       }
 
       final id = draft.preferredId?.trim().isNotEmpty == true
