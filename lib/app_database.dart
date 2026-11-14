@@ -360,6 +360,7 @@ class AppDatabase {
         settlement_journal_id INTEGER,
         reversal_journal_id INTEGER,
         idempotency_key TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
         note TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
