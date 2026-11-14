@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'package:sqflite/sqflite.dart';
-
 import 'app_database.dart';
 
 /// Durable local outbox for a future authenticated sync transport.
