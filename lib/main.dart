@@ -677,6 +677,56 @@ class _HomePageState extends State<HomePage> {
   final titles = const ['داشبورد', 'انبار کالا', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها', 'تنظیمات برنامه', 'عملیات‌های دیگر', 'خروجی و پشتیبان‌گیری'];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showCheckDueReminder());
+  }
+
+  Future<void> _showCheckDueReminder() async {
+    try {
+      final now = DateTime.now();
+      final limit = now.add(const Duration(days: 1));
+      final due = await DemoStore.database.query(
+        'checks_register',
+        where: "status IN (?, ?) AND due_date <= ?",
+        whereArgs: ['pending', 'deposited', limit.toIso8601String()],
+        orderBy: 'due_date ASC',
+      );
+      if (!mounted || due.isEmpty) return;
+      await showDialog<void>(
+        context: context,
+        builder: (d) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('یادآوری سررسید چک‌ها'),
+            content: SizedBox(
+              width: 460,
+              child: ListView(shrinkWrap: true, children: [
+                const Text('چک‌های زیر سررسیدشان گذشته یا در ۲۴ ساعت آینده سررسید می‌شوند:'),
+                const SizedBox(height: 8),
+                for (final check in due)
+                  ListTile(
+                    dense: true,
+                    title: Text('چک ' + (check['check_number'] ?? '').toString()),
+                    subtitle: Text(
+                      (check['party_name_snapshot'] ?? '').toString() + ' • ' +
+                      Jalali.fromDateTime(DateTime.parse(check['due_date'] as String)).formatCompactDate() +
+                      ' • ' + (check['direction'] == 'received' ? 'دریافتی' : 'پرداختی'),
+                    ),
+                    trailing: Text((check['amount'] as num).toStringAsFixed(0) + ' تومان'),
+                  ),
+              ]),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('متوجه شدم'))],
+          ),
+        ),
+      );
+    } catch (_) {
+      // Reminder display must never prevent the local app from opening.
+    }
+  }
+
+  @override
   void dispose() { drawerSearchController.dispose(); super.dispose(); }
 
   String _scopeForTab() => switch (tab) {
@@ -1382,9 +1432,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   if (picked != null) controllers[i].text = picked.formatCompactDate();
                                 },
                               )
-                            : ['شماره چک','بانک چک','سررسید چک'].contains(widget.fields[i]) &&
-                                controllers[widget.fields.indexOf('روش پرداخت')].text != 'چک'
-                            ? const SizedBox.shrink()
                             : (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'تاریخ'
                             ? TextField(
                                 controller: controllers[i], readOnly: true,
@@ -1992,7 +2039,7 @@ class _ProductPageState extends State<ProductPage> {
                           if (picked != null) refresh(() => purchaseCheckDueDate = picked);
                         },
                         icon: const Icon(Icons.calendar_month),
-                        label: Text(purchaseCheckDueDate == null ? 'انتخاب سررسید چک' : 'سررسید: \${purchaseCheckDueDate!.formatCompactDate()}'),
+                        label: Text(purchaseCheckDueDate == null ? 'انتخاب سررسید چک' : 'سررسید: ' + purchaseCheckDueDate!.formatCompactDate()),
                       ),
                     ],
                     const Divider(height: 24),
@@ -2636,6 +2683,94 @@ class _OperationsPageState extends State<OperationsPage> {
   static const options = ['تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
+  Future<void> _showCheckBook() async {
+    var checks = await DemoStore.database.query('checks_register', orderBy: 'due_date ASC, id ASC');
+    if (!mounted) return;
+    const statuses = <String, String>{
+      'pending': 'در انتظار / نزد صندوق',
+      'deposited': 'واگذار شده به بانک',
+      'cashed': 'وصول شده',
+      'spent': 'خرج شده',
+      'bounced': 'برگشت خورده',
+      'cancelled': 'باطل شده',
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('دفتر چک‌های دریافتنی و پرداختنی'),
+            content: SizedBox(
+              width: 560,
+              child: checks.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('هنوز چکی ثبت نشده است. هنگام ثبت خرید یا فاکتور فروش با روش پرداخت چک، شماره و سررسید را وارد کنید.'),
+                    )
+                  : ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (var i = 0; i < checks.length; i++)
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    (checks[i]['direction'] == 'received' ? 'چک دریافتی' : 'چک پرداختی') +
+                                    ' شماره ' + (checks[i]['check_number'] ?? '').toString(),
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    (checks[i]['party_name_snapshot'] ?? '').toString() +
+                                    ' • ' + (checks[i]['amount'] as num).toStringAsFixed(0) + ' تومان',
+                                  ),
+                                  Text(
+                                    'بانک: ' + ((checks[i]['bank_name'] ?? '').toString().isEmpty ? '—' : checks[i]['bank_name'].toString()) +
+                                    ' • سررسید: ' +
+                                    Jalali.fromDateTime(DateTime.parse(checks[i]['due_date'] as String)).formatCompactDate(),
+                                  ),
+                                  DropdownButtonFormField<String>(
+                                    value: statuses.containsKey(checks[i]['status']) ? checks[i]['status'] as String : 'pending',
+                                    decoration: const InputDecoration(labelText: 'وضعیت چک'),
+                                    items: statuses.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+                                    onChanged: (next) async {
+                                      if (next == null || next == checks[i]['status']) return;
+                                      final id = checks[i]['id'] as int;
+                                      final old = checks[i]['status'].toString();
+                                      final now = DateTime.now().toIso8601String();
+                                      await DemoStore.database.transaction((txn) async {
+                                        await txn.update('checks_register', {'status': next}, where: 'id = ?', whereArgs: [id]);
+                                        await txn.insert('checks_history', {
+                                          'check_id': id,
+                                          'old_status': old,
+                                          'new_status': next,
+                                          'occurred_at': now,
+                                          'notes': 'تغییر وضعیت از دفتر چک‌ها',
+                                        });
+                                      });
+                                      final refreshed = await DemoStore.database.query('checks_register', where: 'id = ?', whereArgs: [id], limit: 1);
+                                      if (refreshed.isNotEmpty) refresh(() => checks[i] = refreshed.first);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _deleteSelected() async {
     final items = DemoStore.operations.where((x) => _selected.contains(jsonEncode(x)) && x['نوع عملیات'] != 'خرید کالا').toList();
     if (items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سند خرید از این فهرست حذف نمی‌شود؛ اطلاعات خرید را از بخش انبار اصلاح کنید.'))); return; }
@@ -2657,7 +2792,14 @@ class _OperationsPageState extends State<OperationsPage> {
         IconButton(onPressed: _deleteSelected, icon: const Icon(Icons.delete, color: Colors.red)),
       ])),
       Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
-      for (final op in options)
+      Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
+        title: const Text('دفتر چک‌ها'),
+        subtitle: const Text('پیگیری چک‌های دریافتی و پرداختی، سررسید و وضعیت وصول'),
+        trailing: const Icon(Icons.chevron_left),
+        onTap: _showCheckBook,
+      )),
+      for (final op in options
         Card(child: ListTile(
           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
           title: Text(op),
