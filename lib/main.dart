@@ -154,6 +154,21 @@ class DemoStore {
     }
     target.add(saved);
   }
+
+  static Future<void> updateProduct(
+    int productId,
+    Map<String, String> changes,
+  ) async {
+    final current = products.firstWhere(
+      (item) => item['__database_id'] == productId.toString(),
+      orElse: () => throw StateError('کالا پیدا نشد'),
+    );
+    final updated = Map<String, String>.from(current)..addAll(changes);
+    // Stock is ledger-derived and cannot be edited from the product form.
+    updated['موجودی'] = current['موجودی'] ?? '0';
+    await _database.updateRecord('products', productId, updated);
+    await refreshProducts();
+  }
 }
 
 class HomePage extends StatefulWidget {
@@ -542,6 +557,14 @@ class ProductPage extends StatefulWidget {
 }
 
 class _ProductPageState extends State<ProductPage> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> addProduct() async {
     final names = ['نام کالا', 'گروه اصلی', 'زیرگروه', 'کد کالا', 'موجودی', 'قیمت خرید هر واحد', 'قیمت فروش'];
     final c = List.generate(names.length, (_) => TextEditingController());
@@ -824,31 +847,307 @@ class _ProductPageState extends State<ProductPage> {
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.transparent,
-        floatingActionButton: FloatingActionButton(
-          heroTag: 'add-product', backgroundColor: yellow, foregroundColor: black,
-          onPressed: addProduct, child: const Icon(Icons.add),
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: addProduct, icon: const Icon(Icons.add), label: const Text('ثبت کالا'))),
-            const SizedBox(height: 8),
-            if (DemoStore.products.isEmpty)
-              const Padding(padding: EdgeInsets.all(28), child: Center(child: Text('هنوز کالایی ثبت نشده است'))),
-            for (final item in DemoStore.products.reversed)
-              Card(child: ListTile(
-                leading: (item['تصویر کالا'] ?? '').isNotEmpty
-                    ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(item['تصویر کالا']!), width: 48, height: 48, fit: BoxFit.cover))
-                    : const CircleAvatar(child: Icon(Icons.inventory_2)),
-                title: Text(item['نام کالا'] ?? 'بدون نام'),
-                subtitle: Text('موجودی: ${item['موجودی'] ?? '0'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
-              )),
+  Future<void> editProduct(Map<String, String> product) async {
+    final productId = int.tryParse(product['__database_id'] ?? '');
+    if (productId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('شناسه کالا معتبر نیست')),
+      );
+      return;
+    }
+
+    const fields = [
+      'نام کالا',
+      'گروه اصلی',
+      'زیرگروه',
+      'کد کالا',
+      'قیمت خرید هر واحد',
+      'قیمت فروش',
+    ];
+    final controllers = fields
+        .map((field) => TextEditingController(text: product[field] ?? ''))
+        .toList(growable: false);
+
+    final changes = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('ویرایش مشخصات کالا'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < fields.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextField(
+                        controller: controllers[i],
+                        keyboardType: i >= 4
+                            ? const TextInputType.numberWithOptions(decimal: true)
+                            : TextInputType.text,
+                        textInputAction: i == fields.length - 1
+                            ? TextInputAction.done
+                            : TextInputAction.next,
+                        decoration: InputDecoration(labelText: fields[i]),
+                      ),
+                    ),
+                  Card(
+                    color: const Color(0xFFFFF4CC),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('موجودی فعلی: ${product['موجودی'] ?? '0'}'),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'موجودی فقط از طریق خرید، فروش، مصرف تعمیر یا اصلاح موجودی تغییر می‌کند. ویرایش مشخصات، سوابق انبار و حسابداری را تغییر نمی‌دهد.',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = controllers[0].text.trim();
+                final purchasePrice = LocalizedNumber.tryParseDouble(controllers[4].text);
+                final salePrice = LocalizedNumber.tryParseDouble(controllers[5].text);
+                if (name.isEmpty ||
+                    purchasePrice == null ||
+                    salePrice == null ||
+                    purchasePrice < 0 ||
+                    salePrice < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('نام کالا و قیمت‌های معتبر و غیرمنفی وارد کنید'),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  {
+                    for (var i = 0; i < fields.length; i++)
+                      fields[i]: controllers[i].text.trim(),
+                  },
+                );
+              },
+              child: const Text('ذخیره تغییرات'),
+            ),
           ],
         ),
       );
+
+    for (final controller in controllers) {
+      controller.dispose();
+    }
+    if (changes == null || !mounted) return;
+
+    final candidate = Map<String, String>.from(product)..addAll(changes);
+    final duplicates = ProductDuplicateChecker.findDuplicates(
+      DemoStore.products.where(
+        (item) => item['__database_id'] != productId.toString(),
+      ),
+      candidate,
+    );
+
+    if (duplicates.isNotEmpty) {
+      var allowDuplicate = false;
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (warningContext) => StatefulBuilder(
+          builder: (warningContext, refreshWarning) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('احتمال تکراری شدن کالا'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('مشخصات جدید با کالای دیگری مشابه است:'),
+                  for (final duplicate in duplicates.take(3))
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(duplicate['نام کالا'] ?? 'بدون نام'),
+                      subtitle: Text('کد: ${duplicate['کد کالا'] ?? '—'}'),
+                    ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: allowDuplicate,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('با آگاهی از تکراری بودن، اجازه می‌دهم'),
+                    onChanged: (value) =>
+                        refreshWarning(() => allowDuplicate = value ?? false),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(warningContext, false),
+                  child: const Text('بازگشت'),
+                ),
+                FilledButton(
+                  onPressed: allowDuplicate
+                      ? () => Navigator.pop(warningContext, true)
+                      : null,
+                  child: const Text('ادامه و ذخیره'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (approved != true || !mounted) return;
+    }
+
+    try {
+      await DemoStore.updateProduct(productId, changes);
+      if (!mounted) return;
+      setState(() {});
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مشخصات کالا ذخیره شد؛ سوابق موجودی حفظ شدند')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ویرایش کالا ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = ProductDuplicateChecker.normalize(_searchController.text);
+    final filteredProducts = DemoStore.products.where((item) {
+      if (query.isEmpty) return true;
+      return item.entries.any(
+        (entry) =>
+            !entry.key.startsWith('__') &&
+            ProductDuplicateChecker.normalize(entry.value).contains(query),
+      );
+    }).toList().reversed.toList();
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'add-product',
+        backgroundColor: yellow,
+        foregroundColor: black,
+        onPressed: addProduct,
+        child: const Icon(Icons.add),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'جست‌وجوی کالا، گروه یا کد کالا',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'پاک کردن جست‌وجو',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                Text('کالاها: ${filteredProducts.length}'),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: addProduct,
+                  icon: const Icon(Icons.add),
+                  label: const Text('ثبت کالا'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filteredProducts.isEmpty
+                ? Center(
+                    child: Text(
+                      DemoStore.products.isEmpty
+                          ? 'هنوز کالایی ثبت نشده است'
+                          : 'کالایی با این عبارت پیدا نشد',
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+                    itemCount: filteredProducts.length,
+                    itemBuilder: (context, index) {
+                      final item = filteredProducts[index];
+                      final image = item['تصویر کالا'] ?? '';
+                      return Card(
+                        child: ListTile(
+                          leading: image.isNotEmpty
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    base64Decode(image),
+                                    width: 48,
+                                    height: 48,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const CircleAvatar(
+                                      child: Icon(Icons.broken_image_outlined),
+                                    ),
+                                  ),
+                                )
+                              : const CircleAvatar(
+                                  child: Icon(Icons.inventory_2),
+                                ),
+                          title: Text(item['نام کالا'] ?? 'بدون نام'),
+                          subtitle: Text(
+                            'گروه: ${item['گروه اصلی'] ?? '—'}'
+                            ' • زیرگروه: ${item['زیرگروه'] ?? '—'}\n'
+                            'کد: ${item['کد کالا'] ?? '—'}'
+                            ' • موجودی: ${item['موجودی'] ?? '0'}'
+                            ' • خرید: ${item['بهای تمام‌شده هر واحد'] ?? item['قیمت خرید هر واحد'] ?? '0'}'
+                            ' • فروش: ${item['قیمت فروش'] ?? '0'} تومان',
+                          ),
+                          isThreeLine: true,
+                          trailing: IconButton(
+                            tooltip: 'ویرایش مشخصات کالا',
+                            onPressed: () => editProduct(item),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          onTap: () => editProduct(item),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class CustomerPage extends StatelessWidget {
