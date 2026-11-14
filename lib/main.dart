@@ -1562,7 +1562,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
-                    Text('تاریخ: ${document['document_date']}'),
+                    Text('تاریخ: ${formatJalaliDate(DateTime.parse(document['document_date'] as String))}'),
                     Text('مبلغ: ${document['total_amount']} تومان  •  پرداخت اولیه: ${document['paid_amount']} تومان'),
                     Text('مانده: ${document['outstanding_amount']} تومان'),
                     const SizedBox(height: 6),
