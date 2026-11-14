@@ -56,6 +56,14 @@ class DemoStore {
     List<Map<String, String>> target,
   ) async {
     final rows = await _database.getAll(category);
+    if (category == 'products') {
+      for (final item in rows) {
+        final databaseId = int.tryParse(item['__database_id'] ?? '');
+        if (databaseId != null) {
+          item['موجودی'] = (await _database.getStockOnHand(databaseId)).toString();
+        }
+      }
+    }
     target
       ..clear()
       ..addAll(rows);
@@ -73,8 +81,13 @@ class DemoStore {
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
 
-    await _database.insert(category, item);
-    target.add(Map<String, String>.from(item));
+    final id = await _database.insert(category, item);
+    final saved = Map<String, String>.from(item)
+      ..['__database_id'] = id.toString();
+    if (category == 'products') {
+      saved['موجودی'] = (await _database.getStockOnHand(id)).toString();
+    }
+    target.add(saved);
   }
 }
 
@@ -433,7 +446,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   leading: const CircleAvatar(child: Icon(Icons.description)),
                   title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
                   subtitle: Text(
-                    item.entries.where((e) => e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
+                    item.entries.where((e) => !e.key.startsWith('__') && e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
                   ),
                 ),
               ),
