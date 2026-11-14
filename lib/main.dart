@@ -821,7 +821,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
   }
 
   Future<void> addItem({Map<String, String>? existing}) async {
-    final controllers = widget.fields.map((field) => TextEditingController(text: existing?[field] ?? '')).toList();
+    final controllers = widget.fields.map((field) {
+      var value = existing?[field] ?? '';
+      if (field == 'تاریخ') {
+        final parsed = DateTime.tryParse(value);
+        value = parsed != null ? Jalali.fromDateTime(parsed).formatCompactDate() : (value.isEmpty ? Jalali.now().formatCompactDate() : value);
+      }
+      return TextEditingController(text: value);
+    }).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
     final repairCustomerNames = DemoStore.customers
         .map((customer) => (customer['نام مشتری'] ?? '').trim())
@@ -954,7 +961,27 @@ class _SimpleListPageState extends State<SimpleListPage> {
                     for (int i = 0; i < widget.fields.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'نام مشتری'
+                        child: (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'تاریخ'
+                            ? TextField(
+                                controller: controllers[i], readOnly: true,
+                                decoration: const InputDecoration(labelText: 'تاریخ شمسی', suffixIcon: Icon(Icons.calendar_month)),
+                                onTap: () async {
+                                  final current = controllers[i].text.trim();
+                                  Jalali initial = Jalali.now();
+                                  final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(current);
+                                  if (match != null) {
+                                    try { initial = Jalali(int.parse(match.group(1)!), int.parse(match.group(2)!), int.parse(match.group(3)!)); } catch (_) {}
+                                  }
+                                  final picked = await showPersianDatePicker(
+                                    context: dialogContext, initialDate: initial,
+                                    firstDate: Jalali(1300, 1, 1), lastDate: Jalali(1500, 12, 29),
+                                    locale: const Locale('fa', 'IR'), textDirection: TextDirection.rtl,
+                                    helpText: 'انتخاب تاریخ سند', cancelText: 'انصراف', confirmText: 'تأیید',
+                                  );
+                                  if (picked != null) controllers[i].text = picked.formatCompactDate();
+                                },
+                              )
+                            : (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'نام مشتری'
                             ? DropdownButtonFormField<String>(
                                 value: repairCustomerNames.contains(controllers[i].text.trim())
                                     ? controllers[i].text.trim()
@@ -1034,6 +1061,23 @@ class _SimpleListPageState extends State<SimpleListPage> {
     return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
   }
 
+  DateTime? _ledgerDate(Object? raw) {
+    var value = (raw ?? '').toString().trim();
+    final iso = DateTime.tryParse(value);
+    if (iso != null) return iso;
+    const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < 10; i++) {
+      value = value.replaceAll(fa[i], '$i').replaceAll(ar[i], '$i');
+    }
+    final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(value);
+    if (match == null) return null;
+    try {
+      return Jalali(int.parse(match.group(1)!), int.parse(match.group(2)!), int.parse(match.group(3)!)).toDateTime();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false, bool asPayment = false, int? customerId}) async {
     final amount = TextEditingController(), note = TextEditingController();
     const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
@@ -1109,7 +1153,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
         if (partyType != 'مشتری') continue;
       }
-      final date = DateTime.tryParse((data['تاریخ'] ?? '').toString()) ?? DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now();
+      final date = _ledgerDate(data['تاریخ']) ?? _ledgerDate(record['created_at']) ?? DateTime.now();
       double debit = 0, credit = 0; String desc = '', method = '';
       if (record['category'] == 'sales') {
         final gross = _ledgerAmount(data['مبلغ کل']);
@@ -1749,7 +1793,7 @@ class RepairPage extends StatelessWidget {
         key: pageKey,
         title: 'پذیرش تعمیر',
         data: DemoStore.repairs,
-        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],
+        fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر', 'تاریخ'],
         primary: 'نوع دستگاه',
         onChanged: onChanged,
       );
@@ -1765,7 +1809,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی'],
+        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -2782,7 +2826,7 @@ class _ReportsPageState extends State<ReportsPage> {
             Expanded(child: OutlinedButton.icon(
               onPressed: _exportReportImage,
               icon: const Icon(Icons.image_outlined),
-              label: const Text('خروجی تصویر گزارش'),
+              label: const Text('خروجی تصویر گزارش و نمودار'),
             )),
             IconButton(
               tooltip: 'به‌روزرسانی',
