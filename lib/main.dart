@@ -2373,6 +2373,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       if (existing == null && field == 'روش پرداخت') value = 'نقدی';
       if (existing == null && field == 'درصد ارزش افزوده') value = AppSettings.vatPercent.toStringAsFixed(0);
       if (existing == null && field == 'مشمول ارزش افزوده') value = 'بله';
+      if (existing == null && field == 'تاریخ تحویل / اتمام تعمیر') value = Jalali.now().formatCompactDate();
       if (existing == null && field == 'نام فروشگاه در فاکتور') value = AppSettings.storeName;
       if (existing == null && field == 'نام صاحب فروشگاه در فاکتور') value = AppSettings.managerName;
       if (existing == null && field == 'تلفن فروشگاه در فاکتور') value = AppSettings.phone;
@@ -2723,6 +2724,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final taxAmount = taxable ? taxBase * vatPercent / 100 : 0.0;
         item['مبلغ مالیات'] = taxAmount.toStringAsFixed(0);
         item['تاریخ میلادی'] = _parsePersianOrIsoDate(item['تاریخ'] ?? '').toIso8601String();
+        if ((item['تاریخ تحویل / اتمام تعمیر'] ?? '').trim().isNotEmpty) {
+          item['تاریخ تحویل میلادی'] = _parsePersianOrIsoDate(item['تاریخ تحویل / اتمام تعمیر']!).toIso8601String();
+        }
         if ((item['روش پرداخت'] ?? 'نقدی') == 'چک' && received > 0) {
           final checkNumber = (item['شماره چک'] ?? '').trim();
           final dueDate = (item['سررسید چک'] ?? '').trim();
@@ -4190,7 +4194,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مشمول ارزش افزوده', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ', 'نام فروشگاه در فاکتور', 'نام صاحب فروشگاه در فاکتور', 'تلفن فروشگاه در فاکتور', 'نشانی فروشگاه در فاکتور', 'کد پستی در فاکتور'],
+        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مشمول ارزش افزوده', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ', 'تاریخ تحویل / اتمام تعمیر', 'نام فروشگاه در فاکتور', 'نام صاحب فروشگاه در فاکتور', 'تلفن فروشگاه در فاکتور', 'نشانی فروشگاه در فاکتور', 'کد پستی در فاکتور'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -5876,6 +5880,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
           Text('تاریخ فاکتور: ${item['تاریخ'] ?? Jalali.now().formatCompactDate()}'),
+          if ((item['تاریخ تحویل / اتمام تعمیر'] ?? '').trim().isNotEmpty)
+            Text('تاریخ تحویل / اتمام تعمیر: ${item['تاریخ تحویل / اتمام تعمیر']}'),
           Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
           Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
           Text('تعداد: ${item['تعداد'] ?? '۱'}'),
