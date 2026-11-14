@@ -1037,13 +1037,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
         title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : 'مبلغ دریافتی (تومان)')),
-          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
+          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : 'مبلغ دریافتی (تومان)')),
+          DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
           TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات / شماره پیگیری / شماره چک')),
         ]),
         actions: [_horizontalDialogActions([
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('انصراف')),
-          FilledButton(onPressed: () { if (_ledgerAmount(amount.text) <= 0) { ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ دریافت باید بیشتر از صفر باشد.'))); return; } Navigator.pop(d, true); }, child: const Text('ثبت دریافت')),
+          FilledButton(onPressed: () { if (_ledgerAmount(amount.text) <= 0) { ScaffoldMessenger.of(d).showSnackBar(const SnackBar(content: Text('مبلغ دریافت باید بیشتر از صفر باشد.'))); return; } Navigator.pop(d, true); }, child: Text(asDeposit ? 'ثبت بیعانه' : 'ثبت دریافت')),
         ])],
       )),
     ));
