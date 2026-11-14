@@ -250,6 +250,7 @@ class TradeRepository {
         total: total,
         paid: draft.paidAmount,
         journalEntryId: journalId,
+        sourceDocumentId: sourceDocumentId,
         idempotencyKey: draft.idempotencyKey,
         payload: payload,
       );
@@ -843,6 +844,46 @@ class TradeRepository {
     return db.transaction((txn) async {
       final duplicate = await _findDuplicate(txn, draft.idempotencyKey, payload);
       if (duplicate != null) return duplicate;
+
+      final sourceDocumentId = int.tryParse(draft.referenceId ?? '');
+      if (draft.referenceId != null && sourceDocumentId == null) {
+        throw ArgumentError('شناسه فاکتور مرتبط با دریافت یا پرداخت معتبر نیست');
+      }
+      if (sourceDocumentId != null) {
+        final sourceRows = await txn.query(
+          'business_documents',
+          where: 'id = ?',
+          whereArgs: [sourceDocumentId],
+          limit: 1,
+        );
+        if (sourceRows.isEmpty) throw StateError('فاکتور مرتبط پیدا نشد');
+        final source = sourceRows.single;
+        final requiredSourceType = isCustomerReceipt ? 'sale' : 'purchase';
+        if (source['document_type'] != requiredSourceType) {
+          throw StateError('نوع فاکتور با نوع دریافت یا پرداخت سازگار نیست');
+        }
+        if (draft.counterpartyId != null &&
+            source['counterparty_id'] != null &&
+            draft.counterpartyId != source['counterparty_id']) {
+          throw StateError('شخص انتخاب‌شده با شخص فاکتور یکسان نیست');
+        }
+        final paymentRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
+          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
+          [
+            sourceDocumentId,
+            isCustomerReceipt ? 'customer_receipt' : 'supplier_payment',
+          ],
+        );
+        final alreadySettled =
+            (source['paid_amount'] as num).toInt() +
+            (paymentRows.single['paid'] as num).toInt();
+        final outstanding =
+            (source['total_amount'] as num).toInt() - alreadySettled;
+        if (draft.amount > outstanding) {
+          throw StateError('مبلغ دریافت یا پرداخت از مانده فاکتور بیشتر است');
+        }
+      }
 
       final lines = isCustomerReceipt
           ? [
