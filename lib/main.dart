@@ -1156,6 +1156,7 @@ class DemoStore {
     required double quantity,
     required String reason,
     required bool settleAsCash,
+    int invoiceLineIndex = 0,
   }) async {
     if (!['sales', 'operations'].contains(originalCategory) ||
         !quantity.isFinite || quantity <= 0) {
@@ -1174,24 +1175,40 @@ class DemoStore {
       if (!isSale && source['نوع عملیات'] != 'خرید کالا') {
         throw StateError('فقط سند خرید کالا یا فاکتور فروش قابلیت برگشت دارد.');
       }
-      final originalQuantity = double.tryParse(
-        (isSale ? source['تعداد'] : source['تعداد خرید']) ?? '',
-      ) ?? 0;
+      Map<String, dynamic>? selectedSaleLine;
+      final invoiceLinesJson = (source['ردیف‌های فاکتور'] ?? '').trim();
+      if (isSale && invoiceLinesJson.isNotEmpty) {
+        final decodedLines = jsonDecode(invoiceLinesJson);
+        if (decodedLines is! List || decodedLines.isEmpty) {
+          throw StateError('ردیف‌های فاکتور اصلی معتبر نیستند.');
+        }
+        if (invoiceLineIndex < 0 || invoiceLineIndex >= decodedLines.length) {
+          throw StateError('ردیف انتخاب‌شدهٔ فاکتور پیدا نشد.');
+        }
+        selectedSaleLine = Map<String, dynamic>.from(decodedLines[invoiceLineIndex] as Map);
+        if (decodedLines.length > 1 && invoiceLineIndex < 0) {
+          throw StateError('برای برگشت فاکتور چندردیفی باید ردیف کالا یا خدمت انتخاب شود.');
+        }
+      }
+      final originalQuantity = isSale && selectedSaleLine != null
+          ? double.tryParse((selectedSaleLine['quantity'] ?? '').toString()) ?? 0
+          : double.tryParse((isSale ? source['تعداد'] : source['تعداد خرید']) ?? '') ?? 0;
       if (originalQuantity <= 0) {
-        throw StateError('تعداد سند اصلی معتبر نیست؛ برگشت برای سند قدیمی بدون تعداد ممکن نیست.');
+        throw StateError('تعداد سند اصلی یا ردیف انتخاب‌شده معتبر نیست.');
       }
       final previous = await txn.query('document_returns',
         columns: ['quantity', 'amount'],
-        where: 'original_category = ? AND original_source_id = ?',
-        whereArgs: [originalCategory, originalSourceId]);
+        where: 'original_category = ? AND original_source_id = ? AND line_index = ?',
+        whereArgs: [originalCategory, originalSourceId, isSale ? invoiceLineIndex : 0]);
       final returnedQuantity = previous.fold<double>(
         0, (sum, row) => sum + (row['quantity'] as num).toDouble());
       if (quantity > originalQuantity - returnedQuantity + 0.000001) {
-        throw StateError('تعداد برگشتی از مقدار باقیمانده سند اصلی بیشتر است. مقدار قابل برگشت: ' +
+        throw StateError('تعداد برگشتی از مقدار باقی‌ماندهٔ همین ردیف بیشتر است. مقدار قابل برگشت: ' +
           (originalQuantity - returnedQuantity).toStringAsFixed(3));
       }
-      final productId = int.tryParse(
-        (source['شناسه کالای انبار'] ?? '').trim());
+      final productId = isSale && selectedSaleLine != null
+          ? int.tryParse((selectedSaleLine['product_id'] ?? '').toString())
+          : int.tryParse((source['شناسه کالای انبار'] ?? '').trim());
       if (!isSale && productId == null) {
         throw StateError('برای برگشت خرید قدیمی، شناسه کالای انبار ثبت نشده است.');
       }
@@ -1203,13 +1220,17 @@ class DemoStore {
       double taxReturn = 0;
       double purchaseUnitCost = 0;
       if (isSale) {
-        final gross = double.tryParse(source['مبلغ کل'] ?? '0') ?? 0;
-        final discount = double.tryParse(source['تخفیف'] ?? '0') ?? 0;
-        final tax = double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0;
+        final invoiceGross = double.tryParse(source['مبلغ کل'] ?? '0') ?? 0;
+        final invoiceDiscount = double.tryParse(source['تخفیف'] ?? '0') ?? 0;
+        final invoiceTax = double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0;
+        final lineGross = selectedSaleLine == null
+            ? invoiceGross
+            : double.tryParse((selectedSaleLine['line_total'] ?? '0').toString()) ?? 0;
+        final invoiceLineShare = invoiceGross > 0 ? (lineGross / invoiceGross) : 0.0;
         final ratio = quantity / originalQuantity;
-        grossReturn = gross * ratio;
-        discountReturn = discount * ratio;
-        taxReturn = tax * ratio;
+        grossReturn = lineGross * ratio;
+        discountReturn = invoiceDiscount * invoiceLineShare * ratio;
+        taxReturn = invoiceTax * invoiceLineShare * ratio;
         amount = grossReturn - discountReturn + taxReturn;
         if (amount <= 0) throw StateError('مبلغ برگشت محاسبه‌شده باید بیشتر از صفر باشد.');
         if (productId != null) {
@@ -1245,11 +1266,14 @@ class DemoStore {
       final sourceNumber = isSale
           ? (source['شماره فاکتور'] ?? originalSourceId.toString())
           : (source['شماره فاکتور خرید'] ?? ('PUR-' + originalSourceId.toString()));
-      final productName = (source['کالای انبار'] ?? source['نام کالا'] ?? source['شرح کالا/خدمت'] ?? '').toString();
+      final productName = isSale && selectedSaleLine != null
+          ? (selectedSaleLine['description'] ?? '').toString()
+          : (source['کالای انبار'] ?? source['نام کالا'] ?? source['شرح کالا/خدمت'] ?? '').toString();
       final returnId = await txn.insert('document_returns', {
         'original_category': originalCategory,
         'original_source_id': originalSourceId,
         'product_id': productId,
+        'line_index': isSale ? invoiceLineIndex : 0,
         'quantity': quantity,
         'amount': amount,
         'reason': reason.trim(),
