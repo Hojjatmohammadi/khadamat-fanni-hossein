@@ -2417,8 +2417,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
         item['ردیف‌های فاکتور'] = jsonEncode(lines);
         item['مبلغ کل'] = lineGross.toStringAsFixed(0);
         item['تعداد'] = totalQuantity.toStringAsFixed(3);
-        if (baseProductId.isEmpty && lines.first['product_id']!.isNotEmpty) {
-          item['شناسه کالای انبار'] = lines.first['product_id']!;
+        final firstProductLine = lines.cast<Map<String, String>>().firstWhere(
+          (line) => (line['product_id'] ?? '').isNotEmpty,
+          orElse: () => <String, String>{},
+        );
+        if (firstProductLine.isNotEmpty) {
+          item['شناسه کالای انبار'] = firstProductLine['product_id']!;
+        } else {
+          item['شناسه کالای انبار'] = '';
         }
         item['شرح کالا/خدمت'] = lines.map((line) => line['description']).join('، ');
       }
@@ -2629,9 +2635,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
     }
 
     Future<void> requestClose(BuildContext dialogContext) async {
-      final dirty = existing == null
-          ? controllers.any((c) => c.text.trim().isNotEmpty)
-          : widget.fields.asMap().entries.any((e) => controllers[e.key].text.trim() != (existing[e.value] ?? ''));
+      final dirty = extraInvoiceLines.isNotEmpty ||
+          (existing == null
+            ? controllers.any((c) => c.text.trim().isNotEmpty)
+            : widget.fields.asMap().entries.any((e) =>
+                controllers[e.key].text.trim() != (existing[e.value] ?? '')));
       if (!dirty) {
         Navigator.pop(dialogContext, false);
         return;
@@ -2842,7 +2850,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
                               ),
                       ),
                     if (widget.title == 'فاکتور فروش')
-                      Card(
+                      StatefulBuilder(
+                        builder: (lineContext, refresh) => Card(
                         margin: const EdgeInsets.only(top: 14),
                         child: Padding(
                           padding: const EdgeInsets.all(10),
@@ -2881,6 +2890,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                               ),
                             ],
                           ),
+                        ),
                         ),
                       ),
                   ],
