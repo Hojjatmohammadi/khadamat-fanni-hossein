@@ -1029,16 +1029,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
     return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
   }
 
-  Future<void> _addCustomerReceipt(String customerName) async {
+  Future<void> _addCustomerReceipt(String customerName, {bool asDeposit = false}) async {
     final amount = TextEditingController(), note = TextEditingController();
-    const methods = ['نقدی', 'کارت به کارت', 'حواله بانکی', 'چک'];
+    const methods = ['نقدی', 'کارت‌خوان', 'کارت به کارت', 'حواله بانکی', 'چک'];
     String method = methods.first;
     final saved = await showDialog<bool>(context: context, builder: (d) => Directionality(
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
-        title: Text('ثبت دریافت از ' + customerName),
+        title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: 'مبلغ دریافتی (تومان)')),
-          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
+          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: const InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : 'مبلغ دریافتی (تومان)')),
+          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: methods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
           TextField(controller: note, maxLines: 2, decoration: const InputDecoration(labelText: 'توضیحات / شماره پیگیری / شماره چک')),
         ]),
         actions: [_horizontalDialogActions([
@@ -1048,7 +1048,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       )),
     ));
     if (saved == true) {
-      await DemoStore.add('operations', {'نوع عملیات':'دریافت وجه','نام شخص':customerName,'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
+      await DemoStore.add('operations', {'نوع عملیات': asDeposit ? 'ثبت بیعانه' : 'دریافت وجه','نوع طرف حساب':'مشتری','نام شخص':customerName,'مبلغ':amount.text.trim(),'روش':method,'تاریخ':DateTime.now().toIso8601String(),'توضیحات':note.text.trim()});
       if (mounted) { setState(() {}); widget.onChanged(); }
     }
     amount.dispose(); note.dispose();
@@ -1093,7 +1093,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
         if (value <= 0) continue;
         if (['متفرقه شخص بدهکار','پرداخت وجه'].contains(type)) debit = value;
-        else if (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(type)) credit = value;
+        else if (['متفرقه شخص بستانکار','دریافت وجه','ثبت بیعانه','تخفیف دادن'].contains(type)) credit = value;
         else continue;
         desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
         method = (data['روش'] ?? '').toString();
@@ -1123,6 +1123,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       actions: [_horizontalDialogActions([
         TextButton(onPressed: () => Navigator.pop(d,false), child: const Text('بستن')),
         OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.payments_outlined), label: const Text('ثبت دریافت از مشتری')),
+        OutlinedButton.icon(onPressed: () async { Navigator.pop(d,false); await _addCustomerReceipt(customerName, asDeposit: true); if (mounted) await _showCustomerAccount(customer); }, icon: const Icon(Icons.savings_outlined), label: const Text('ثبت بیعانه')),
         FilledButton.icon(onPressed: () => Navigator.pop(d,true), icon: const Icon(Icons.edit_outlined), label: const Text('ویرایش مشخصات')),
       ])],
     )));
