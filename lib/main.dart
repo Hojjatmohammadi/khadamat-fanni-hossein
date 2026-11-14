@@ -733,7 +733,9 @@ class DemoStore {
       return (rows.first['balance'] as num).toDouble();
     }
 
-    final cashCode = method == 'چک' ? '1020'
+    // A received cheque is a receivable asset (1020); an issued cheque is a payable liability (2110).
+    final cashCode = method == 'چک'
+        ? (isReceipt ? '1020' : '2110')
         : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
     final lines = <JournalLineInput>[];
     if (isReceipt && method == 'چک') {
