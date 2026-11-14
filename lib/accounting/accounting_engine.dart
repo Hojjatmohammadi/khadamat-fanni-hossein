@@ -28,6 +28,7 @@ class AccountingEngine {
     {'code':'1010','name':'بانک','type':'asset'},
     {'code':'1020','name':'چک‌های دریافتنی','type':'asset'},
     {'code':'1100','name':'حساب‌های دریافتنی مشتریان','type':'asset'},
+    {'code':'1110','name':'دریافتنی از فروشندگان و سایر اشخاص','type':'asset'},
     {'code':'1200','name':'موجودی کالا','type':'asset'},
     {'code':'2000','name':'حساب‌های پرداختنی فروشندگان','type':'liability'},
     {'code':'2010','name':'اعتبار و بستانکاری مشتریان','type':'liability'},
