@@ -296,20 +296,27 @@ class AccountingRepository {
     return _postJournalEntry(txn, draft);
   }
 
-  Future<List<Map<String, Object?>>> getTrialBalance() async {
+  Future<List<Map<String, Object?>>> getTrialBalance({
+    String? fromDate,
+    String? toDate,
+  }) async {
     final db = await _database.database;
+    final filters = <String>[];
+    final args = <Object?>[];
+    if (fromDate != null) { filters.add('e.entry_date >= ?'); args.add(fromDate); }
+    if (toDate != null) { filters.add('e.entry_date < ?'); args.add(DateTime.parse(toDate).add(const Duration(days: 1)).toIso8601String().substring(0, 10)); }
+    final dateJoin = filters.isEmpty ? '' : ' AND ${filters.join(' AND ')}';
     final rows = await db.rawQuery('''
-      SELECT
-        a.code AS account_code,
-        a.name AS account_name,
+      SELECT a.code AS account_code, a.name AS account_name,
         a.account_type AS account_type,
         COALESCE(SUM(l.debit), 0) AS total_debit,
         COALESCE(SUM(l.credit), 0) AS total_credit
       FROM accounts a
       LEFT JOIN journal_lines l ON l.account_code = a.code
+      LEFT JOIN journal_entries e ON e.id = l.journal_entry_id$dateJoin
       GROUP BY a.code, a.name, a.account_type
       ORDER BY a.code
-    ''');
+    ''', args);
     return rows.map((row) {
       final debit = (row['total_debit'] as num).toInt();
       final credit = (row['total_credit'] as num).toInt();
@@ -431,4 +438,111 @@ class AccountingRepository {
       orderBy: 'occurred_at ASC, id ASC',
     );
   }
+
+  /// Expense is posted immediately as a balanced, immutable journal entry.
+  Future<int> recordExpense({
+    required String expenseDate,
+    required String description,
+    required int amount,
+    required String expenseAccountCode,
+    required String cashAccountCode,
+    required String idempotencyKey,
+  }) async {
+    if (DateTime.tryParse(expenseDate) == null ||
+        description.trim().isEmpty ||
+        amount <= 0 ||
+        idempotencyKey.trim().isEmpty) {
+      throw ArgumentError('تاریخ، شرح، مبلغ و شناسه یکتای هزینه الزامی است');
+    }
+    final db = await _database.database;
+    final accounts = await db.query('accounts',
+      columns: ['code', 'account_type'],
+      where: 'code IN (?, ?)',
+      whereArgs: [expenseAccountCode, cashAccountCode]);
+    if (accounts.length != 2 ||
+        !accounts.any((a) => a['code'] == expenseAccountCode && a['account_type'] == 'expense') ||
+        !accounts.any((a) => a['code'] == cashAccountCode && a['account_type'] == 'asset' &&
+          (cashAccountCode == '1000' || cashAccountCode == '1010'))) {
+      throw ArgumentError('حساب هزینه یا صندوق/بانک معتبر نیست');
+    }
+    return postJournalEntry(JournalEntryDraft(
+      entryDate: expenseDate,
+      description: 'هزینه: ${description.trim()}',
+      idempotencyKey: idempotencyKey,
+      referenceType: 'expense',
+      referenceId: idempotencyKey,
+      lines: [
+        JournalLineDraft(accountCode: expenseAccountCode, debit: amount, memo: description.trim()),
+        JournalLineDraft(accountCode: cashAccountCode, credit: amount, memo: description.trim()),
+      ],
+    ));
+  }
+
+  Future<List<Map<String, Object?>>> getAccounts() async {
+    final db = await _database.database;
+    return db.query('accounts', orderBy: 'code ASC');
+  }
+
+  Future<List<Map<String, Object?>>> getJournalEntries({
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final db = await _database.database;
+    final clauses = <String>[];
+    final args = <Object?>[];
+    if (fromDate != null) { clauses.add('entry_date >= ?'); args.add(fromDate); }
+    if (toDate != null) {
+      clauses.add('entry_date < ?');
+      args.add(DateTime.parse(toDate).add(const Duration(days: 1)).toIso8601String().substring(0, 10));
+    }
+    final entries = await db.query('journal_entries',
+      where: clauses.isEmpty ? null : clauses.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'entry_date DESC, id DESC');
+    final result = <Map<String, Object?>>[];
+    for (final entry in entries) {
+      final lines = await db.rawQuery('''
+        SELECT l.*, a.name AS account_name
+        FROM journal_lines l JOIN accounts a ON a.code = l.account_code
+        WHERE l.journal_entry_id = ? ORDER BY l.line_no ASC
+      ''', [entry['id']]);
+      result.add({...entry, 'lines': lines});
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> getAccountLedger(
+    String accountCode, {String? fromDate, String? toDate}) async {
+    final db = await _database.database;
+    final accounts = await db.query('accounts', where: 'code = ?', whereArgs: [accountCode], limit: 1);
+    if (accounts.isEmpty) throw StateError('حساب پیدا نشد');
+    final before = fromDate == null ? <Map<String, Object?>>[] : await db.rawQuery('''
+      SELECT COALESCE(SUM(l.debit),0) AS debit, COALESCE(SUM(l.credit),0) AS credit
+      FROM journal_lines l JOIN journal_entries e ON e.id=l.journal_entry_id
+      WHERE l.account_code=? AND e.entry_date < ?
+    ''', [accountCode, fromDate]);
+    var running = before.isEmpty ? 0 :
+      (before.single['debit'] as num).toInt() - (before.single['credit'] as num).toInt();
+    final clauses = <String>['l.account_code = ?'];
+    final args = <Object?>[accountCode];
+    if (fromDate != null) { clauses.add('e.entry_date >= ?'); args.add(fromDate); }
+    if (toDate != null) {
+      clauses.add('e.entry_date < ?');
+      args.add(DateTime.parse(toDate).add(const Duration(days: 1)).toIso8601String().substring(0, 10));
+    }
+    final rows = await db.rawQuery('''
+      SELECT e.id AS entry_id, e.entry_date, e.description, e.reference_type,
+        l.line_no, l.debit, l.credit, l.party_id, l.memo
+      FROM journal_lines l JOIN journal_entries e ON e.id=l.journal_entry_id
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY e.entry_date ASC, e.id ASC, l.line_no ASC
+    ''', args);
+    final lines = <Map<String, Object?>>[];
+    for (final row in rows) {
+      running += (row['debit'] as num).toInt() - (row['credit'] as num).toInt();
+      lines.add({...row, 'running_balance': running});
+    }
+    return {'account': accounts.single, 'opening_balance': before.isEmpty ? 0 : running - rows.fold<int>(0, (s,r) => s + (r['debit'] as num).toInt() - (r['credit'] as num).toInt()), 'lines': lines, 'closing_balance': running};
+  }
+
 }
