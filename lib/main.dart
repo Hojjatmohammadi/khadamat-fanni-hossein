@@ -1157,6 +1157,50 @@ class DemoStore {
         whereArgs: [isSale ? 'sale' : 'purchase', originalSourceId.toString()],
         limit: 1);
       final reversalOf = originalJournal.isEmpty ? null : originalJournal.first['id'] as int;
+      var originalReceivable = 0.0;
+      var previousReceivableOffset = 0.0;
+      var originalPayable = 0.0;
+      var previousPayableOffset = 0.0;
+      if (originalJournal.isNotEmpty) {
+        final arAccountId = await AccountingEngine.accountId(txn, '1100');
+        final apAccountId = await AccountingEngine.accountId(txn, '2000');
+        final arRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE entry_id = ? AND account_id = ?',
+          [reversalOf, arAccountId],
+        );
+        final apRows = await txn.rawQuery(
+          'SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM journal_lines WHERE entry_id = ? AND account_id = ?',
+          [reversalOf, apAccountId],
+        );
+        originalReceivable = (arRows.first['balance'] as num).toDouble();
+        originalPayable = (apRows.first['balance'] as num).toDouble();
+        final priorArRows = await txn.rawQuery(
+          '''SELECT COALESCE(SUM(l.credit - l.debit), 0) AS amount
+             FROM journal_lines l
+             JOIN journal_entries e ON e.id = l.entry_id
+             WHERE e.source_type = 'document_return'
+               AND e.source_id IN (
+                 SELECT CAST(id AS TEXT) FROM document_returns
+                 WHERE original_category = ? AND original_source_id = ?
+               )
+               AND l.account_id = ?''',
+          [originalCategory, originalSourceId, arAccountId],
+        );
+        final priorApRows = await txn.rawQuery(
+          '''SELECT COALESCE(SUM(l.debit - l.credit), 0) AS amount
+             FROM journal_lines l
+             JOIN journal_entries e ON e.id = l.entry_id
+             WHERE e.source_type = 'document_return'
+               AND e.source_id IN (
+                 SELECT CAST(id AS TEXT) FROM document_returns
+                 WHERE original_category = ? AND original_source_id = ?
+               )
+               AND l.account_id = ?''',
+          [originalCategory, originalSourceId, apAccountId],
+        );
+        previousReceivableOffset = (priorArRows.first['amount'] as num).toDouble();
+        previousPayableOffset = (priorApRows.first['amount'] as num).toDouble();
+      }
       if (isSale) {
         if (grossReturn > 0) {
           lines.add(JournalLineInput(
@@ -1179,32 +1223,30 @@ class DemoStore {
             memo: 'برگشت تخفیف فاکتور ' + sourceNumber,
           ));
         }
-        if (settleAsCash) {
-          final originalTotal = (double.tryParse(source['مبلغ کل'] ?? '0') ?? 0) -
-              (double.tryParse(source['تخفیف'] ?? '0') ?? 0) +
-              (double.tryParse(source['مبلغ مالیات'] ?? '0') ?? 0);
-          final received = double.tryParse(source['مبلغ دریافتی'] ?? '0') ?? 0;
-          final receivableRemaining = (originalTotal - received - priorAmount).clamp(0.0, amount).toDouble();
-          if (receivableRemaining > 0.001) {
-            lines.add(JournalLineInput(
-              accountId: await AccountingEngine.accountId(txn, '1100'),
-              credit: receivableRemaining,
-              memo: 'کاهش دریافتنی مشتری بابت برگشت فاکتور ' + sourceNumber,
-            ));
-          }
-          final refundCash = amount - receivableRemaining;
-          if (refundCash > 0.001) {
-            lines.add(JournalLineInput(
-              accountId: await AccountingEngine.accountId(txn, '1000'),
-              credit: refundCash,
-              memo: 'بازپرداخت وجه برگشت فروش ' + sourceNumber,
-            ));
-          }
-        } else {
+        final receivableOffset = (originalReceivable - previousReceivableOffset)
+            .clamp(0.0, amount).toDouble();
+        if (receivableOffset > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1100'),
+            credit: receivableOffset,
+            partyType: 'customer',
+            partyId: int.tryParse(source['شناسه مشتری'] ?? ''),
+            memo: 'کاهش دریافتنی همان فاکتور بابت برگشت ' + sourceNumber,
+          ));
+        }
+        final settlementRemainder = amount - receivableOffset;
+        if (settlementRemainder > 0.001 && settleAsCash) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1000'),
+            credit: settlementRemainder,
+            memo: 'بازپرداخت نقدی برگشت فروش ' + sourceNumber,
+          ));
+        } else if (settlementRemainder > 0.001) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '2010'),
-            credit: amount,
+            credit: settlementRemainder,
             partyType: 'customer',
+            partyId: int.tryParse(source['شناسه مشتری'] ?? ''),
             memo: 'اعتبار مشتری بابت برگشت فاکتور ' + sourceNumber,
           ));
         }
@@ -1221,13 +1263,30 @@ class DemoStore {
           ));
         }
       } else {
-        final settlementCode = settleAsCash ? '1000' : '2000';
-        lines.add(JournalLineInput(
-          accountId: await AccountingEngine.accountId(txn, settlementCode),
-          debit: amount,
-          partyType: 'supplier',
-          memo: (settleAsCash ? 'استرداد وجه از فروشنده ' : 'کسر از بدهی فروشنده ') + source['نام شخص'].toString(),
-        ));
+        if (settleAsCash) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1000'),
+            debit: amount,
+            memo: 'استرداد نقدی وجه از فروشنده ' + source['نام شخص'].toString(),
+          ));
+        } else {
+          final payableOffset = (originalPayable - previousPayableOffset)
+              .clamp(0.0, amount).toDouble();
+          if (payableOffset > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(txn, '2000'),
+              debit: payableOffset,
+              memo: 'کاهش بدهی همان خرید به فروشنده ' + source['نام شخص'].toString(),
+            ));
+          }
+          if (amount - payableOffset > 0.001) {
+            lines.add(JournalLineInput(
+              accountId: await AccountingEngine.accountId(txn, '1110'),
+              debit: amount - payableOffset,
+              memo: 'طلب مازاد برگشت خرید از فروشنده ' + source['نام شخص'].toString(),
+            ));
+          }
+        }
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '1200'),
           credit: amount,
