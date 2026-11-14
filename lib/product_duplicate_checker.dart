@@ -11,7 +11,7 @@ class ProductDuplicateChecker {
         .replaceAll('ك', 'ک')
         .replaceAllMapped(RegExp(r'[۰-۹]'), (match) =>
             String.fromCharCode(match.group(0)!.codeUnitAt(0) - 1728 + 48))
-        .replaceAll(RegExp(r'\\s+'), ' ');
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
   /// A matching non-empty item code is a duplicate. Otherwise, name,
