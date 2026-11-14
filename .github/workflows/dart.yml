@@ -44,6 +44,8 @@ jobs:
             echo "Android app Gradle file not found" >&2
             exit 1
           fi
+          # Keep the installed launcher label fixed in this build.
+          sed -i -E 's/android:label="[^"]*"/android:label="خدمات فنی حسین"/' android/app/src/main/AndroidManifest.xml
 
       - name: Add app permissions and speech recognition query
         run: |
@@ -51,6 +53,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Generate Android launcher icon
+        run: dart run flutter_launcher_icons
 
       - name: Run Flutter unit tests
         run: flutter test
@@ -66,15 +71,23 @@ jobs:
       - name: Analyze Flutter code
         run: flutter analyze --no-fatal-infos lib
 
-      - name: Build release APK (manual request only)
+      - name: Build universal release APK
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: flutter build apk --release
 
-      - name: Upload installable APK (manual request only)
+      - name: Build smaller per-ABI release APKs
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload installable APKs
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: khadamat-fanni-hossein-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: khadamat-fanni-hossein-release-apks
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
           if-no-files-found: error
           retention-days: 14
