@@ -8,7 +8,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -61,6 +61,7 @@ class AppDatabase {
         await _createAccountingSchema(db);
         await _createCommerceSchema(db);
         await _createPartyAndCheckSchema(db);
+        await _createBankReconciliationSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -84,6 +85,9 @@ class AppDatabase {
         }
         if (oldVersion < 6) {
           await _seedAccounts(db);
+        }
+        if (oldVersion < 7) {
+          await _createBankReconciliationSchema(db);
         }
       },
     );
@@ -446,6 +450,43 @@ class AppDatabase {
       BEFORE DELETE ON check_events
       BEGIN
         SELECT RAISE(ABORT, 'check events are immutable');
+      END
+    """);
+  }
+
+
+  static Future<void> _createBankReconciliationSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bank_reconciliations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_code TEXT NOT NULL,
+        statement_date TEXT NOT NULL,
+        statement_balance INTEGER NOT NULL,
+        book_balance INTEGER NOT NULL,
+        difference INTEGER NOT NULL,
+        note TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (account_code) REFERENCES accounts(code) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_bank_reconciliations_account_date
+      ON bank_reconciliations(account_code, statement_date DESC)
+    ''');
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_bank_reconciliations_update
+      BEFORE UPDATE ON bank_reconciliations
+      BEGIN
+        SELECT RAISE(ABORT, 'bank reconciliation snapshots are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_bank_reconciliations_delete
+      BEFORE DELETE ON bank_reconciliations
+      BEGIN
+        SELECT RAISE(ABORT, 'bank reconciliation snapshots are immutable');
       END
     """);
   }
