@@ -8,7 +8,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -34,6 +34,12 @@ class AppDatabase {
     {'code': '5000', 'name': 'بهای تمام‌شده کالای فروش‌رفته', 'type': 'expense', 'side': 'debit'},
     {'code': '5100', 'name': 'هزینه قطعات مصرفی تعمیر', 'type': 'expense', 'side': 'debit'},
     {'code': '6000', 'name': 'هزینه‌های جاری', 'type': 'expense', 'side': 'debit'},
+    {'code': '6100', 'name': 'اجاره و شارژ', 'type': 'expense', 'side': 'debit'},
+    {'code': '6200', 'name': 'آب، برق، گاز و تلفن', 'type': 'expense', 'side': 'debit'},
+    {'code': '6300', 'name': 'حقوق و دستمزد', 'type': 'expense', 'side': 'debit'},
+    {'code': '6400', 'name': 'حمل‌ونقل و ایاب‌وذهاب', 'type': 'expense', 'side': 'debit'},
+    {'code': '6500', 'name': 'تعمیر و نگهداری ابزار', 'type': 'expense', 'side': 'debit'},
+    {'code': '6600', 'name': 'سایر هزینه‌ها', 'type': 'expense', 'side': 'debit'},
   ];
 
   final String? _databasePath;
@@ -75,6 +81,9 @@ class AppDatabase {
           await _createPartyAndCheckSchema(db);
           await _seedAccounts(db);
           await _migrateParties(db);
+        }
+        if (oldVersion < 6) {
+          await _seedAccounts(db);
         }
       },
     );
