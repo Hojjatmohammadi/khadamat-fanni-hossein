@@ -192,6 +192,7 @@ class CheckRepository {
         'settlement_journal_id': null,
         'reversal_journal_id': null,
         'idempotency_key': draft.idempotencyKey,
+        'payload_json': payload,
         'note': draft.note,
         'created_at': now,
         'updated_at': now,
