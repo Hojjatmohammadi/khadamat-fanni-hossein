@@ -847,6 +847,92 @@ class _ProductPageState extends State<ProductPage> {
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
+  Future<void> viewProductMovements(Map<String, String> product) async {
+    final productId = int.tryParse(product['__database_id'] ?? '');
+    if (productId == null) return;
+
+    try {
+      final movements = await DemoStore.accounting.getStockMovements(productId);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text('گردش انبار: ${product['نام کالا'] ?? 'کالا'}'),
+            content: SizedBox(
+              width: 480,
+              height: 420,
+              child: movements.isEmpty
+                  ? const Center(child: Text('برای این کالا گردش انباری ثبت نشده است'))
+                  : ListView.separated(
+                      itemCount: movements.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final movement = movements[movements.length - index - 1];
+                        final type = switch (movement['movement_type']) {
+                          'opening_balance' => 'موجودی اولیه',
+                          'purchase' => 'خرید',
+                          'sale' => 'فروش',
+                          'repair_consumption' => 'مصرف در تعمیر',
+                          'customer_return' => 'برگشت از مشتری',
+                          'supplier_return' => 'برگشت به فروشنده',
+                          'adjustment' => 'اصلاح موجودی',
+                          _ => movement['movement_type']?.toString() ?? 'گردش انبار',
+                        };
+                        final quantity =
+                            (movement['quantity_delta'] as num?)?.toDouble() ?? 0;
+                        final unitCost =
+                            (movement['unit_cost'] as num?)?.toInt() ?? 0;
+                        final totalCost =
+                            (movement['total_cost'] as num?)?.toInt() ?? 0;
+                        final rawDate = movement['occurred_at']?.toString() ?? '';
+                        final parsedDate = DateTime.tryParse(rawDate);
+                        final date = parsedDate == null
+                            ? rawDate
+                            : formatJalaliDate(parsedDate);
+                        final positive = quantity >= 0;
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: positive
+                                ? Colors.green.shade50
+                                : Colors.red.shade50,
+                            child: Icon(
+                              positive ? Icons.south_west : Icons.north_east,
+                              color: positive ? Colors.green : Colors.red,
+                            ),
+                          ),
+                          title: Text(type),
+                          subtitle: Text(
+                            '$date\n'
+                            'مقدار: ${quantity > 0 ? '+' : ''}${quantity.toString()}'
+                            ' • بهای واحد: $unitCost تومان\n'
+                            'ارزش گردش: $totalCost تومان',
+                          ),
+                          isThreeLine: true,
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('بستن'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('دریافت گردش انبار ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> editProduct(Map<String, String> product) async {
     final productId = int.tryParse(product['__database_id'] ?? '');
     if (productId == null) {
@@ -1133,10 +1219,20 @@ class _ProductPageState extends State<ProductPage> {
                             ' • فروش: ${item['قیمت فروش'] ?? '0'} تومان',
                           ),
                           isThreeLine: true,
-                          trailing: IconButton(
-                            tooltip: 'ویرایش مشخصات کالا',
-                            onPressed: () => editProduct(item),
-                            icon: const Icon(Icons.edit_outlined),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'گردش ورود و خروج کالا',
+                                onPressed: () => viewProductMovements(item),
+                                icon: const Icon(Icons.history),
+                              ),
+                              IconButton(
+                                tooltip: 'ویرایش مشخصات کالا',
+                                onPressed: () => editProduct(item),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                            ],
                           ),
                           onTap: () => editProduct(item),
                         ),
