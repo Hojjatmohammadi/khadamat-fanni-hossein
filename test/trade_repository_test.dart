@@ -391,4 +391,85 @@ void main() {
       throwsA(isA<DatabaseException>()),
     );
   });
+  test('linked customer receipts and supplier payments cannot exceed invoice balances', () async {
+    final productId = await addProduct();
+    final purchaseId = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-12',
+        counterpartyName: 'فروشنده تسویه',
+        counterpartyId: 'supplier-balance-1',
+        idempotencyKey: 'supplier-balance-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1000),
+        ],
+        paidAmount: 100,
+      ),
+    );
+
+    await trades.recordSupplierPayment(
+      PartyPaymentDraft(
+        documentDate: '2026-11-13',
+        counterpartyName: 'فروشنده تسویه',
+        counterpartyId: 'supplier-balance-1',
+        amount: 600,
+        idempotencyKey: 'supplier-linked-payment',
+        referenceId: purchaseId.toString(),
+      ),
+    );
+    expect(await trades.getOutstandingAmount(purchaseId), 300);
+
+    await expectLater(
+      trades.recordSupplierPayment(
+        PartyPaymentDraft(
+          documentDate: '2026-11-13',
+          counterpartyName: 'فروشنده تسویه',
+          counterpartyId: 'supplier-balance-1',
+          amount: 301,
+          idempotencyKey: 'supplier-linked-overpayment',
+          referenceId: purchaseId.toString(),
+        ),
+      ),
+      throwsStateError,
+    );
+    expect(await trades.getOutstandingAmount(purchaseId), 300);
+
+    final saleId = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'مشتری تسویه',
+        counterpartyId: 'customer-balance-1',
+        idempotencyKey: 'customer-balance-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1500),
+        ],
+      ),
+    );
+    await trades.recordCustomerReceipt(
+      PartyPaymentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'مشتری تسویه',
+        counterpartyId: 'customer-balance-1',
+        amount: 500,
+        idempotencyKey: 'customer-linked-receipt',
+        referenceId: saleId.toString(),
+      ),
+    );
+    expect(await trades.getOutstandingAmount(saleId), 1000);
+
+    await expectLater(
+      trades.recordCustomerReceipt(
+        PartyPaymentDraft(
+          documentDate: '2026-11-14',
+          counterpartyName: 'مشتری تسویه',
+          counterpartyId: 'customer-balance-1',
+          amount: 1001,
+          idempotencyKey: 'customer-linked-overreceipt',
+          referenceId: saleId.toString(),
+        ),
+      ),
+      throwsStateError,
+    );
+    expect(await trades.getOutstandingAmount(saleId), 1000);
+  });
+
 }
