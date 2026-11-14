@@ -306,7 +306,22 @@ class AccountingRepository {
     }).toList();
   }
 
+  Future<int> postJournalEntryInTransaction(
+    DatabaseExecutor txn,
+    JournalEntryDraft draft,
+  ) {
+    return _postJournalEntry(txn, draft);
+  }
+
   Future<int> recordStockMovement(StockMovementDraft draft) async {
+    final db = await _database.database;
+    return db.transaction((txn) => recordStockMovementInTransaction(txn, draft));
+  }
+
+  Future<int> recordStockMovementInTransaction(
+    DatabaseExecutor txn,
+    StockMovementDraft draft,
+  ) async {
     if (draft.productId <= 0 ||
         !_movementTypes.contains(draft.movementType) ||
         !draft.quantityDelta.isFinite ||
@@ -332,63 +347,60 @@ class AccountingRepository {
     }
 
     final payloadJson = jsonEncode(draft.toPayload());
-    final db = await _database.database;
-    return db.transaction((txn) async {
-      final duplicate = await txn.query(
-        'inventory_movements',
-        where: 'idempotency_key = ?',
-        whereArgs: [draft.idempotencyKey],
-        limit: 1,
-      );
-      if (duplicate.isNotEmpty) {
-        if (duplicate.single['payload_json'] != payloadJson) {
-          throw StateError('کلید جلوگیری از ثبت تکراری برای گردش دیگری استفاده شده است');
-        }
-        return duplicate.single['id'] as int;
+    final duplicate = await txn.query(
+      'inventory_movements',
+      where: 'idempotency_key = ?',
+      whereArgs: [draft.idempotencyKey],
+      limit: 1,
+    );
+    if (duplicate.isNotEmpty) {
+      if (duplicate.single['payload_json'] != payloadJson) {
+        throw StateError('کلید جلوگیری از ثبت تکراری برای گردش دیگری استفاده شده است');
       }
+      return duplicate.single['id'] as int;
+    }
 
-      final product = await txn.query(
-        'products',
-        columns: ['id'],
-        where: 'id = ?',
-        whereArgs: [draft.productId],
-        limit: 1,
-      );
-      if (product.isEmpty) {
-        throw StateError('کالای مربوط به گردش انبار پیدا نشد');
-      }
+    final product = await txn.query(
+      'products',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [draft.productId],
+      limit: 1,
+    );
+    if (product.isEmpty) {
+      throw StateError('کالای مربوط به گردش انبار پیدا نشد');
+    }
 
-      final stockRows = await txn.rawQuery(
-        'SELECT COALESCE(SUM(quantity_delta), 0) AS quantity '
-        'FROM inventory_movements WHERE product_id = ?',
-        [draft.productId],
-      );
-      final currentQuantity = (stockRows.single['quantity'] as num).toDouble();
-      final nextQuantity = currentQuantity + draft.quantityDelta;
-      if (!draft.allowNegativeStock && nextQuantity < -0.0000001) {
-        throw StateError('موجودی کافی نیست؛ موجودی فعلی: ' + currentQuantity.toString());
-      }
+    final stockRows = await txn.rawQuery(
+      'SELECT COALESCE(SUM(quantity_delta), 0) AS quantity '
+      'FROM inventory_movements WHERE product_id = ?',
+      [draft.productId],
+    );
+    final currentQuantity = (stockRows.single['quantity'] as num).toDouble();
+    final nextQuantity = currentQuantity + draft.quantityDelta;
+    if (!draft.allowNegativeStock && nextQuantity < -0.0000001) {
+      throw StateError('موجودی کافی نیست؛ موجودی فعلی: ' + currentQuantity.toString());
+    }
 
-      int? journalEntryId;
-      if (draft.journalEntry != null) {
-        journalEntryId = await _postJournalEntry(txn, draft.journalEntry!);
-      }
+    int? journalEntryId;
+    if (draft.journalEntry != null) {
+      journalEntryId = await _postJournalEntry(txn, draft.journalEntry!);
+    }
 
-      final now = DateTime.now().toIso8601String();
-      return txn.insert('inventory_movements', {
-        'product_id': draft.productId,
-        'movement_type': draft.movementType,
-        'quantity_delta': draft.quantityDelta,
-        'unit_cost': draft.unitCost,
-        'total_cost': (draft.quantityDelta.abs() * draft.unitCost).round(),
-        'occurred_at': draft.occurredAt,
-        'reference_type': draft.referenceType,
-        'reference_id': draft.referenceId,
-        'idempotency_key': draft.idempotencyKey,
-        'payload_json': payloadJson,
-        'journal_entry_id': journalEntryId,
-        'created_at': now,
-      });
+    final now = DateTime.now().toIso8601String();
+    return txn.insert('inventory_movements', {
+      'product_id': draft.productId,
+      'movement_type': draft.movementType,
+      'quantity_delta': draft.quantityDelta,
+      'unit_cost': draft.unitCost,
+      'total_cost': (draft.quantityDelta.abs() * draft.unitCost).round(),
+      'occurred_at': draft.occurredAt,
+      'reference_type': draft.referenceType,
+      'reference_id': draft.referenceId,
+      'idempotency_key': draft.idempotencyKey,
+      'payload_json': payloadJson,
+      'journal_entry_id': journalEntryId,
+      'created_at': now,
     });
   }
 
