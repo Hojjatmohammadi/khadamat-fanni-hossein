@@ -1,3 +1,5 @@
+import 'localized_number.dart';
+
 /// Detects likely duplicate inventory items before they are added.
 class ProductDuplicateChecker {
   const ProductDuplicateChecker._();
@@ -29,9 +31,8 @@ class ProductDuplicateChecker {
 
     return existing.where((item) {
       final existingCode = normalize(item['کد کالا']);
-      if (candidateCode.isNotEmpty && existingCode.isNotEmpty &&
-          candidateCode == existingCode) {
-        return true;
+      if (candidateCode.isNotEmpty && existingCode.isNotEmpty) {
+        return candidateCode == existingCode;
       }
 
       if (candidateName.isEmpty ||
