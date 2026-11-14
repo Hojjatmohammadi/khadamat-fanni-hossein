@@ -5,6 +5,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'app_database.dart';
 import 'trade_repository.dart';
+import 'party_repository.dart';
+import 'check_repository.dart';
+import 'party_ledger_page.dart';
+import 'checks_page.dart';
+import 'jalali_date_field.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +45,8 @@ class HoseinApp extends StatelessWidget {
 class DemoStore {
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
+  static final PartyRepository parties = PartyRepository(_database);
+  static final CheckRepository checks = CheckRepository(_database);
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
@@ -106,6 +113,20 @@ class DemoStore {
     if (category == 'products') {
       saved['موجودی'] = (await _database.getStockOnHand(id)).toString();
     }
+    if (category == 'customers') {
+      await parties.ensureParty(
+        PartyDraft(
+          partyType: 'customer',
+          preferredId: 'customer:$id',
+          displayName: item['نام مشتری'] ?? item['نام'] ?? 'مشتری $id',
+          phone: item['شماره تماس'],
+          address: item['آدرس'],
+          notes: item['توضیحات'],
+          sourceCategory: 'customers',
+          sourceId: id.toString(),
+        ),
+      );
+    }
     target.add(saved);
   }
 }
@@ -120,7 +141,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'گزارش‌ها'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -184,6 +205,13 @@ class _HomePageState extends State<HomePage> {
       CustomerPage(onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
+      PartyLedgerPage(repository: DemoStore.parties),
+      CheckPage(
+        checks: DemoStore.checks,
+        parties: DemoStore.parties,
+        trades: DemoStore.trades,
+        onChanged: () => setState(() {}),
+      ),
       const ReportsPage(),
     ];
     return Directionality(
@@ -227,7 +255,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.bar_chart][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -315,7 +343,7 @@ class Dashboard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور')])
+        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور'), (6, 'دفتر گردش اشخاص'), (7, 'مدیریت چک‌ها')])
           Card(
             child: ListTile(
               title: Text(e.$2),
@@ -954,7 +982,7 @@ class TradeEntryPage extends StatefulWidget {
 
 class _TradeEntryPageState extends State<TradeEntryPage> {
   final _partyController = TextEditingController();
-  final _dateController = TextEditingController();
+  DateTime _documentDate = DateTime.now();
   final _quantityController = TextEditingController(text: '1');
   final _priceController = TextEditingController();
   final _discountController = TextEditingController(text: '0');
@@ -978,7 +1006,6 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   @override
   void initState() {
     super.initState();
-    _dateController.text = DateTime.now().toIso8601String().split('T').first;
     _selectedProductId = _firstProductId();
     _loadDocuments();
   }
@@ -986,7 +1013,6 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   @override
   void dispose() {
     _partyController.dispose();
-    _dateController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
     _discountController.dispose();
@@ -1071,9 +1097,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
 
   Future<void> _saveDocument() async {
     if (_saving) return;
-    if (_partyController.text.trim().isEmpty ||
-        _dateController.text.trim().isEmpty ||
-        _lines.isEmpty) {
+    if (_partyController.text.trim().isEmpty || _lines.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('نام شخص، تاریخ و حداقل یک ردیف کالا الزامی است')),
       );
@@ -1081,9 +1105,17 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     }
     setState(() => _saving = true);
     try {
+      final partyName = _partyController.text.trim();
+      final partyId = await DemoStore.parties.ensureParty(
+        PartyDraft(
+          partyType: _isPurchase ? 'supplier' : 'customer',
+          displayName: partyName,
+        ),
+      );
       final draft = TradeDocumentDraft(
-        documentDate: _dateController.text.trim(),
-        counterpartyName: _partyController.text.trim(),
+        documentDate: _documentDate.toIso8601String().split('T').first,
+        counterpartyName: partyName,
+        counterpartyId: partyId,
         idempotencyKey:
             '${widget.documentType}-${DateTime.now().microsecondsSinceEpoch}',
         lines: List<TradeLineDraft>.from(_lines),
@@ -1352,9 +1384,10 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             decoration: InputDecoration(labelText: _partyLabel),
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: _dateController,
-            decoration: const InputDecoration(labelText: 'تاریخ (YYYY-MM-DD)'),
+          JalaliDateField(
+            initialDate: _documentDate,
+            label: 'تاریخ فاکتور (شمسی)',
+            onChanged: (date) => setState(() => _documentDate = date),
           ),
           const SizedBox(height: 10),
           if (products.isEmpty)
