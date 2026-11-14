@@ -4861,6 +4861,37 @@ class _OperationsPageState extends State<OperationsPage> {
     final quantity = TextEditingController(text: '1');
     final reason = TextEditingController();
     String? selected = options.keys.first;
+    var selectedLineIndex = 0;
+    var selectedInvoiceLines = <Map<String, dynamic>>[];
+
+    Future<void> loadSelectedReturnLines(String key) async {
+      selectedLineIndex = 0;
+      selectedInvoiceLines = [];
+      final parts = key.split(':');
+      if (parts.first != 'sales') return;
+      final sourceId = int.parse(parts.last);
+      final sourceRow = rows.firstWhere((row) => row['id'] == sourceId);
+      final data = jsonDecode(sourceRow['data'] as String) as Map<String, dynamic>;
+      final encoded = (data['ردیف‌های فاکتور'] ?? '').toString();
+      if (encoded.isNotEmpty) {
+        final decoded = jsonDecode(encoded);
+        if (decoded is! List) throw StateError('ردیف‌های فاکتور اصلی معتبر نیست.');
+        selectedInvoiceLines = decoded
+            .map((line) => Map<String, dynamic>.from(line as Map))
+            .toList();
+      } else {
+        final qty = _ledgerAmount(data['تعداد']);
+        final gross = _ledgerAmount(data['مبلغ کل']);
+        selectedInvoiceLines = [{
+          'product_id': (data['شناسه کالای انبار'] ?? '').toString(),
+          'description': (data['کالای انبار'] ?? data['شرح کالا/خدمت'] ?? '').toString(),
+          'quantity': qty,
+          'unit_price': qty > 0 ? gross / qty : 0,
+          'line_total': gross,
+        }];
+      }
+    }
+    await loadSelectedReturnLines(selected!);
     bool settleAsCash = false;
     final result = await showDialog<bool>(
       context: context,
@@ -4884,14 +4915,50 @@ class _OperationsPageState extends State<OperationsPage> {
                         value: entry.key,
                         child: Text(entry.value, overflow: TextOverflow.ellipsis, maxLines: 2),
                       )).toList(),
-                      onChanged: (value) => refresh(() => selected = value),
+                      onChanged: (value) async {
+                        if (value == null) return;
+                        selected = value;
+                        try {
+                          await loadSelectedReturnLines(value);
+                          quantity.text = '1';
+                          refresh(() {});
+                        } catch (error) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(content: Text('خواندن ردیف‌های سند ناموفق بود: $error')),
+                          );
+                        }
+                      },
                     ),
+                    if (selected?.startsWith('sales:') == true && selectedInvoiceLines.length > 1) ...[
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        value: selectedLineIndex,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'انتخاب ردیف فاکتور برای برگشت'),
+                        items: [
+                          for (var i = 0; i < selectedInvoiceLines.length; i++)
+                            DropdownMenuItem<int>(
+                              value: i,
+                              child: Text(
+                                (selectedInvoiceLines[i]['description'] ?? 'ردیف ${i + 1}').toString() +
+                                ' • تعداد: ' + (selectedInvoiceLines[i]['quantity'] ?? '').toString() +
+                                ' • مبلغ: ' + (selectedInvoiceLines[i]['line_total'] ?? '').toString(),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) => refresh(() {
+                          selectedLineIndex = value ?? 0;
+                          quantity.text = '1';
+                        }),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     TextField(
                       controller: quantity,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}'))],
-                      decoration: const InputDecoration(labelText: 'تعداد برگشتی'),
+                      decoration: const InputDecoration(labelText: 'تعداد برگشتی از ردیف انتخاب‌شده'),
                     ),
                     const SizedBox(height: 10),
                     TextField(controller: reason, maxLines: 2, decoration: const InputDecoration(labelText: 'علت / توضیحات برگشت')),
@@ -4928,6 +4995,7 @@ class _OperationsPageState extends State<OperationsPage> {
                       quantity: qty,
                       reason: reason.text.trim(),
                       settleAsCash: settleAsCash,
+                      invoiceLineIndex: selectedLineIndex,
                     );
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   } catch (error) {
