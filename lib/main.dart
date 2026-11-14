@@ -2097,6 +2097,21 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               OutlinedButton.icon(
                 onPressed: () async {
                   try {
+                    await InvoicePdfService().shareImage(snapshot);
+                  } catch (error) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('ساخت یا اشتراک تصویر ناموفق بود: $error')),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('خروجی تصویر'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
                     await InvoicePdfService().share(snapshot);
                   } catch (error) {
                     if (mounted) {
