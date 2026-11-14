@@ -1718,6 +1718,9 @@ class _ProductPageState extends State<ProductPage> {
     final other = TextEditingController(text: '0');
     final supplier = TextEditingController();
     final purchasePaid = TextEditingController(text: '0');
+    final purchaseCheckNumber = TextEditingController();
+    final purchaseCheckBank = TextEditingController();
+    Jalali? purchaseCheckDueDate;
     final vatRate = TextEditingController(text: '0');
     String purchaseMethod = 'نقدی';
     bool vatIncluded = false;
@@ -1771,6 +1774,7 @@ class _ProductPageState extends State<ProductPage> {
       final dirty = c.any((x) => x.text.trim().isNotEmpty) ||
           shipping.text.trim() != '0' || freight.text.trim() != '0' || other.text.trim() != '0' ||
           supplier.text.trim().isNotEmpty || purchasePaid.text.trim() != '0' || purchaseMethod != 'نقدی' ||
+          purchaseCheckNumber.text.trim().isNotEmpty || purchaseCheckBank.text.trim().isNotEmpty || purchaseCheckDueDate != null ||
           vatRate.text.trim() != '0' || vatIncluded || unit != 'عدد' || isUsed ||
           productGroup != null || productSubgroup != null || productImageBase64 != null;
       if (!dirty) { Navigator.pop(dialogContext, false); return; }
@@ -1945,10 +1949,35 @@ class _ProductPageState extends State<ProductPage> {
                     const SizedBox(height: 10),
                     const Align(alignment: Alignment.centerRight, child: Text('اطلاعات طرف حساب خرید', style: TextStyle(fontWeight: FontWeight.bold))),
                     const SizedBox(height: 8),
-                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اختیاری)')),
+                    TextField(controller: supplier, decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (اجباری)')),
                     const SizedBox(height: 8),
                     TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (تومان)')),
                     DropdownButtonFormField<String>(value: purchaseMethod, decoration: const InputDecoration(labelText: 'روش پرداخت خرید'), items: const ['نقدی','کارت به کارت','حواله بانکی','چک'].map((m) => DropdownMenuItem(value:m, child:Text(m))).toList(), onChanged: (v) => refresh(() => purchaseMethod = v ?? 'نقدی')),
+                    if (purchaseMethod == 'چک' && number(purchasePaid) > 0) ...[
+                      const SizedBox(height: 8),
+                      TextField(controller: purchaseCheckNumber, decoration: const InputDecoration(labelText: 'شماره چک (اجباری)')),
+                      const SizedBox(height: 8),
+                      TextField(controller: purchaseCheckBank, decoration: const InputDecoration(labelText: 'بانک چک')),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showPersianDatePicker(
+                            context: context,
+                            initialDate: purchaseCheckDueDate ?? Jalali.now(),
+                            firstDate: Jalali(1300, 1, 1),
+                            lastDate: Jalali(1500, 12, 29),
+                            locale: const Locale('fa', 'IR'),
+                            textDirection: TextDirection.rtl,
+                            helpText: 'تاریخ سررسید چک',
+                            cancelText: 'انصراف',
+                            confirmText: 'تأیید',
+                          );
+                          if (picked != null) refresh(() => purchaseCheckDueDate = picked);
+                        },
+                        icon: const Icon(Icons.calendar_month),
+                        label: Text(purchaseCheckDueDate == null ? 'انتخاب سررسید چک' : 'سررسید: \${purchaseCheckDueDate!.formatCompactDate()}'),
+                      ),
+                    ],
                     const Divider(height: 24),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2030,6 +2059,11 @@ class _ProductPageState extends State<ProductPage> {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام فروشنده برای ثبت خرید الزامی است.')));
                     return;
                   }
+                  if (purchaseMethod == 'چک' && number(purchasePaid) > 0 &&
+                      (purchaseCheckNumber.text.trim().isEmpty || purchaseCheckDueDate == null)) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای پرداخت با چک، شماره چک و تاریخ سررسید الزامی است.')));
+                    return;
+                  }
                   if (number(purchasePaid) > total) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('مبلغ پرداخت‌شده نمی‌تواند از جمع بهای تمام‌شده بیشتر باشد.')));
                     return;
@@ -2037,7 +2071,9 @@ class _ProductPageState extends State<ProductPage> {
                   final purchaseOperation = <String, String>{
                     'نوع عملیات':'خرید کالا', 'نوع طرف حساب':'فروشنده', 'نام شخص':supplier.text.trim(),
                     'مبلغ':total.toStringAsFixed(0), 'مبلغ پرداخت‌شده':number(purchasePaid).toStringAsFixed(0),
-                    'روش':purchaseMethod, 'تاریخ':DateTime.now().toIso8601String(),
+                    'روش':purchaseMethod, 'تاریخ':_parsePersianOrIsoDate(saleDate.text).toIso8601String(),
+                    'شماره چک':purchaseCheckNumber.text.trim(), 'بانک چک':purchaseCheckBank.text.trim(),
+                    'تاریخ سررسید میلادی':purchaseCheckDueDate?.toDateTime().toIso8601String() ?? '',
                     'توضیحات':'ثبت خرید موجودی: ${c[0].text.trim()} (${qty.toStringAsFixed(3)} ${unit})',
                   };
                   DemoStore.addProductPurchase(item, purchaseOperation).then((_) {
@@ -2056,7 +2092,7 @@ class _ProductPageState extends State<ProductPage> {
         ),
       ),
     );
-    for (final x in [...c, shipping, freight, other, supplier, purchasePaid, vatRate, saleDate]) { x.dispose(); }
+    for (final x in [...c, shipping, freight, other, supplier, purchasePaid, purchaseCheckNumber, purchaseCheckBank, vatRate, saleDate]) { x.dispose(); }
     if (saved == true && mounted) { setState(() {}); widget.onChanged(); }
   }
 
