@@ -67,6 +67,71 @@ class ReportRepository {
     }).toList();
   }
 
+
+  /// Profit and loss balances derived from posted double-entry journal lines.
+  /// Reversal entries are naturally included as they carry opposite postings.
+  Future<List<Map<String, Object?>>> getProfitAndLoss({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT a.code AS account_code, a.name AS account_name,
+        a.account_type AS account_type,
+        COALESCE(SUM(l.debit), 0) AS total_debit,
+        COALESCE(SUM(l.credit), 0) AS total_credit,
+        CASE WHEN a.account_type = 'income'
+          THEN COALESCE(SUM(l.credit - l.debit), 0)
+          ELSE COALESCE(SUM(l.debit - l.credit), 0)
+        END AS balance
+      FROM accounts a
+      LEFT JOIN journal_lines l ON l.account_code = a.code
+      LEFT JOIN journal_entries e ON e.id = l.journal_entry_id
+        AND e.entry_date >= ? AND e.entry_date < ?
+      WHERE a.account_type IN ('income', 'expense')
+      GROUP BY a.code, a.name, a.account_type
+      HAVING total_debit != 0 OR total_credit != 0
+      ORDER BY a.account_type, a.code
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
+  /// Net sales margin by item: sales less customer returns, minus the
+  /// corresponding cost of goods sold. Supplier returns do not affect sales.
+  Future<List<Map<String, Object?>>> getItemProfit({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT l.product_id,
+        l.product_name,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.line_total ELSE -l.line_total END) AS net_revenue,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.quantity * l.unit_cost
+          ELSE -l.quantity * l.unit_cost END) AS net_cost,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.line_total - (l.quantity * l.unit_cost)
+          ELSE -(l.line_total - (l.quantity * l.unit_cost)) END) AS gross_profit,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.quantity ELSE -l.quantity END) AS net_quantity
+      FROM business_document_lines l
+      JOIN business_documents d ON d.id = l.document_id
+      WHERE d.document_type IN ('sale', 'customer_return')
+        AND d.document_date >= ? AND d.document_date < ?
+      GROUP BY l.product_id, l.product_name
+      ORDER BY gross_profit DESC, l.product_name COLLATE NOCASE
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
   String _date(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 }
