@@ -511,8 +511,8 @@ class AppDatabaseSchema {
     final records = await db.query(
       'records',
       columns: ['id', 'category', 'data', 'created_at'],
-      where: 'category IN (?, ?)',
-      whereArgs: ['sales', 'operations'],
+      where: 'category IN (?, ?, ?)',
+      whereArgs: ['sales', 'operations', 'repairs'],
       orderBy: 'id ASC',
     );
 
@@ -542,7 +542,9 @@ class AppDatabaseSchema {
       final data = _decode(record['data']);
       final operation = _text(data, 'نوع عملیات');
       final isPurchase = category == 'operations' && operation == 'خرید کالا';
-      final journalType = category == 'sales' ? 'sale' : isPurchase ? 'purchase' : 'operation';
+      final isRepair = category == 'repairs';
+      final journalType = category == 'sales' ? 'sale'
+          : isRepair ? 'repair' : isPurchase ? 'purchase' : 'operation';
       final exists = await db.query(
         'journal_entries',
         columns: ['id'],
@@ -558,7 +560,33 @@ class AppDatabaseSchema {
           DateTime.now();
       final lines = <JournalLineInput>[];
 
-      if (category == 'sales') {
+      if (isRepair) {
+        final labor = _number(data, 'اجرت');
+        if (labor <= 0) continue;
+        final customerName = _text(data, 'نام مشتری');
+        final customerId = int.tryParse(_text(data, 'شناسه مشتری')) ??
+            await _findCustomerId(db, customerName);
+        if (customerId == null) {
+          // Never post an unassigned receivable. The owner can reconcile this
+          // legacy repair by selecting the exact customer before billing.
+          continue;
+        }
+        data['شناسه مشتری'] = customerId.toString();
+        await db.update('records', {'data': jsonEncode(data)},
+          where: 'id = ?', whereArgs: [sourceId]);
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1100'),
+          debit: labor,
+          partyType: 'customer',
+          partyId: customerId,
+          memo: 'دریافتنی اجرت پذیرش قدیمی',
+        ));
+        lines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '4010'),
+          credit: labor,
+          memo: 'درآمد اجرت تعمیر پذیرش قدیمی',
+        ));
+      } else if (category == 'sales') {
         final gross = _number(data, 'مبلغ کل');
         final discount = _number(data, 'تخفیف');
         final tax = _number(data, 'مبلغ مالیات');
@@ -885,6 +913,7 @@ class AppDatabaseSchema {
         await AccountingEngine.postJournalInTransaction(
           db,
           entryNumber: (journalType == 'sale' ? 'MIG-SALE-' :
+              journalType == 'repair' ? 'MIG-REPAIR-' :
               journalType == 'purchase' ? 'MIG-PUR-' : 'MIG-OP-') + sourceId.toString(),
           occurredAt: date,
           description: 'مهاجرت سند قدیمی ' + sourceId.toString(),
