@@ -519,6 +519,35 @@ class DemoStore {
       archivedSales.add(Map<String, String>.from(item));
     }
   }
+
+  /// Saves the stock item and its supplier payable/payment record atomically.
+  static Future<void> addProductPurchase(
+    Map<String, String> product,
+    Map<String, String> operation,
+  ) async {
+    final createdAt = DateTime.now().toIso8601String();
+    await _db!.transaction((txn) async {
+      final productId = await txn.insert('records', {
+        'category': 'products',
+        'data': jsonEncode(product),
+        'created_at': createdAt,
+      });
+      await AppDatabaseSchema.insertLegacyRecord(
+        txn, 'products', product, productId, createdAt,
+      );
+      final operationId = await txn.insert('records', {
+        'category': 'operations',
+        'data': jsonEncode(operation),
+        'created_at': createdAt,
+      });
+      await AppDatabaseSchema.insertLegacyRecord(
+        txn, 'operations', operation, operationId, createdAt,
+      );
+    });
+    products.add(Map<String, String>.from(product));
+    operations.add(Map<String, String>.from(operation));
+  }
+
 }
 
 class HomePage extends StatefulWidget {
@@ -1813,23 +1842,29 @@ class _ProductPageState extends State<ProductPage> {
                   item['نام فروشنده'] = supplier.text.trim();
                   item['مبلغ پرداخت‌شده خرید'] = purchasePaid.text.trim();
                   item['روش پرداخت خرید'] = purchaseMethod;
+                  if (qty <= 0 || total <= 0) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('برای ثبت خرید، تعداد و بهای خرید باید بیشتر از صفر باشد.')));
+                    return;
+                  }
+                  if (supplier.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('نام فروشنده برای ثبت خرید الزامی است.')));
+                    return;
+                  }
                   if (number(purchasePaid) > total) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('مبلغ پرداخت‌شده نمی‌تواند از جمع بهای تمام‌شده بیشتر باشد.')));
                     return;
                   }
-                  DemoStore.add('products', item).then((_) async {
-                    if (supplier.text.trim().isNotEmpty && total > 0) {
-                      await DemoStore.add('operations', {
-                        'نوع عملیات':'خرید کالا', 'نوع طرف حساب':'فروشنده', 'نام شخص':supplier.text.trim(),
-                        'مبلغ':total.toStringAsFixed(0), 'مبلغ پرداخت‌شده':number(purchasePaid).toStringAsFixed(0),
-                        'روش':purchaseMethod, 'تاریخ':DateTime.now().toIso8601String(),
-                        'توضیحات':'ثبت خرید موجودی: ${c[0].text.trim()} (${qty.toStringAsFixed(0)} عدد)',
-                      });
-                    }
+                  final purchaseOperation = <String, String>{
+                    'نوع عملیات':'خرید کالا', 'نوع طرف حساب':'فروشنده', 'نام شخص':supplier.text.trim(),
+                    'مبلغ':total.toStringAsFixed(0), 'مبلغ پرداخت‌شده':number(purchasePaid).toStringAsFixed(0),
+                    'روش':purchaseMethod, 'تاریخ':DateTime.now().toIso8601String(),
+                    'توضیحات':'ثبت خرید موجودی: ${c[0].text.trim()} (${qty.toStringAsFixed(3)} ${unit})',
+                  };
+                  DemoStore.addProductPurchase(item, purchaseOperation).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((error) {
                     if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')));
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره خرید و کالا ناموفق بود؛ هیچ‌کدام ثبت نشد: $error')));
                     }
                   });
                 },
