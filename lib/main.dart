@@ -19,6 +19,7 @@ import 'product_duplicate_checker.dart';
 import 'localized_number.dart';
 import 'invoice_archive_repository.dart';
 import 'invoice_settings_repository.dart';
+import 'reports_page.dart';
 import 'invoice_pdf_service.dart';
 
 Future<void> main() async {
@@ -2699,25 +2700,3 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   }
 }
 
-class ReportsPage extends StatelessWidget {
-  const ReportsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('گزارش‌های اولیه', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-          for (final r in [
-            'تعداد کالاهای ثبت‌شده: ${DemoStore.products.length}',
-            'تعداد مشتریان: ${DemoStore.customers.length}',
-            'تعداد پذیرش‌های تعمیر: ${DemoStore.repairs.length}',
-            'تعداد فاکتورهای فروش: ${DemoStore.sales.length}',
-          ])
-            Card(child: ListTile(leading: const Icon(Icons.analytics_outlined), title: Text(r))),
-          const Text(
-            'اطلاعات این نسخه به‌صورت دائمی در SQLite همین گوشی ذخیره می‌شوند. همگام‌سازی چند گوشی و پشتیبان‌گیری ابری در مرحله بعد اضافه می‌شود.',
-            style: TextStyle(color: Colors.black54),
-          ),
-        ],
-      );
-}
