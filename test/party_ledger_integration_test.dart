@@ -180,6 +180,13 @@ void main() {
       lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1000)],
     ));
     await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-11',
+      counterpartyName: 'مشتری صفحه‌بندی',
+      counterpartyId: customerId,
+      idempotencyKey: 'ledger-page-sale-middle',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 500)],
+    ));
+    await trades.recordSale(TradeDocumentDraft(
       documentDate: '2026-11-12',
       counterpartyName: 'مشتری صفحه‌بندی',
       counterpartyId: customerId,
@@ -198,7 +205,7 @@ void main() {
     expect(first['total_lines'], 2);
     expect(first['lines'], hasLength(1));
     expect(first['has_more'], isTrue);
-    expect((first['lines'] as List<Map<String, Object?>>).single['running_balance'], 3000);
+    expect((first['lines'] as List<Map<String, Object?>>).single['running_balance'], 1500);
 
     final second = await parties.getPartyStatementPage(
       customerId,
