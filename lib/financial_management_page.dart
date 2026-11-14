@@ -132,12 +132,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
 
   Future<void> _saveReconciliation() async {
     final balance = _parseAmount(_statementBalance.text);
-    if (balance == null || balance < 0) {
-      _message('مانده صورت‌حساب بانکی را به‌درستی وارد کنید');
-      return;
-    }
-    if (_reportFrom.isAfter(_reportTo)) {
-      _message('تاریخ شروع گزارش نباید بعد از تاریخ پایان باشد');
+    if (balance == null || (_reconciliationAccount == '1000' && balance < 0)) {
+      _message('مانده صورت‌حساب را به‌درستی وارد کنید (مانده صندوق منفی نمی‌شود)');
       return;
     }
     setState(() => _saving = true);
@@ -352,7 +348,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     children: [
                       const Text('تراز آزمایشی', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
                       _reportDateControls(),
-                      const Text('مانده‌ها بر اساس جمع گردش بدهکار و بستانکار از ابتدای اطلاعات ثبت‌شده محاسبه می‌شوند.'),
+                      const Text('گردش بدهکار و بستانکار در محدوده تاریخ انتخاب‌شده نمایش داده می‌شود.'),
                       const SizedBox(height: 8),
                       for (final row in _trialBalance)
                         Card(
