@@ -19,6 +19,7 @@ import 'product_duplicate_checker.dart';
 import 'localized_number.dart';
 import 'invoice_archive_repository.dart';
 import 'invoice_settings_repository.dart';
+import 'invoice_pdf_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2093,6 +2094,21 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               ),
             ),
             actions: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    await InvoicePdfService().share(snapshot);
+                  } catch (error) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('ساخت یا اشتراک PDF ناموفق بود: $error')),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('خروجی PDF'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('بستن'),
