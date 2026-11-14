@@ -175,4 +175,130 @@ class PartyRepository {
               : 'تسویه',
     };
   }
+
+  /// Loads a bounded page of a party ledger without materializing the full
+  /// history. The opening balance includes all postings before [fromDate].
+  /// Dates use ISO yyyy-MM-dd and [toDate] is inclusive.
+  Future<Map<String, Object?>> getPartyStatementPage(
+    String partyId, {
+    String? fromDate,
+    String? toDate,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    if (partyId.trim().isEmpty || limit < 1 || limit > 500 || offset < 0) {
+      throw ArgumentError('شناسه طرف حساب یا محدوده صفحه معتبر نیست');
+    }
+    DateTime? from;
+    DateTime? toExclusive;
+    if (fromDate != null) {
+      from = DateTime.tryParse(fromDate);
+      if (from == null || from.toIso8601String().substring(0, 10) != fromDate) {
+        throw ArgumentError('تاریخ شروع معتبر نیست');
+      }
+    }
+    if (toDate != null) {
+      final parsed = DateTime.tryParse(toDate);
+      if (parsed == null || parsed.toIso8601String().substring(0, 10) != toDate) {
+        throw ArgumentError('تاریخ پایان معتبر نیست');
+      }
+      toExclusive = parsed.add(const Duration(days: 1));
+    }
+    if (from != null && toExclusive != null && !toExclusive.isAfter(from)) {
+      throw ArgumentError('بازه تاریخ نامعتبر است');
+    }
+
+    final db = await _database.database;
+    final parties = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: [partyId],
+      limit: 1,
+    );
+    if (parties.isEmpty) throw StateError('طرف حساب پیدا نشد');
+    final party = parties.single;
+    final isSupplier = party['party_type'] == 'supplier';
+
+    final totals = await db.rawQuery('''
+      SELECT COUNT(*) AS line_count,
+        COALESCE(SUM(l.debit), 0) AS total_debit,
+        COALESCE(SUM(l.credit), 0) AS total_credit
+      FROM journal_lines l
+      WHERE l.party_id = ?
+    ''', [partyId]);
+    final totalDebit = (totals.single['total_debit'] as num).toInt();
+    final totalCredit = (totals.single['total_credit'] as num).toInt();
+    final rawClosing = totalDebit - totalCredit;
+    final closingBalance = isSupplier ? -rawClosing : rawClosing;
+
+    var openingRaw = 0;
+    if (fromDate != null) {
+      final opening = await db.rawQuery('''
+        SELECT COALESCE(SUM(l.debit - l.credit), 0) AS balance
+        FROM journal_lines l
+        JOIN journal_entries e ON e.id = l.journal_entry_id
+        WHERE l.party_id = ? AND e.entry_date < ?
+      ''', [partyId, fromDate]);
+      openingRaw = (opening.single['balance'] as num).toInt();
+    }
+    var runningRaw = openingRaw;
+
+    final filters = <String>['l.party_id = ?'];
+    final args = <Object?>[partyId];
+    if (fromDate != null) {
+      filters.add('e.entry_date >= ?');
+      args.add(fromDate);
+    }
+    if (toExclusive != null) {
+      filters.add('e.entry_date < ?');
+      args.add(toExclusive.toIso8601String().substring(0, 10));
+    }
+    final rows = await db.rawQuery('''
+      SELECT e.id AS journal_entry_id, e.entry_date, e.description,
+        e.reference_type, e.reference_id, l.id AS line_id, l.account_code,
+        a.name AS account_name, l.debit, l.credit, l.memo
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.journal_entry_id
+      JOIN accounts a ON a.code = l.account_code
+      WHERE ${filters.join(' AND ')}
+      ORDER BY e.entry_date ASC, e.id ASC, l.line_no ASC
+      LIMIT ? OFFSET ?
+    ''', [...args, limit, offset]);
+
+    final lines = <Map<String, Object?>>[];
+    for (final row in rows) {
+      runningRaw += (row['debit'] as num).toInt() -
+          (row['credit'] as num).toInt();
+      final balance = isSupplier ? -runningRaw : runningRaw;
+      lines.add({
+        ...row,
+        'running_balance': balance,
+        'balance_label': balance > 0
+            ? (isSupplier ? 'بستانکار' : 'بدهکار')
+            : balance < 0
+                ? (isSupplier ? 'بدهکار' : 'بستانکار')
+                : 'تسویه',
+      });
+    }
+    final totalLines = (totals.single['line_count'] as num).toInt();
+    final nextOffset = offset + rows.length;
+    return {
+      'party': party,
+      'lines': lines,
+      'total_debit': totalDebit,
+      'total_credit': totalCredit,
+      'opening_balance': isSupplier ? -openingRaw : openingRaw,
+      'closing_balance': closingBalance,
+      'closing_label': closingBalance > 0
+          ? (isSupplier ? 'طلب فروشنده' : 'بدهی مشتری')
+          : closingBalance < 0
+              ? (isSupplier ? 'بدهی فروشنده' : 'طلب مشتری')
+              : 'تسویه',
+      'total_lines': totalLines,
+      'offset': offset,
+      'next_offset': nextOffset,
+      'has_more': nextOffset < totalLines,
+    };
+  }
+
 }
