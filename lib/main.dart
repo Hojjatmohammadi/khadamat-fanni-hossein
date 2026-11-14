@@ -56,6 +56,8 @@ class AppSettings {
   static bool darkMode = false;
   static String themeMode = 'روشن';
   static String drawerImage = '';
+  static String stampImage = '';
+  static String signatureImage = '';
   static double fontScale = 1.0;
   static String productImageMode = 'عکس پیش‌فرض';
   static Map<String, List<String>> productGroups = {
@@ -81,6 +83,8 @@ class AppSettings {
     darkMode = _prefs.getBool('dark_mode') ?? false;
     themeMode = _prefs.getString('theme_mode') ?? (darkMode ? 'تیره' : 'روشن');
     drawerImage = _prefs.getString('drawer_image') ?? '';
+    stampImage = _prefs.getString('invoice_stamp_image') ?? '';
+    signatureImage = _prefs.getString('invoice_signature_image') ?? '';
     fontScale = _prefs.getDouble('font_scale') ?? 1.0;
     productImageMode = _prefs.getString('product_image_mode') ?? 'عکس پیش‌فرض';
     final savedGroups = _prefs.getString('product_groups');
@@ -101,6 +105,8 @@ class AppSettings {
     required bool newDarkMode,
     required String newThemeMode,
     required String newDrawerImage,
+    required String newStampImage,
+    required String newSignatureImage,
     required double newFontScale,
   }) async {
     storeName = newStoreName.trim().isEmpty ? 'فروشگاه من' : newStoreName.trim();
@@ -111,6 +117,8 @@ class AppSettings {
     darkMode = newThemeMode == 'تیره';
     themeMode = newThemeMode;
     drawerImage = newDrawerImage;
+    stampImage = newStampImage;
+    signatureImage = newSignatureImage;
     fontScale = newFontScale;
     await _prefs.setString('store_name', storeName);
     await _prefs.setString('manager_name', managerName);
@@ -120,6 +128,8 @@ class AppSettings {
     await _prefs.setBool('dark_mode', darkMode);
     await _prefs.setString('theme_mode', themeMode);
     await _prefs.setString('drawer_image', drawerImage);
+    await _prefs.setString('invoice_stamp_image', stampImage);
+    await _prefs.setString('invoice_signature_image', signatureImage);
     await _prefs.setDouble('font_scale', fontScale);
     await _prefs.setString('app_name', appName);
     await _prefs.setString('currency', currency);
@@ -174,6 +184,8 @@ class AppSettings {
     if (data['theme_mode'] is String) { themeMode = data['theme_mode']; await _prefs.setString('theme_mode', themeMode); }
     if (data['dark_mode'] is bool) { darkMode = data['dark_mode']; await _prefs.setBool('dark_mode', darkMode); }
     if (data['drawer_image'] is String) { drawerImage = data['drawer_image']; await _prefs.setString('drawer_image', drawerImage); }
+    if (data['invoice_stamp_image'] is String) { stampImage = data['invoice_stamp_image']; await _prefs.setString('invoice_stamp_image', stampImage); }
+    if (data['invoice_signature_image'] is String) { signatureImage = data['invoice_signature_image']; await _prefs.setString('invoice_signature_image', signatureImage); }
     if (data['font_scale'] is num) { fontScale = (data['font_scale'] as num).toDouble(); await _prefs.setDouble('font_scale', fontScale); }
     if (data['product_image_mode'] is String) { productImageMode = data['product_image_mode']; await _prefs.setString('product_image_mode', productImageMode); }
     if (data['product_groups'] is Map) {
@@ -1017,11 +1029,19 @@ class DemoStore {
       assignedInvoiceNumber = '${AppSettings.invoicePrefix}-${AppSettings.nextInvoiceNumber.toString().padLeft(5, '0')}';
       item = <String, String>{...item,
         'شماره فاکتور': assignedInvoiceNumber,
-        'نام فروشگاه در زمان صدور': AppSettings.storeName,
-        'نام صاحب فروشگاه در زمان صدور': AppSettings.managerName,
-        'تلفن فروشگاه در زمان صدور': AppSettings.phone,
-        'نشانی فروشگاه در زمان صدور': AppSettings.address,
-        'کد پستی در زمان صدور': AppSettings.postalCode,
+        'نام فروشگاه در زمان صدور': (item['نام فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
+            ? item['نام فروشگاه در فاکتور']!.trim() : AppSettings.storeName,
+        'نام صاحب فروشگاه در زمان صدور': (item['نام صاحب فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
+            ? item['نام صاحب فروشگاه در فاکتور']!.trim() : AppSettings.managerName,
+        'تلفن فروشگاه در زمان صدور': (item['تلفن فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
+            ? item['تلفن فروشگاه در فاکتور']!.trim() : AppSettings.phone,
+        'نشانی فروشگاه در زمان صدور': (item['نشانی فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
+            ? item['نشانی فروشگاه در فاکتور']!.trim() : AppSettings.address,
+        'کد پستی در زمان صدور': (item['کد پستی در فاکتور'] ?? '').trim().isNotEmpty
+            ? item['کد پستی در فاکتور']!.trim() : AppSettings.postalCode,
+        'لوگوی فروشگاه در زمان صدور': AppSettings.drawerImage,
+        'مهر فروشگاه در زمان صدور': AppSettings.stampImage,
+        'امضای فروشگاه در زمان صدور': AppSettings.signatureImage,
         'واحد پول در زمان صدور': AppSettings.currency,
       };
     }
@@ -2104,6 +2124,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
       if (existing == null && field == 'روش پرداخت') value = 'نقدی';
       if (existing == null && field == 'درصد ارزش افزوده') value = AppSettings.vatPercent.toStringAsFixed(0);
       if (existing == null && field == 'مشمول ارزش افزوده') value = 'بله';
+      if (existing == null && field == 'نام فروشگاه در فاکتور') value = AppSettings.storeName;
+      if (existing == null && field == 'نام صاحب فروشگاه در فاکتور') value = AppSettings.managerName;
+      if (existing == null && field == 'تلفن فروشگاه در فاکتور') value = AppSettings.phone;
+      if (existing == null && field == 'نشانی فروشگاه در فاکتور') value = AppSettings.address;
+      if (existing == null && field == 'کد پستی در فاکتور') value = AppSettings.postalCode;
       return TextEditingController(text: value);
     }).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
@@ -3431,7 +3456,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مشمول ارزش افزوده', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ'],
+        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شناسه کالای انبار', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'درصد ارزش افزوده', 'مشمول ارزش افزوده', 'مبلغ دریافتی', 'روش پرداخت', 'شماره چک', 'بانک چک', 'سررسید چک', 'تاریخ', 'نام فروشگاه در فاکتور', 'نام صاحب فروشگاه در فاکتور', 'تلفن فروشگاه در فاکتور', 'نشانی فروشگاه در فاکتور', 'کد پستی در فاکتور'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -3463,6 +3488,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool darkMode;
   late String themeMode;
   late String drawerImage;
+  late String stampImage;
+  late String signatureImage;
   late double fontScale;
 
   @override
@@ -3484,6 +3511,8 @@ class _SettingsPageState extends State<SettingsPage> {
     darkMode = AppSettings.darkMode;
     themeMode = AppSettings.themeMode;
     drawerImage = AppSettings.drawerImage;
+    stampImage = AppSettings.stampImage;
+    signatureImage = AppSettings.signatureImage;
     fontScale = AppSettings.fontScale;
     SettingsPage.isDirty = _hasUnsavedChanges;
     SettingsPage.savePending = _saveSettingsInternal;
@@ -3501,7 +3530,9 @@ class _SettingsPageState extends State<SettingsPage> {
       invoicePrefix.text.trim() != AppSettings.invoicePrefix ||
       nextInvoice.text.trim() != AppSettings.nextInvoiceNumber.toString() ||
       pinCode.text != AppSettings.pinCode || pinEnabled != AppSettings.pinEnabled || currency != AppSettings.currency ||
-      themeMode != AppSettings.themeMode || fontScale != AppSettings.fontScale || drawerImage != AppSettings.drawerImage;
+      themeMode != AppSettings.themeMode || fontScale != AppSettings.fontScale ||
+      drawerImage != AppSettings.drawerImage || stampImage != AppSettings.stampImage ||
+      signatureImage != AppSettings.signatureImage;
 
   @override
   void dispose() {
@@ -3596,6 +3627,42 @@ class _SettingsPageState extends State<SettingsPage> {
     ));
     groupController.dispose(); subController.dispose();
     if (mounted) setState(() {});
+  }
+
+  Future<void> _pickInvoiceMark({required bool stamp}) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 75,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+      if (picked == null) return;
+      final compressed = await FlutterImageCompress.compressWithFile(
+        picked.path,
+        minWidth: 900,
+        minHeight: 900,
+        quality: 65,
+        format: CompressFormat.jpeg,
+      );
+      if (compressed == null || compressed.isEmpty) {
+        throw StateError('فشرده‌سازی تصویر انجام نشد.');
+      }
+      if (!mounted) return;
+      setState(() {
+        if (stamp) {
+          stampImage = base64Encode(compressed);
+        } else {
+          signatureImage = base64Encode(compressed);
+        }
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('انتخاب تصویر ناموفق بود: $error')),
+        );
+      }
+    }
   }
 
   Future<void> _resetAppearance() async {
@@ -3699,6 +3766,7 @@ class _SettingsPageState extends State<SettingsPage> {
               (0.92, 'کوچک'),
               (1.0, 'استاندارد'),
               (1.12, 'بزرگ'),
+              (1.28, 'خیلی بزرگ'),
             ].map((option) => ChoiceChip(
               label: Text(option.$2, maxLines: 1, softWrap: false),
               selected: fontScale == option.$1,
@@ -3733,6 +3801,47 @@ class _SettingsPageState extends State<SettingsPage> {
               if (x != null) { final bytes = await x.readAsBytes(); setState(() => drawerImage = base64Encode(bytes)); }
             }, icon: const Icon(Icons.photo_library), label: const Text('انتخاب عکس')),
             if (drawerImage.isNotEmpty) TextButton.icon(onPressed: () => setState(() => drawerImage = ''), icon: const Icon(Icons.delete), label: const Text('حذف عکس')),
+          ]),
+          const Divider(height: 30),
+          const Text('مهر و امضای فاکتور', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('تصاویر این قسمت هنگام صدور هر فاکتور ثابت می‌شوند و تغییرات بعدی روی فاکتورهای قبلی اثر نمی‌گذارند.',
+            style: TextStyle(fontSize: 11, color: Colors.grey)),
+          const SizedBox(height: 8),
+          if (stampImage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Image.memory(base64Decode(stampImage), height: 90, fit: BoxFit.contain),
+            ),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: () => _pickInvoiceMark(stamp: true),
+              icon: const Icon(Icons.verified_outlined),
+              label: Text(stampImage.isEmpty ? 'انتخاب تصویر مهر' : 'تعویض تصویر مهر'),
+            ),
+            if (stampImage.isNotEmpty)
+              TextButton.icon(
+                onPressed: () => setState(() => stampImage = ''),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('حذف مهر'),
+              ),
+          ]),
+          if (signatureImage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Image.memory(base64Decode(signatureImage), height: 70, fit: BoxFit.contain),
+            ),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: () => _pickInvoiceMark(stamp: false),
+              icon: const Icon(Icons.draw_outlined),
+              label: Text(signatureImage.isEmpty ? 'انتخاب تصویر امضا' : 'تعویض تصویر امضا'),
+            ),
+            if (signatureImage.isNotEmpty)
+              TextButton.icon(
+                onPressed: () => setState(() => signatureImage = ''),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('حذف امضا'),
+              ),
           ]),
           const SizedBox(height: 16),
           FilledButton.icon(
@@ -4720,6 +4829,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'theme_mode': AppSettings.themeMode,
       'dark_mode': AppSettings.darkMode,
       'drawer_image': AppSettings.drawerImage,
+      'invoice_stamp_image': AppSettings.stampImage,
+      'invoice_signature_image': AppSettings.signatureImage,
       'font_scale': AppSettings.fontScale,
       'product_image_mode': AppSettings.productImageMode,
       'product_groups': AppSettings.productGroups,
@@ -4920,8 +5031,19 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       child: DefaultTextStyle(
         style: const TextStyle(color: Colors.black, fontSize: 15),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if ((item['لوگوی فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Image.memory(base64Decode(item['لوگوی فروشگاه در زمان صدور']!), height: 62, fit: BoxFit.contain),
+              ),
+            ),
           Text(item['نام فروشگاه در زمان صدور'] ?? AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
           const SizedBox(height: 5),
+          if ((item['نام صاحب فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+            Text('صاحب فروشگاه: ' + (item['نام صاحب فروشگاه در زمان صدور'] ?? ''), textAlign: TextAlign.center),
+          if ((item['کد پستی در زمان صدور'] ?? '').isNotEmpty)
+            Text('کد پستی: ' + (item['کد پستی در زمان صدور'] ?? ''), textAlign: TextAlign.center),
           if ((item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address).isNotEmpty) Text(item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address, textAlign: TextAlign.center),
           if ((item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone).isNotEmpty) Text('تلفن: ${item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone}', textAlign: TextAlign.center),
           const Divider(color: Colors.black, height: 28),
@@ -4939,7 +5061,18 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
           _invoiceLine('مبلغ جدید دریافتی', received, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
           _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net), item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          const SizedBox(height: 26),
+          const SizedBox(height: 22),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if ((item['مهر فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+                Image.memory(base64Decode(item['مهر فروشگاه در زمان صدور']!), width: 92, height: 76, fit: BoxFit.contain),
+              const Spacer(),
+              if ((item['امضای فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+                Image.memory(base64Decode(item['امضای فروشگاه در زمان صدور']!), width: 120, height: 64, fit: BoxFit.contain),
+            ],
+          ),
+          const SizedBox(height: 8),
           const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
         ]),
       ),
