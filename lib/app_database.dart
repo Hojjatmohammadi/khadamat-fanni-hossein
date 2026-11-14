@@ -8,7 +8,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -21,11 +21,13 @@ class AppDatabase {
     {'code': '1000', 'name': 'صندوق', 'type': 'asset', 'side': 'debit'},
     {'code': '1010', 'name': 'بانک', 'type': 'asset', 'side': 'debit'},
     {'code': '1100', 'name': 'دریافتنی از مشتریان', 'type': 'asset', 'side': 'debit'},
+    {'code': '2110', 'name': 'مالیات ارزش افزوده خرید', 'type': 'asset', 'side': 'debit'},
     {'code': '1200', 'name': 'موجودی کالا', 'type': 'asset', 'side': 'debit'},
     {'code': '2000', 'name': 'پرداختنی به فروشندگان', 'type': 'liability', 'side': 'credit'},
     {'code': '2100', 'name': 'مالیات ارزش افزوده پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '3000', 'name': 'سرمایه و مانده افتتاحیه', 'type': 'equity', 'side': 'credit'},
     {'code': '4000', 'name': 'درآمد فروش کالا', 'type': 'income', 'side': 'credit'},
+    {'code': '4050', 'name': 'برگشت از فروش', 'type': 'expense', 'side': 'debit'},
     {'code': '4100', 'name': 'درآمد خدمات تعمیر', 'type': 'income', 'side': 'credit'},
     {'code': '5000', 'name': 'بهای تمام‌شده کالای فروش‌رفته', 'type': 'expense', 'side': 'debit'},
     {'code': '5100', 'name': 'هزینه قطعات مصرفی تعمیر', 'type': 'expense', 'side': 'debit'},
@@ -49,6 +51,7 @@ class AppDatabase {
       onCreate: (db, version) async {
         await _createCoreSchema(db);
         await _createAccountingSchema(db);
+        await _createCommerceSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -60,6 +63,10 @@ class AppDatabase {
           await _createAccountingSchema(db);
           await _seedAccounts(db);
           await _migrateOpeningStock(db);
+        }
+        if (oldVersion < 4) {
+          await _createCommerceSchema(db);
+          await _seedAccounts(db);
         }
       },
     );
@@ -210,6 +217,99 @@ class AppDatabase {
       BEFORE DELETE ON inventory_movements
       BEGIN
         SELECT RAISE(ABORT, 'inventory movements are immutable');
+      END
+    """);
+  }
+
+  static Future<void> _createCommerceSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS business_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_type TEXT NOT NULL CHECK (
+          document_type IN (
+            'purchase', 'sale', 'repair_consumption',
+            'customer_return', 'supplier_return',
+            'customer_receipt', 'supplier_payment'
+          )
+        ),
+        document_date TEXT NOT NULL,
+        document_number TEXT NOT NULL,
+        counterparty_id TEXT,
+        counterparty_name TEXT NOT NULL,
+        subtotal INTEGER NOT NULL CHECK (subtotal >= 0),
+        discount_amount INTEGER NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+        charges_amount INTEGER NOT NULL DEFAULT 0 CHECK (charges_amount >= 0),
+        vat_amount INTEGER NOT NULL DEFAULT 0 CHECK (vat_amount >= 0),
+        total_amount INTEGER NOT NULL CHECK (total_amount >= 0),
+        paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+        source_document_id INTEGER,
+        journal_entry_id INTEGER,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (source_document_id) REFERENCES business_documents(id) ON DELETE RESTRICT,
+        FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS business_document_lines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER NOT NULL,
+        source_line_id INTEGER,
+        product_id INTEGER NOT NULL,
+        product_name TEXT NOT NULL,
+        quantity REAL NOT NULL CHECK (quantity > 0),
+        unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
+        unit_cost INTEGER NOT NULL CHECK (unit_cost >= 0),
+        line_total INTEGER NOT NULL CHECK (line_total >= 0),
+        tax_amount INTEGER NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (document_id) REFERENCES business_documents(id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_line_id) REFERENCES business_document_lines(id) ON DELETE RESTRICT,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_business_documents_type_date ON business_documents(document_type, document_date)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_business_documents_party ON business_documents(counterparty_id, document_date)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_business_lines_document ON business_document_lines(document_id, id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_business_lines_source ON business_document_lines(source_line_id)',
+    );
+
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_business_documents_update
+      BEFORE UPDATE ON business_documents
+      BEGIN
+        SELECT RAISE(ABORT, 'posted business documents are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_business_documents_delete
+      BEFORE DELETE ON business_documents
+      BEGIN
+        SELECT RAISE(ABORT, 'posted business documents are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_business_document_lines_update
+      BEFORE UPDATE ON business_document_lines
+      BEGIN
+        SELECT RAISE(ABORT, 'posted business document lines are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_business_document_lines_delete
+      BEFORE DELETE ON business_document_lines
+      BEGIN
+        SELECT RAISE(ABORT, 'posted business document lines are immutable');
       END
     """);
   }
