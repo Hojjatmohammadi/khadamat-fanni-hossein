@@ -1143,7 +1143,7 @@ class AppDatabaseSchema {
       _assertNumeric(item, ['اجرت']);
       final repairRows = await db.query(
         'repairs',
-        columns: ['id'],
+        columns: ['id', 'labor_cost', 'customer_id'],
         where: 'legacy_source_id = ?',
         whereArgs: [sourceId],
         limit: 1,
@@ -1180,6 +1180,35 @@ class AppDatabaseSchema {
           throw StateError('نام مشتری تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.');
         }
       }
+      final oldLabor = (repairRows.first['labor_cost'] as num).toDouble();
+      final newLabor = _number(item, 'اجرت');
+      final oldCustomerId = repairRows.first['customer_id'] as int?;
+      if ((newLabor - oldLabor).abs() > 0.01) {
+        final linkedSales = await db.query(
+          'records',
+          columns: ['id', 'data'],
+          where: "category = 'sales'",
+          orderBy: 'id ASC',
+        );
+        final alreadyInvoiced = linkedSales.any((row) {
+          try {
+            final sale = jsonDecode(row['data'] as String) as Map;
+            return (sale['پذیرش تعمیر مرتبط'] ?? '').toString().trim() == sourceId.toString();
+          } catch (_) {
+            return false;
+          }
+        });
+        if (alreadyInvoiced) {
+          throw StateError('اجرت این پذیرش قبلاً در فاکتور صادرشده ثبت شده است؛ برای تغییر مبلغ، فاکتور اصلاحی صادر کنید.');
+        }
+      }
+      if (newLabor > 0 && repairCustomerId == null) {
+        throw StateError('برای ثبت اجرت در حساب مشتری، پرونده دقیق مشتری باید انتخاب شود.');
+      }
+      if (oldCustomerId != null && repairCustomerId != oldCustomerId &&
+          oldLabor > 0.01) {
+        throw StateError('تغییر مشتری پذیرش دارای اجرت ثبت‌شده مجاز نیست؛ یک پذیرش جدید ایجاد کنید.');
+      }
       await db.update(
         'repairs',
         {
@@ -1187,12 +1216,75 @@ class AppDatabaseSchema {
           'customer_name_snapshot': customerName,
           'device_type': _text(item, 'نوع دستگاه'),
           'problem_description': _text(item, 'شرح عیب'),
-          'labor_cost': _number(item, 'اجرت'),
+          'labor_cost': newLabor,
           'status': _text(item, 'وضعیت تعمیر').isEmpty ? 'پذیرفته شد' : _text(item, 'وضعیت تعمیر'),
         },
         where: 'id = ?',
         whereArgs: [repairRows.first['id']],
       );
+      final previousRepairJournal = await db.query(
+        'journal_entries',
+        columns: ['id'],
+        where: "source_type = 'repair' AND source_id = ?",
+        whereArgs: [sourceId.toString()],
+        limit: 1,
+      );
+      final delta = newLabor - oldLabor;
+      if (delta.abs() > 0.01) {
+        if (previousRepairJournal.isEmpty) {
+          if (newLabor > 0) {
+            await AccountingEngine.postJournalInTransaction(
+              db,
+              entryNumber: 'REPAIR-' + sourceId.toString(),
+              occurredAt: DateTime.tryParse(_text(item, 'تاریخ میلادی')) ?? DateTime.now(),
+              description: 'ثبت اجرت پذیرش تعمیر ' + sourceId.toString(),
+              sourceType: 'repair',
+              sourceId: sourceId.toString(),
+              lines: [
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '1100'),
+                  debit: newLabor,
+                  partyType: 'customer',
+                  partyId: repairCustomerId,
+                  memo: 'دریافتنی اجرت تعمیر',
+                ),
+                JournalLineInput(
+                  accountId: await AccountingEngine.accountId(db, '4010'),
+                  credit: newLabor,
+                  memo: 'درآمد اجرت تعمیر',
+                ),
+              ],
+            );
+          }
+        } else {
+          final adjustmentId = DateTime.now().microsecondsSinceEpoch.toString();
+          final increase = delta > 0;
+          await AccountingEngine.postJournalInTransaction(
+            db,
+            entryNumber: 'REPAIR-ADJ-' + sourceId.toString() + '-' + adjustmentId,
+            occurredAt: DateTime.now(),
+            description: 'تعدیل اجرت پذیرش تعمیر ' + sourceId.toString(),
+            sourceType: 'repair_adjustment',
+            sourceId: sourceId.toString() + '-' + adjustmentId,
+            lines: [
+              JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, increase ? '1100' : '4010'),
+                debit: delta.abs(),
+                partyType: increase ? 'customer' : '',
+                partyId: increase ? repairCustomerId : null,
+                memo: increase ? 'افزایش دریافتنی اجرت تعمیر' : 'کاهش درآمد اجرت تعمیر',
+              ),
+              JournalLineInput(
+                accountId: await AccountingEngine.accountId(db, increase ? '4010' : '1100'),
+                credit: delta.abs(),
+                partyType: increase ? '' : 'customer',
+                partyId: increase ? null : repairCustomerId,
+                memo: increase ? 'افزایش درآمد اجرت تعمیر' : 'کاهش دریافتنی اجرت تعمیر',
+              ),
+            ],
+          );
+        }
+      }
     } else if (category != 'operations') {
       throw ArgumentError('ویرایش این دسته اطلاعات پشتیبانی نمی‌شود: ' + category);
     }
@@ -1334,18 +1426,46 @@ class AppDatabaseSchema {
           throw StateError('نام مشتری پذیرش تکراری است؛ پرونده دقیق مشتری را انتخاب کنید.');
         }
       }
+      final repairLabor = _number(data, 'اجرت');
+      if (repairLabor > 0 && repairCustomerId == null) {
+        throw StateError('برای ثبت اجرت در حساب مشتری، پرونده دقیق مشتری باید انتخاب شود.');
+      }
       await db.insert('repairs', {
         'customer_id': repairCustomerId,
         'customer_name_snapshot': customerName,
         'device_type': _text(data, 'نوع دستگاه'),
         'problem_description': _text(data, 'شرح عیب'),
-        'labor_cost': _number(data, 'اجرت'),
+        'labor_cost': repairLabor,
         'status': _text(data, 'وضعیت تعمیر').isEmpty
             ? 'پذیرفته شد'
             : _text(data, 'وضعیت تعمیر'),
         'received_at': createdAt,
         'legacy_source_id': sourceId,
       });
+      if (repairLabor > 0) {
+        await AccountingEngine.postJournalInTransaction(
+          db,
+          entryNumber: 'REPAIR-' + sourceId.toString(),
+          occurredAt: DateTime.tryParse(_text(data, 'تاریخ میلادی')) ?? DateTime.parse(createdAt),
+          description: 'ثبت اجرت پذیرش تعمیر ' + sourceId.toString(),
+          sourceType: 'repair',
+          sourceId: sourceId.toString(),
+          lines: [
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '1100'),
+              debit: repairLabor,
+              partyType: 'customer',
+              partyId: repairCustomerId,
+              memo: 'دریافتنی اجرت تعمیر',
+            ),
+            JournalLineInput(
+              accountId: await AccountingEngine.accountId(db, '4010'),
+              credit: repairLabor,
+              memo: 'درآمد اجرت تعمیر',
+            ),
+          ],
+        );
+      }
     } else if (category == 'sales') {
       _assertNumeric(data, ['تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'مبلغ مالیات']);
       final quantity = _number(data, 'تعداد');
