@@ -8,7 +8,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -20,10 +20,12 @@ class AppDatabase {
   static const List<Map<String, String>> _defaultAccounts = [
     {'code': '1000', 'name': 'صندوق', 'type': 'asset', 'side': 'debit'},
     {'code': '1010', 'name': 'بانک', 'type': 'asset', 'side': 'debit'},
+    {'code': '1020', 'name': 'چک‌های دریافتی', 'type': 'asset', 'side': 'debit'},
     {'code': '1100', 'name': 'دریافتنی از مشتریان', 'type': 'asset', 'side': 'debit'},
     {'code': '2110', 'name': 'مالیات ارزش افزوده خرید', 'type': 'asset', 'side': 'debit'},
     {'code': '1200', 'name': 'موجودی کالا', 'type': 'asset', 'side': 'debit'},
     {'code': '2000', 'name': 'پرداختنی به فروشندگان', 'type': 'liability', 'side': 'credit'},
+    {'code': '2020', 'name': 'چک‌های پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '2100', 'name': 'مالیات ارزش افزوده پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '3000', 'name': 'سرمایه و مانده افتتاحیه', 'type': 'equity', 'side': 'credit'},
     {'code': '4000', 'name': 'درآمد فروش کالا', 'type': 'income', 'side': 'credit'},
@@ -52,6 +54,7 @@ class AppDatabase {
         await _createCoreSchema(db);
         await _createAccountingSchema(db);
         await _createCommerceSchema(db);
+        await _createPartyAndCheckSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -67,6 +70,11 @@ class AppDatabase {
         if (oldVersion < 4) {
           await _createCommerceSchema(db);
           await _seedAccounts(db);
+        }
+        if (oldVersion < 5) {
+          await _createPartyAndCheckSchema(db);
+          await _seedAccounts(db);
+          await _migrateParties(db);
         }
       },
     );
@@ -312,6 +320,162 @@ class AppDatabase {
         SELECT RAISE(ABORT, 'posted business document lines are immutable');
       END
     """);
+  }
+
+  static Future<void> _createPartyAndCheckSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS parties (
+        id TEXT PRIMARY KEY,
+        party_type TEXT NOT NULL CHECK (party_type IN ('customer', 'supplier', 'other')),
+        display_name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL,
+        phone TEXT,
+        address TEXT,
+        notes TEXT,
+        source_category TEXT,
+        source_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (party_type, normalized_name)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS check_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+        check_number TEXT NOT NULL,
+        bank_name TEXT NOT NULL,
+        drawer_name TEXT NOT NULL,
+        party_id TEXT,
+        party_name TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        issue_date TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+          status IN ('received', 'deposited', 'issued', 'cleared', 'bounced', 'cancelled')
+        ),
+        source_document_id INTEGER,
+        acceptance_journal_id INTEGER,
+        settlement_journal_id INTEGER,
+        reversal_journal_id INTEGER,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_document_id) REFERENCES business_documents(id) ON DELETE RESTRICT,
+        FOREIGN KEY (acceptance_journal_id) REFERENCES journal_entries(id) ON DELETE RESTRICT,
+        FOREIGN KEY (settlement_journal_id) REFERENCES journal_entries(id) ON DELETE RESTRICT,
+        FOREIGN KEY (reversal_journal_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS check_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        check_id INTEGER NOT NULL,
+        old_status TEXT,
+        new_status TEXT NOT NULL,
+        event_date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (check_id) REFERENCES check_records(id) ON DELETE RESTRICT
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_parties_name ON parties(party_type, normalized_name)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_check_records_due ON check_records(due_date, status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_check_records_party ON check_records(party_id, due_date)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_check_events_check ON check_events(check_id, event_date, id)',
+    );
+
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_check_events_update
+      BEFORE UPDATE ON check_events
+      BEGIN
+        SELECT RAISE(ABORT, 'check events are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_check_events_delete
+      BEFORE DELETE ON check_events
+      BEGIN
+        SELECT RAISE(ABORT, 'check events are immutable');
+      END
+    """);
+  }
+
+  static Future<void> _migrateParties(DatabaseExecutor db) async {
+    final now = DateTime.now().toIso8601String();
+    final customers = await db.query('customers', orderBy: 'id ASC');
+    for (final row in customers) {
+      final decoded = jsonDecode(row['data_json'] as String);
+      if (decoded is! Map<String, dynamic>) continue;
+      final name = (decoded['نام مشتری'] ?? decoded['نام'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+      final id = 'customer:${row['id']}';
+      final normalized = name.toLowerCase().replaceAll(RegExp(r'\\s+'), ' ');
+      await db.insert(
+        'parties',
+        {
+          'id': id,
+          'party_type': 'customer',
+          'display_name': name,
+          'normalized_name': normalized,
+          'phone': decoded['شماره تماس']?.toString(),
+          'address': decoded['آدرس']?.toString(),
+          'notes': decoded['توضیحات']?.toString(),
+          'source_category': 'customers',
+          'source_id': row['id'].toString(),
+          'created_at': now,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+
+    final documents = await db.query(
+      'business_documents',
+      where: 'counterparty_id IS NOT NULL AND counterparty_id != ?',
+      whereArgs: [''],
+      orderBy: 'id ASC',
+    );
+    for (final row in documents) {
+      final id = row['counterparty_id']?.toString();
+      final name = row['counterparty_name']?.toString().trim() ?? '';
+      if (id == null || id.isEmpty || name.isEmpty) continue;
+      final type = switch (row['document_type']) {
+        'purchase' || 'supplier_return' || 'supplier_payment' => 'supplier',
+        'sale' || 'customer_return' || 'customer_receipt' => 'customer',
+        _ => 'other',
+      };
+      final normalized = name.toLowerCase().replaceAll(RegExp(r'\\s+'), ' ');
+      await db.insert(
+        'parties',
+        {
+          'id': id,
+          'party_type': type,
+          'display_name': name,
+          'normalized_name': normalized,
+          'phone': null,
+          'address': null,
+          'notes': null,
+          'source_category': 'business_documents',
+          'source_id': row['id'].toString(),
+          'created_at': now,
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   static Future<void> _seedAccounts(DatabaseExecutor db) async {
