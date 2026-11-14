@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -140,6 +141,59 @@ void main() {
     expect(await db.query('inventory_movements'), hasLength(2));
   });
 
+  test('sale invoice and immutable display snapshot are archived atomically', () async {
+    final productId = await addProduct(name: 'خازن 100 میکرو');
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-13',
+        counterpartyName: 'فروشنده',
+        idempotencyKey: 'invoice-archive-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 5, unitPrice: 1000),
+        ],
+      ),
+    );
+
+    final saleId = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'مشتری فاکتور',
+        idempotencyKey: 'invoice-archive-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 2500),
+        ],
+        paidAmount: 5000,
+      ),
+      invoiceHeaderSnapshot: {
+        'shopName': 'خدمات فنی حسین',
+        'ownerName': 'حجت محمدی',
+        'phone': '09155637505',
+        'postalCode': '1234567890',
+        'address': 'عشق آباد',
+        'stampImageBase64': 'stamp-fixed-at-issue',
+        'signatureImageBase64': 'signature-fixed-at-issue',
+      },
+    );
+
+    final db = await store.database;
+    final archiveRows = await db.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [saleId],
+    );
+    expect(archiveRows, hasLength(1));
+    final snapshot = jsonDecode(archiveRows.single['snapshot_json'] as String)
+        as Map<String, dynamic>;
+    expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['stampImageBase64'], 'stamp-fixed-at-issue');
+    expect(snapshot['signatureImageBase64'], 'signature-fixed-at-issue');
+    expect(snapshot['counterpartyName'], 'مشتری فاکتور');
+    expect(snapshot['totalAmount'], 5000);
+    expect(snapshot['paidAmount'], 5000);
+    expect(snapshot['items'], hasLength(1));
+    expect((snapshot['items'] as List).single['productName'], 'خازن 100 میکرو');
+  });
+
   test('sale with insufficient stock leaves no invoice, journal or stock movement', () async {
     final productId = await addProduct();
     await expectLater(
@@ -153,6 +207,7 @@ void main() {
           ],
           paidAmount: 5000,
         ),
+        invoiceHeaderSnapshot: {'shopName': 'خدمات فنی حسین'},
       ),
       throwsStateError,
     );
@@ -161,6 +216,7 @@ void main() {
     expect(await db.query('business_documents'), isEmpty);
     expect(await db.query('journal_entries'), isEmpty);
     expect(await db.query('inventory_movements'), isEmpty);
+    expect(await db.query('invoice_archives'), isEmpty);
   });
 
   test('repair consumption posts parts expense and stock decrease as one transaction', () async {
