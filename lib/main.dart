@@ -1291,12 +1291,15 @@ class DemoStore {
         where: 'source_type = ? AND source_id = ?',
         whereArgs: [isSale ? 'sale' : 'purchase', originalSourceId.toString()],
         limit: 1);
-      final reversalOf = originalJournal.isEmpty ? null : originalJournal.first['id'] as int;
+      if (originalJournal.isEmpty) {
+        throw StateError('سند اولیه در دفتر کل حسابداری ثبت نشده است؛ برگشت برای جلوگیری از ثبت مالی نادرست انجام نشد. ابتدا سند قدیمی را تطبیق دهید.');
+      }
+      final reversalOf = originalJournal.first['id'] as int;
       var originalReceivable = 0.0;
       var previousReceivableOffset = 0.0;
       var originalPayable = 0.0;
       var previousPayableOffset = 0.0;
-      if (originalJournal.isNotEmpty) {
+      {
         final arAccountId = await AccountingEngine.accountId(txn, '1100');
         final apAccountId = await AccountingEngine.accountId(txn, '2000');
         final arRows = await txn.rawQuery(
@@ -1407,10 +1410,13 @@ class DemoStore {
         } else {
           final payableOffset = (originalPayable - previousPayableOffset)
               .clamp(0.0, amount).toDouble();
+          final supplierId = int.tryParse(source['شناسه فروشنده'] ?? '');
           if (payableOffset > 0.001) {
             lines.add(JournalLineInput(
               accountId: await AccountingEngine.accountId(txn, '2000'),
               debit: payableOffset,
+              partyType: 'supplier',
+              partyId: supplierId,
               memo: 'کاهش بدهی همان خرید به فروشنده ' + source['نام شخص'].toString(),
             ));
           }
@@ -1418,6 +1424,8 @@ class DemoStore {
             lines.add(JournalLineInput(
               accountId: await AccountingEngine.accountId(txn, '1110'),
               debit: amount - payableOffset,
+              partyType: 'supplier',
+              partyId: supplierId,
               memo: 'طلب مازاد برگشت خرید از فروشنده ' + source['نام شخص'].toString(),
             ));
           }
@@ -5734,7 +5742,9 @@ class _ReportsPageState extends State<ReportsPage> {
     final stockCutoff = _toDate?.toDateTime().add(const Duration(days: 1));
     final stockRows = stockCutoff == null
         ? await DemoStore.database.rawQuery(
-            'SELECT COALESCE(SUM(quantity * purchase_price), 0) AS total FROM products',
+            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+                 THEN total_cost ELSE -total_cost END), 0) AS total
+               FROM stock_movements''',
           )
         : await DemoStore.database.rawQuery(
             '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
