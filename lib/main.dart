@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart' as p;
+import 'data/app_database.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,51 +37,38 @@ class HoseinApp extends StatelessWidget {
 }
 
 class DemoStore {
-  static Database? _db;
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
   static final sales = <Map<String, String>>[];
 
   static Future<void> init() async {
-    final dbPath = await getDatabasesPath();
-    _db = await openDatabase(
-      p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 1,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT NOT NULL,
-            data TEXT NOT NULL,
-            created_at TEXT NOT NULL
-          )
-        ''');
-        await db.execute('CREATE INDEX records_category_idx ON records(category)');
-      },
-    );
+    // Open the versioned database first. This upgrades an existing v1 records
+    // database transactionally and keeps the legacy table for traceability.
+    await AppDatabase.instance.database;
     await _loadCategory('products', products);
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
     await _loadCategory('sales', sales);
   }
 
-  static Future<void> _loadCategory(String category, List<Map<String, String>> target) async {
-    final rows = await _db!.query('records', where: 'category = ?', whereArgs: [category], orderBy: 'id ASC');
+  static Future<void> _loadCategory(
+      String category, List<Map<String, String>> target) async {
+    final rows = await AppDatabase.instance.listRecords(category);
     target
       ..clear()
       ..addAll(rows.map((row) {
-        final decoded = jsonDecode(row['data'] as String) as Map<String, dynamic>;
-        return decoded.map((key, value) => MapEntry(key, value?.toString() ?? ''));
+        final decoded = jsonDecode(row['data'] as String);
+        if (decoded is! Map) {
+          throw FormatException('ساختار اطلاعات $category معتبر نیست');
+        }
+        return Map<String, String>.from(
+          decoded.map((key, value) => MapEntry(key.toString(), value?.toString() ?? '')),
+        );
       }));
   }
 
   static Future<void> add(String category, Map<String, String> item) async {
-    await _db!.insert('records', {
-      'category': category,
-      'data': jsonEncode(item),
-      'created_at': DateTime.now().toIso8601String(),
-    });
     final target = switch (category) {
       'products' => products,
       'customers' => customers,
@@ -90,6 +76,7 @@ class DemoStore {
       'sales' => sales,
       _ => throw ArgumentError('دسته اطلاعات نامعتبر است'),
     };
+    await AppDatabase.instance.insertRecord(category, item);
     target.add(Map<String, String>.from(item));
   }
 }
