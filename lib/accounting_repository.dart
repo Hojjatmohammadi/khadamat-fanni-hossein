@@ -220,6 +220,23 @@ class AccountingRepository {
     required String reason,
     required String idempotencyKey,
   }) async {
+    final db = await _database.database;
+    return db.transaction((txn) => reverseJournalEntryInTransaction(
+          txn,
+          journalEntryId: journalEntryId,
+          reversalDate: reversalDate,
+          reason: reason,
+          idempotencyKey: idempotencyKey,
+        ));
+  }
+
+  Future<int> reverseJournalEntryInTransaction(
+    DatabaseExecutor txn, {
+    required int journalEntryId,
+    required String reversalDate,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
     if (DateTime.tryParse(reversalDate) == null) {
       throw ArgumentError('تاریخ برگشت سند معتبر نیست');
     }
@@ -227,59 +244,56 @@ class AccountingRepository {
       throw ArgumentError('شرح برگشت و کلید یکتا الزامی است');
     }
 
-    final db = await _database.database;
-    return db.transaction((txn) async {
-      final existingReversal = await txn.query(
-        'journal_entries',
-        columns: ['id'],
-        where: 'reversal_of_id = ?',
-        whereArgs: [journalEntryId],
-        limit: 1,
-      );
-      if (existingReversal.isNotEmpty) {
-        return existingReversal.single['id'] as int;
-      }
+    final existingReversal = await txn.query(
+      'journal_entries',
+      columns: ['id'],
+      where: 'reversal_of_id = ?',
+      whereArgs: [journalEntryId],
+      limit: 1,
+    );
+    if (existingReversal.isNotEmpty) {
+      return existingReversal.single['id'] as int;
+    }
 
-      final originals = await txn.query(
-        'journal_entries',
-        where: 'id = ?',
-        whereArgs: [journalEntryId],
-        limit: 1,
-      );
-      if (originals.isEmpty) {
-        throw StateError('سند حسابداری موردنظر پیدا نشد');
-      }
-      if (originals.single['reversal_of_id'] != null) {
-        throw StateError('سند برگشت را نمی‌توان دوباره برگشت زد');
-      }
+    final originals = await txn.query(
+      'journal_entries',
+      where: 'id = ?',
+      whereArgs: [journalEntryId],
+      limit: 1,
+    );
+    if (originals.isEmpty) {
+      throw StateError('سند حسابداری موردنظر پیدا نشد');
+    }
+    if (originals.single['reversal_of_id'] != null) {
+      throw StateError('سند برگشت را نمی‌توان دوباره برگشت زد');
+    }
 
-      final originalLines = await txn.query(
-        'journal_lines',
-        where: 'journal_entry_id = ?',
-        whereArgs: [journalEntryId],
-        orderBy: 'line_no ASC',
+    final originalLines = await txn.query(
+      'journal_lines',
+      where: 'journal_entry_id = ?',
+      whereArgs: [journalEntryId],
+      orderBy: 'line_no ASC',
+    );
+    final lines = originalLines.map((line) {
+      return JournalLineDraft(
+        accountCode: line['account_code'] as String,
+        debit: line['credit'] as int,
+        credit: line['debit'] as int,
+        partyId: line['party_id'] as String?,
+        memo: line['memo'] as String?,
       );
-      final lines = originalLines.map((line) {
-        return JournalLineDraft(
-          accountCode: line['account_code'] as String,
-          debit: line['credit'] as int,
-          credit: line['debit'] as int,
-          partyId: line['party_id'] as String?,
-          memo: line['memo'] as String?,
-        );
-      }).toList();
+    }).toList();
 
-      final draft = JournalEntryDraft(
-        entryDate: reversalDate,
-        description: 'برگشت سند ' + journalEntryId.toString() + ': ' + reason.trim(),
-        idempotencyKey: idempotencyKey,
-        referenceType: 'journal_reversal',
-        referenceId: journalEntryId.toString(),
-        reversalOfId: journalEntryId,
-        lines: lines,
-      );
-      return _postJournalEntry(txn, draft);
-    });
+    final draft = JournalEntryDraft(
+      entryDate: reversalDate,
+      description: 'برگشت سند ' + journalEntryId.toString() + ': ' + reason.trim(),
+      idempotencyKey: idempotencyKey,
+      referenceType: 'journal_reversal',
+      referenceId: journalEntryId.toString(),
+      reversalOfId: journalEntryId,
+      lines: lines,
+    );
+    return _postJournalEntry(txn, draft);
   }
 
   Future<List<Map<String, Object?>>> getTrialBalance() async {
