@@ -36,7 +36,7 @@ void main() {
 
   Future<int> addProduct() => store.insert('products', {
         'نام کالا': 'قطعه دفتر اشخاص',
-        'موجودی': '0',
+        'موجودی': '1',
         'بهای تمام‌شده هر واحد': '0',
       });
 
@@ -330,7 +330,7 @@ void main() {
     expect(refreshed.any((row) => row['check_number'] == 'due-today'), isFalse);
   });
 
-  test('rejects checks with invalid dates, duplicate number metadata or excess invoice amount', () async {
+  test('rejects checks with invalid dates or amounts above invoice balance', () async {
     final partyId = await parties.ensureParty(
       const PartyDraft(
         partyType: 'customer',
