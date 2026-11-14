@@ -349,7 +349,6 @@ class CheckRepository {
   Future<List<Map<String, Object?>>> getDueChecks({DateTime? asOfDate}) async {
     final today = asOfDate ?? DateTime.now();
     final dueThrough = today.add(const Duration(days: 1));
-    final date = DateTime(today.year, today.month, today.day);
     final through = DateTime(dueThrough.year, dueThrough.month, dueThrough.day);
     final db = await _database.database;
     return db.query(
@@ -357,10 +356,7 @@ class CheckRepository {
       where: "due_date <= ? AND status IN ('received', 'deposited', 'issued')",
       whereArgs: [through.toIso8601String().split('T').first],
       orderBy: 'due_date ASC, id ASC',
-    ).then((rows) => rows.where((row) {
-      final due = DateTime.parse(row['due_date'] as String);
-      return !due.isAfter(through) && !due.isAtSameMomentAs(date.subtract(const Duration(days: 36500)));
-    }).toList());
+    );
   }
 
   Future<List<Map<String, Object?>>> getCheckEvents(int checkId) async {
