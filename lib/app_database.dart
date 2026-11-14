@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -67,6 +67,7 @@ class AppDatabase {
         await _createPartyAndCheckSchema(db);
         await _createBankReconciliationSchema(db);
         await _createInvoiceArchiveSchema(db);
+        await _createInvoiceSettingsSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -102,6 +103,9 @@ class AppDatabase {
         }
         if (oldVersion < 11) {
           await _createInvoiceArchiveSchema(db);
+        }
+        if (oldVersion < 12) {
+          await _createInvoiceSettingsSchema(db);
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -506,6 +510,34 @@ class AppDatabase {
         SELECT RAISE(ABORT, 'archived invoices cannot be deleted');
       END
     ''');
+  }
+
+
+  static Future<void> _createInvoiceSettingsSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        data_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.insert(
+      'invoice_settings',
+      {
+        'id': 1,
+        'data_json': jsonEncode({
+          'shopName': 'خدمات فنی حسین',
+          'ownerName': 'حجت محمدی',
+          'phone': '',
+          'postalCode': '',
+          'address': '',
+          'stampImageBase64': '',
+          'signatureImageBase64': '',
+        }),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   static Future<void> _createBankReconciliationSchema(DatabaseExecutor db) async {
