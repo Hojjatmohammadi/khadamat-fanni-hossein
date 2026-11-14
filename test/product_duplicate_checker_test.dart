@@ -32,7 +32,7 @@ void main() {
 
   test('normalizes Arabic and Persian character variants and whitespace', () {
     final duplicates = ProductDuplicateChecker.findDuplicates([
-      {'نام کالا': 'آی سی   كاربردی', 'گروه اصلی': 'الکترونیک', 'زیرگروه': ''},
+      {'نام کالا': 'آی سی   کاربردی', 'گروه اصلی': 'الکترونیک', 'زیرگروه': ''},
     ], {
       'نام کالا': 'آی سی كاربردی',
       'گروه اصلی': 'الکترونیک',
