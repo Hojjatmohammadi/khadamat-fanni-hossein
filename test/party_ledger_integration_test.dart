@@ -37,6 +37,11 @@ void main() {
       'بهای تمام‌شده هر واحد': '500',
     });
     const customerId = 'customer-ledger-inherit';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری دفتر',
+      preferredId: customerId,
+    ));
 
     final saleId = await trades.recordSale(
       TradeDocumentDraft(
@@ -98,6 +103,11 @@ void main() {
       'بهای تمام‌شده هر واحد': '0',
     });
     const supplierId = 'supplier-ledger-inherit';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'فروشنده دفتر',
+      preferredId: supplierId,
+    ));
 
     final purchaseId = await trades.recordPurchase(
       TradeDocumentDraft(
