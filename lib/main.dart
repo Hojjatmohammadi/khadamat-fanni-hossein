@@ -53,6 +53,7 @@ class DemoStore {
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
   static final BackupService backups = BackupService(_database);
+  static String? backupStartupNotice;
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
@@ -64,6 +65,14 @@ class DemoStore {
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
     await refreshSales();
+    try {
+      final dailyBackup = await backups.createDailyBackupIfDue();
+      backupStartupNotice = dailyBackup == null
+          ? 'نسخه پشتیبان روزانه امروز از قبل موجود است.'
+          : 'نسخه پشتیبان روزانه امروز به‌صورت خودکار ایجاد شد.';
+    } catch (error) {
+      backupStartupNotice = 'هشدار: پشتیبان روزانه ایجاد نشد: $error';
+    }
   }
 
   static Future<void> refreshProducts() => _loadCategory('products', products);
@@ -220,7 +229,10 @@ class _HomePageState extends State<HomePage> {
       ),
       const ReportsPage(),
       FinancialManagementPage(repository: DemoStore.accounting),
-      BackupPage(service: DemoStore.backups),
+      BackupPage(
+        service: DemoStore.backups,
+        initialMessage: DemoStore.backupStartupNotice,
+      ),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
