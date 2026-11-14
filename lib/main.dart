@@ -354,7 +354,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 10,
+      version: 11,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -400,6 +400,9 @@ class DemoStore {
         }
         if (oldVersion < 10) {
           await AppDatabaseSchema.ensureCheckSourceColumns(db);
+        }
+        if (oldVersion < 11) {
+          await AppDatabaseSchema.migrateHistoricalJournals(db);
         }
       },
     );
