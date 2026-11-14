@@ -840,6 +840,19 @@ class _SimpleListPageState extends State<SimpleListPage> {
     if (previousRepairCustomer.isNotEmpty && !repairCustomerNames.contains(previousRepairCustomer)) {
       repairCustomerNames.add(previousRepairCustomer);
     }
+    final repairOptions = <String, String>{};
+    if (widget.title == 'فاکتور فروش') {
+      final repairRows = await DemoStore.database.query('records',
+        columns: ['id', 'data'], where: 'category = ?', whereArgs: ['repairs'], orderBy: 'id DESC');
+      for (final row in repairRows) {
+        try {
+          final data = (jsonDecode(row['data'] as String) as Map).map((k,v)=>MapEntry(k.toString(), v?.toString() ?? ''));
+          final id = row['id'].toString();
+          final label = id + ' ـ ' + (data['نام مشتری'] ?? '') + ' ـ ' + (data['نوع دستگاه'] ?? 'تعمیر');
+          repairOptions[id] = label;
+        } catch (_) {}
+      }
+    }
 
     Future<void> saveForm(BuildContext dialogContext) async {
       final item = <String, String>{};
@@ -868,6 +881,47 @@ class _SimpleListPageState extends State<SimpleListPage> {
         final customerName = (item['نام مشتری'] ?? '').trim();
         final matches = await DemoStore.database.query('customers', columns: ['id'], where: "TRIM(first_name || ' ' || last_name) = ?", whereArgs: [customerName], limit: 2);
         if (matches.length == 1) item['شناسه مشتری'] = matches.first['id'].toString();
+      }
+      if (widget.title == 'فاکتور فروش') {
+        final linkedRepairId = (item['پذیرش تعمیر مرتبط'] ?? '').trim();
+        if (linkedRepairId.isNotEmpty && !repairOptions.containsKey(linkedRepairId)) {
+          ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('پذیرش تعمیر انتخاب‌شده معتبر نیست.')));
+          return;
+        }
+        if (existing == null) {
+          final customerName = (item['نام مشتری'] ?? '').trim();
+          final customerId = item['شناسه مشتری'] ?? '';
+          final operationRows = await DemoStore.database.query('records',
+            columns: ['data'], where: 'category = ?', whereArgs: ['operations']);
+          var deposits = 0.0;
+          for (final row in operationRows) {
+            try {
+              final op = jsonDecode(row['data'] as String) as Map;
+              final type = (op['نوع عملیات'] ?? '').toString();
+              final partyType = (op['نوع طرف حساب'] ?? 'مشتری').toString();
+              final opCustomerId = (op['شناسه مشتری'] ?? '').toString();
+              final opName = (op['نام شخص'] ?? '').toString().trim();
+              final sameCustomer = customerId.isNotEmpty && opCustomerId.isNotEmpty
+                  ? customerId == opCustomerId : opName == customerName;
+              if (type == 'ثبت بیعانه' && partyType == 'مشتری' && sameCustomer) deposits += _ledgerAmount(op['مبلغ']);
+            } catch (_) {}
+          }
+          final previousSales = await DemoStore.database.query('records',
+            columns: ['data'], where: 'category = ?', whereArgs: ['sales']);
+          var alreadyApplied = 0.0;
+          for (final row in previousSales) {
+            try {
+              final sale = jsonDecode(row['data'] as String) as Map;
+              final saleId = (sale['شناسه مشتری'] ?? '').toString();
+              final saleName = (sale['نام مشتری'] ?? '').toString().trim();
+              final sameCustomer = customerId.isNotEmpty && saleId.isNotEmpty
+                  ? customerId == saleId : saleName == customerName;
+              if (sameCustomer) alreadyApplied += _ledgerAmount(sale['بیعانه تخصیص‌یافته']);
+            } catch (_) {}
+          }
+          final net = (_ledgerAmount(item['مبلغ کل']) - _ledgerAmount(item['تخفیف'])).clamp(0, double.infinity).toDouble();
+          item['بیعانه تخصیص‌یافته'] = (deposits - alreadyApplied).clamp(0, net).toStringAsFixed(0);
+        }
       }
       try {
         if (existing == null) {
@@ -980,6 +1034,17 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   );
                                   if (picked != null) controllers[i].text = picked.formatCompactDate();
                                 },
+                              )
+                            : widget.title == 'فاکتور فروش' && widget.fields[i] == 'پذیرش تعمیر مرتبط'
+                            ? DropdownButtonFormField<String>(
+                                value: repairOptions.containsKey(controllers[i].text.trim()) ? controllers[i].text.trim() : null,
+                                isExpanded: true,
+                                decoration: const InputDecoration(labelText: 'اتصال به پذیرش تعمیر (اختیاری)', helperText: 'پذیرش مرتبط را انتخاب کنید تا اجرت ثبت‌شده در پذیرش دوباره به بدهی مشتری اضافه نشود.'),
+                                items: [
+                                  const DropdownMenuItem<String>(value: '', child: Text('بدون اتصال به تعمیر')),
+                                  ...repairOptions.entries.map((entry) => DropdownMenuItem<String>(value: entry.key, child: Text(entry.value, overflow: TextOverflow.ellipsis))),
+                                ],
+                                onChanged: (value) => controllers[i].text = value ?? '',
                               )
                             : (widget.title == 'پذیرش تعمیر' || widget.title == 'فاکتور فروش') && widget.fields[i] == 'نام مشتری'
                             ? DropdownButtonFormField<String>(
@@ -1135,6 +1200,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final sameNameCount = (sameNameRows.first['total'] as num?)?.toInt() ?? 0;
     final records = await DemoStore.database.query('records', columns: ['id','category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
     if (!mounted) return;
+    final invoicedRepairIds = <String>{};
+    for (final record in records.where((r) => r['category'] == 'sales')) {
+      try {
+        final sale = jsonDecode(record['data'] as String) as Map;
+        final repairId = (sale['پذیرش تعمیر مرتبط'] ?? '').toString().trim();
+        if (repairId.isNotEmpty) invoicedRepairIds.add(repairId);
+      } catch (_) {}
+    }
     final rows = <Map<String,Object?>>[];
     for (final record in records) {
       Map<String,dynamic> data;
@@ -1173,6 +1246,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
         continue;
       } else if (record['category'] == 'repairs') {
+        if (invoicedRepairIds.contains(record['id'].toString())) continue;
         final wage = _ledgerAmount(data['اجرت']);
         if (wage <= 0) continue;
         debit = wage;
@@ -1818,7 +1892,7 @@ class SalesPage extends StatelessWidget {
         key: pageKey,
         title: 'فاکتور فروش',
         data: DemoStore.sales,
-        fields: const ['نام مشتری', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ'],
+        fields: const ['نام مشتری', 'پذیرش تعمیر مرتبط', 'شرح کالا/خدمت', 'تعداد', 'مبلغ کل', 'تخفیف', 'مبلغ دریافتی', 'تاریخ'],
         primary: 'نام مشتری',
         onChanged: onChanged,
       );
@@ -2565,8 +2639,9 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           _invoiceLine('مبلغ کل قبل از تخفیف', gross),
           _invoiceLine('تخفیف', discount),
           _invoiceLine('مبلغ نهایی', net),
-          _invoiceLine('مبلغ دریافتی', received),
-          _invoiceLine('مانده حساب', (net - received).clamp(0, net)),
+          _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0),
+          _invoiceLine('مبلغ جدید دریافتی', received),
+          _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net)),
           const SizedBox(height: 26),
           const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
         ]),
