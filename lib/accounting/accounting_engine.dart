@@ -121,6 +121,8 @@ class AccountingEngine {
         status TEXT NOT NULL CHECK(status IN ('pending','deposited','cashed','spent','bounced','cancelled')),
         bank_name TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
+        source_type TEXT NOT NULL DEFAULT '',
+        source_id TEXT,
         created_at TEXT NOT NULL
       )
     ''');
