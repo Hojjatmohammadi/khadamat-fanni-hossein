@@ -76,7 +76,6 @@ class _CheckPageState extends State<CheckPage> {
 
   String _dueLabel(String rawDate) {
     final due = DateTime.parse(rawDate);
-    final today = DateTime.now();
     final a = DateTime(today.year, today.month, today.day);
     final b = DateTime(due.year, due.month, due.day);
     final days = b.difference(a).inDays;
