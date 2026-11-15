@@ -24,7 +24,6 @@ class CheckReminderService {
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(_channel);
-    await android?.requestNotificationsPermission();
   }
 
   Future<int> notifyDueChecks(CheckRepository repository) async {
@@ -39,6 +38,16 @@ class CheckReminderService {
     }).toList(growable: false);
 
     if (due.isEmpty) return 0;
+
+    // Do not interrupt every app launch with a permission dialog. Ask only
+    // when there is an actual due-check reminder to display.
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final notificationsEnabled = await android?.areNotificationsEnabled();
+    if (notificationsEnabled == false) {
+      final granted = await android?.requestNotificationsPermission();
+      if (granted == false) return 0;
+    }
 
     final overdue = due.where((check) {
       final date = DateTime.parse(check['due_date'].toString());
