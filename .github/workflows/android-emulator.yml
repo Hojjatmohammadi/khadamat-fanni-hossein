@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - fix/dashboard-layout-phase2
+  pull_request:
+    branches:
+      - phase2/database-foundation
 
 concurrency:
   group: android-emulator-${{ github.event.pull_request.number || github.ref }}
