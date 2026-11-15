@@ -483,69 +483,118 @@ class Dashboard extends StatelessWidget {
   final ValueChanged<int> onSelect;
   const Dashboard({super.key, required this.onSelect});
 
-  @override
-  Widget build(BuildContext context) {
-    final stats = [
-      ('کالاهای ثبت‌شده', DemoStore.products.length.toString(), Icons.inventory_2),
-      ('مشتریان', DemoStore.customers.length.toString(), Icons.people),
-      ('پذیرش تعمیرات', DemoStore.repairs.length.toString(), Icons.build),
-      ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt),
-    ];
-    // Keep dashboard content clear of Android's gesture/navigation area.
-    // SafeArea also prevents the last quick-action card from being obscured
-    // on devices using transparent system navigation bars.
-    return SafeArea(
-      top: false,
-      child: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-      children: [
-        const SizedBox(height: 4),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          // A slightly wider card ratio reduces unnecessary vertical
-          // scrolling while keeping the two-column dashboard readable.
-          childAspectRatio: 1.38,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          children: [
-            for (final s in stats)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(s.$3, color: Colors.amber.shade800, size: 28),
-                      const SizedBox(height: 6),
-                      Text(s.$2, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                      Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
-                ),
+  static const _homeCards = <({String title, IconData icon, int tab})>[
+    (title: 'خرید', icon: Icons.shopping_bag_outlined, tab: 2),
+    (title: 'فروش', icon: Icons.point_of_sale_outlined, tab: 5),
+    (title: 'انبار', icon: Icons.inventory_2_outlined, tab: 1),
+    (title: 'پشتیبان‌گیری', icon: Icons.backup_outlined, tab: 10),
+    (title: 'فاکتور', icon: Icons.receipt_long_outlined, tab: 5),
+    (title: 'پذیرش دستگاه', icon: Icons.build_outlined, tab: 4),
+    (title: 'صورت‌حساب اشخاص', icon: Icons.account_balance_wallet_outlined, tab: 6),
+    (title: 'تماس / ارسال پیامک', icon: Icons.contact_phone_outlined, tab: 3),
+  ];
+
+  void _showOtherOperations(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('عملیات‌های دیگر'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.request_quote_outlined),
+                title: const Text('مدیریت چک‌ها'),
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  onSelect(7);
+                },
               ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart_outlined),
+                title: const Text('گزارش‌ها'),
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  onSelect(8);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.menu_book_outlined),
+                title: const Text('دفتر روزنامه و هزینه‌ها'),
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  onSelect(9);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('بستن'),
+            ),
           ],
         ),
-        const SizedBox(height: 8),
-        const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور'), (6, 'دفتر گردش اشخاص'), (7, 'مدیریت چک‌ها'), (9, 'دفتر روزنامه و هزینه‌ها')])
-          Card(
-            child: ListTile(
-              title: Text(e.$2),
-              trailing: const Icon(Icons.chevron_left),
-              onTap: () => onSelect(e.$1),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 600 ? 3 : 2;
+          return GridView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            itemCount: _homeCards.length + 1,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              childAspectRatio: 1.35,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
             ),
-          ),
-        const Padding(
-          padding: EdgeInsets.all(8),
-          child: Text(
-            'اطلاعات کالاها، مشتریان، تعمیرات و فروش در پایگاه داده محلی گوشی ذخیره می‌شوند.',
-            style: TextStyle(color: Colors.red, fontSize: 12),
-          ),
-        ),
-      ],
+            itemBuilder: (context, index) {
+              final isOtherOperations = index == _homeCards.length;
+              final card = isOtherOperations ? null : _homeCards[index];
+              final title = isOtherOperations ? 'عملیات‌های دیگر' : card!.title;
+              final icon = isOtherOperations ? Icons.apps_outlined : card!.icon;
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                elevation: 2,
+                child: InkWell(
+                  key: ValueKey('home-card-$index'),
+                  onTap: () => isOtherOperations
+                      ? _showOtherOperations(context)
+                      : onSelect(card!.tab),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, size: 36, color: Colors.amber.shade800),
+                        const SizedBox(height: 12),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
