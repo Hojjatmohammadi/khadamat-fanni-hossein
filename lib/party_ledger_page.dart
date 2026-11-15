@@ -17,6 +17,10 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
   Map<String, Object?>? _statement;
   String? _selectedPartyId;
   bool _loading = true;
+  bool _loadingMore = false;
+  int _nextOffset = 0;
+  bool _hasMore = false;
+  static const int _pageSize = 100;
 
   @override
   void initState() {
@@ -35,13 +39,18 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               : parties.first['id'] as String;
       Map<String, Object?>? statement;
       if (selected != null) {
-        statement = await widget.repository.getPartyStatement(selected);
+        statement = await widget.repository.getPartyStatementPage(
+          selected,
+          limit: _pageSize,
+        );
       }
       if (!mounted) return;
       setState(() {
         _parties = parties;
         _selectedPartyId = selected;
         _statement = statement;
+        _nextOffset = (statement?['next_offset'] as num?)?.toInt() ?? 0;
+        _hasMore = statement?['has_more'] == true;
         _loading = false;
       });
     } catch (error) {
@@ -61,10 +70,15 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       _loading = true;
     });
     try {
-      final result = await widget.repository.getPartyStatement(id);
+      final result = await widget.repository.getPartyStatementPage(
+        id,
+        limit: _pageSize,
+      );
       if (!mounted) return;
       setState(() {
         _statement = result;
+        _nextOffset = (result['next_offset'] as num?)?.toInt() ?? 0;
+        _hasMore = result['has_more'] == true;
         _loading = false;
       });
     } catch (error) {
@@ -72,6 +86,38 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('خواندن گردش حساب ناموفق بود: $error')),
+      );
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final partyId = _selectedPartyId;
+    if (partyId == null || _loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await widget.repository.getPartyStatementPage(
+        partyId,
+        limit: _pageSize,
+        offset: _nextOffset,
+      );
+      if (!mounted || partyId != _selectedPartyId) return;
+      final existing = (_statement?['lines'] as List?) ?? const [];
+      final incoming = (page['lines'] as List?) ?? const [];
+      setState(() {
+        _statement = {
+          ...?_statement,
+          ...page,
+          'lines': [...existing, ...incoming],
+        };
+        _nextOffset = (page['next_offset'] as num?)?.toInt() ?? _nextOffset;
+        _hasMore = page['has_more'] == true;
+        _loadingMore = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('بارگذاری ادامه گردش حساب ناموفق بود: $error')),
       );
     }
   }
@@ -188,6 +234,23 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+              if (_hasMore || _loadingMore)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: OutlinedButton.icon(
+                      onPressed: _loadingMore ? null : _loadMore,
+                      icon: _loadingMore
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.expand_more),
+                      label: Text(_loadingMore ? 'در حال بارگذاری...' : 'نمایش گردش‌های بعدی'),
                     ),
                   ),
                 ),
