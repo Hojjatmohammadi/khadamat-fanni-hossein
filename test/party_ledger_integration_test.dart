@@ -193,6 +193,14 @@ void main() {
       idempotencyKey: 'ledger-page-sale-2',
       lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 2000)],
     ));
+    // This later posting must not change the closing balance for Nov 11-12.
+    await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-13',
+      counterpartyName: 'مشتری صفحه‌بندی',
+      counterpartyId: customerId,
+      idempotencyKey: 'ledger-page-sale-after-range',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 9000)],
+    ));
 
     final first = await parties.getPartyStatementPage(
       customerId,
