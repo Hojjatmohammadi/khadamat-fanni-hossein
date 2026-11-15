@@ -230,10 +230,21 @@ class BackupService {
     );
     var hadOriginal = false;
 
-    // Keep a separately listed, validated emergency copy before replacing the
-    // live database. The rollback file below protects the swap itself; this
-    // backup remains available to the user after a successful restore.
-    await createBackup(emergency: true);
+    // Stage the selected backup before creating the emergency copy. Retention
+    // may remove the oldest item from the backup folder; staging first ensures
+    // it cannot delete the very file the user selected for restoration.
+    try {
+      await selected.copy(staged.path);
+      await _validateBackupFile(staged);
+
+      // Keep a separately listed, validated emergency copy before replacing
+      // the live database. The rollback file below protects the swap itself;
+      // this backup remains available after a successful restore.
+      await createBackup(emergency: true);
+    } catch (_) {
+      if (await staged.exists()) await staged.delete();
+      rethrow;
+    }
 
     final activeDb = await _appDatabase.database;
     final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
@@ -255,7 +266,6 @@ class BackupService {
         hadOriginal = true;
       }
 
-      await selected.copy(staged.path);
       final stagedHandle = await staged.open(mode: FileMode.append);
       try {
         await stagedHandle.flush();
