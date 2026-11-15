@@ -32,6 +32,9 @@ void main() {
     expect(value['ownerName'], 'حجت محمدی');
     expect(value['stampImageBase64'], '');
     expect(value['signatureImageBase64'], '');
+    expect(value['currency'], 'تومان');
+    expect(value['vatPercent'], '0');
+    expect(value['defaultDiscount'], '0');
   });
 
   test('persists shop details, stamp and signature locally', () async {
@@ -48,6 +51,23 @@ void main() {
 
     await settings.saveSettings(value);
     expect(await settings.getSettings(), value);
+  });
+
+
+  test('persists financial preferences with shop settings', () async {
+    final value = await settings.getSettings();
+    value.addAll({
+      'currency': 'ریال',
+      'vatPercent': '10',
+      'defaultDiscount': '5',
+      'invoicePrefix': 'HOS-',
+    });
+    await settings.saveSettings(value);
+    final saved = await settings.getSettings();
+    expect(saved['currency'], 'ریال');
+    expect(saved['vatPercent'], '10');
+    expect(saved['defaultDiscount'], '5');
+    expect(saved['invoicePrefix'], 'HOS-');
   });
 
   test('requires shop and owner names', () async {
