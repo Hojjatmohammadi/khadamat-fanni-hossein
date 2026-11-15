@@ -21,7 +21,9 @@ class LocalizedNumber {
         .replaceAll('٬', '')
         .replaceAll('٫', '.')
         .replaceAll('،', '')
-        .replaceAll(RegExp(r'[\\s\\u00A0\\u202F]'), '');
+        .replaceAll(' ', '')
+        .replaceAll('\u00A0', '')
+        .replaceAll('\u202F', '');
   }
 
   static int? tryParseInt(String value) =>
