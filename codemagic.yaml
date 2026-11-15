@@ -37,7 +37,7 @@ workflows:
               raise SystemExit("Android app Gradle file was not generated")
           
           content = gradle.read_text(encoding="utf-8")
-          pattern = re.compile(r"(?m)^([ \\t]*compileSdk(?:Version)?[ \\t]*(?:=[ \\t]*)?)(?:flutter\\.compileSdkVersion|\\d+)([ \\t]*(?:#.*)?$)")
+          pattern = re.compile(r'(?m)^([ \t]*compileSdk(?:Version)?[ \t]*(?:=[ \t]*)?)(?:flutter[.]compileSdkVersion|[0-9]+)([ \t]*(?:#.*)?$)')
           content, count = pattern.subn(lambda match: match.group(1) + "36" + match.group(2), content, count=1)
           if count != 1:
               raise SystemExit("Could not safely set Android compileSdk to 36")
