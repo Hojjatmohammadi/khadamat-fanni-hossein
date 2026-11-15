@@ -82,6 +82,72 @@ void main() {
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
   });
+
+  testWidgets('every home card opens its mapped section', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.pumpAndSettle();
+
+    const destinations = <String, String>{
+      'خرید': 'خرید و برگشت',
+      'فروش': 'فروش و فاکتور',
+      'انبار': 'انبار کالا',
+      'پشتیبان‌گیری': 'پشتیبان‌گیری و بازیابی',
+      'فاکتور': 'فروش و فاکتور',
+      'پذیرش دستگاه': 'تعمیرات',
+      'صورت‌حساب اشخاص': 'دفتر گردش اشخاص',
+      'تماس / ارسال پیامک': 'مشتریان',
+    };
+
+    for (final entry in destinations.entries) {
+      await tester.tap(find.text(entry.key));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text(entry.value), findsWidgets,
+          reason: 'Home card "${entry.key}" must open "${entry.value}"');
+
+      await tester.tap(find.byTooltip('باز کردن فهرست'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      await tester.pumpAndSettle();
+      expect(find.text('خدمات فنی حسین'), findsWidgets);
+    }
+  });
+
+  testWidgets('every other-operations action opens its destination',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.pumpAndSettle();
+
+    const destinations = <String, String>{
+      'مدیریت چک‌ها': 'مدیریت چک‌ها',
+      'گزارش‌ها': 'گزارش‌ها',
+      'دفتر روزنامه و هزینه‌ها': 'دفتر روزنامه و هزینه‌ها',
+    };
+
+    for (final entry in destinations.entries) {
+      await tester.tap(find.text('عملیات‌های دیگر'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(entry.key));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text(entry.value), findsWidgets,
+          reason: 'Other operation "${entry.key}" did not open');
+
+      await tester.tap(find.byTooltip('باز کردن فهرست'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      await tester.pumpAndSettle();
+    }
+  });
+
   test('simple category search filters only matching records', () {
     final records = [
       {'نام مشتری': 'احمد', 'شماره تماس': '09120000000'},
