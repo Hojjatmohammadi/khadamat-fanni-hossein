@@ -83,6 +83,10 @@ void main() {
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
   });
   testWidgets('simple category pages filter only their own records', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MaterialApp(
       home: SimpleListPage(
         title: 'مشتری',
@@ -98,7 +102,7 @@ void main() {
 
     expect(find.text('احمد'), findsOneWidget);
     expect(find.text('رضا'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), 'احمد');
+    await tester.enterText(find.byType(TextField), '09120000000');
     await tester.pumpAndSettle();
     expect(find.text('احمد'), findsOneWidget);
     expect(find.text('رضا'), findsNothing);
