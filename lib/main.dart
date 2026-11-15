@@ -3307,19 +3307,21 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     if (!await _confirmLogoRequirements() || !mounted) return;
     setState(() => _pickingLogo = true);
     try {
+      // PNG is accepted and kept as PNG so transparent backgrounds remain intact.
+      // JPG/JPEG inputs are resized and recompressed as JPEG to reduce storage.
       final picked = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 75,
         maxWidth: 1200,
         maxHeight: 1200,
       );
       if (picked == null) return;
+      final isPng = picked.path.toLowerCase().endsWith('.png');
       final bytes = await FlutterImageCompress.compressWithFile(
         picked.path,
         minWidth: 512,
         minHeight: 512,
         quality: 65,
-        format: CompressFormat.jpeg,
+        format: isPng ? CompressFormat.png : CompressFormat.jpeg,
       );
       if (bytes == null || bytes.isEmpty) {
         throw StateError('فشرده‌سازی لوگو انجام نشد');
@@ -3440,6 +3442,17 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                               label: const Text('حذف لوگوی اختصاصی'),
                             ),
                         ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'محل ذخیره‌سازی: فقط روی همین گوشی ذخیره می‌شود و به گوشی‌های دیگر منتقل نمی‌شود.\\n'
+                        'محل نمایش: در سربرگ برنامه و کنار نام فروشگاه.\\n'
+                        'فرمت مجاز: JPG، JPEG و PNG\\n'
+                        'ابعاد پیشنهادی: ۵۱۲ × ۵۱۲ پیکسل (مربع)\\n'
+                        'حداکثر حجم فایل: ۱ مگابایت\\n'
+                        'پیشنهاد: لوگو با پس‌زمینه شفاف در قالب PNG یا با پس‌زمینه سفید در قالب JPG.\\n'
+                        'نکته: تصویر بهتر است وسط‌چین، واضح و بدون نوشته‌های ریز باشد.',
+                        textAlign: TextAlign.right,
                       ),
                       const Divider(height: 28),
                       Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium),
