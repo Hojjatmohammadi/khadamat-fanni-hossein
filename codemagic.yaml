@@ -10,6 +10,20 @@ workflows:
           if [ ! -d android ]; then
             flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
+      - name: Configure app label and notification permission
+        script: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+          if "android.permission.POST_NOTIFICATIONS" not in content:
+              content = content.replace("<application", permission + "\\n\\n    <application", 1)
+          content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
+          manifest.write_text(content, encoding="utf-8")
+          PY
       - name: Get packages
         script: flutter pub get
       - name: Build ABI-specific optimized release APKs
