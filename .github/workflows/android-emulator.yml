@@ -2,10 +2,11 @@ name: Android emulator smoke tests
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/dashboard-layout-phase2
   pull_request:
+
+concurrency:
+  group: android-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
