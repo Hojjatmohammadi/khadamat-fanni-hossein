@@ -548,7 +548,7 @@ class _HomePageState extends State<HomePage> {
                             key: const ValueKey('drawer-settings-button'),
                             tooltip: 'تنظیمات برنامه',
                             onPressed: () {
-                              Navigator.pop(context);
+                              scaffoldKey.currentState?.closeDrawer();
                               Navigator.of(context).push(MaterialPageRoute<void>(
                                 builder: (_) => const AppSettingsPage(),
                               ));
