@@ -190,8 +190,10 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                     DropdownMenuItem(
                       value: item['id'] as String,
                       child: Text(
-                        '${item['display_name']}'
-                            '${(item['phone']?.toString().trim().isNotEmpty ?? false) ? ' • ${item['phone']}' : ''}'
+                        (item['display_name']?.toString() ?? '') +
+                            ((item['phone']?.toString().trim().isNotEmpty ?? false)
+                                ? ' • ${item['phone']}'
+                                : '') +
                             ' — ${_partyTypeLabel(item['party_type'])}',
                         overflow: TextOverflow.ellipsis,
                       ),
