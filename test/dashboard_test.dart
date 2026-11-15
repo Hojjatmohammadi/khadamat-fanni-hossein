@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
 
 void main() {
-  testWidgets('dashboard keeps quick actions inside a safe scrolling area',
+  testWidgets('home screen shows only the requested category cards',
       (tester) async {
     final selectedTabs = <int>[];
 
@@ -17,24 +17,32 @@ void main() {
     );
 
     expect(find.byType(SafeArea), findsOneWidget);
-    expect(find.byType(ListView), findsOneWidget);
+    expect(find.byType(GridView), findsOneWidget);
+    expect(find.text('دسترسی سریع'), findsNothing);
+    expect(find.text('کالاهای ثبت‌شده'), findsNothing);
+    expect(find.text('مشتریان'), findsNothing);
+    expect(find.text('پذیرش دستگاه'), findsOneWidget);
+    expect(find.text('خرید'), findsOneWidget);
+    expect(find.text('فروش'), findsOneWidget);
+    expect(find.text('انبار'), findsOneWidget);
+    expect(find.text('پشتیبان‌گیری'), findsOneWidget);
+    expect(find.text('فاکتور'), findsOneWidget);
+    expect(find.text('صورت‌حساب اشخاص'), findsOneWidget);
+    expect(find.text('تماس / ارسال پیامک'), findsOneWidget);
 
-    // The quick actions intentionally live below the summary cards and may
-    // be lazily built only after scrolling on smaller test viewports.
-    await tester.drag(find.byType(ListView), const Offset(0, -700));
-    await tester.pumpAndSettle();
-
-    expect(find.text('دسترسی سریع'), findsOneWidget);
-    expect(find.text('خدمات فنی حسین'), findsNothing);
-    expect(find.text('ثبت کالا'), findsOneWidget);
-    expect(find.text('ثبت مشتری'), findsOneWidget);
-
-    await tester.ensureVisible(find.text('ثبت کالا'));
-    await tester.tap(find.text('ثبت کالا'));
+    await tester.ensureVisible(find.text('انبار'));
+    await tester.tap(find.text('انبار'));
     expect(selectedTabs, contains(1));
+
+    await tester.ensureVisible(find.text('عملیات‌های دیگر'));
+    await tester.tap(find.text('عملیات‌های دیگر'));
+    await tester.pumpAndSettle();
+    expect(find.text('مدیریت چک‌ها'), findsOneWidget);
+    expect(find.text('گزارش‌ها'), findsOneWidget);
+    expect(find.text('دفتر روزنامه و هزینه‌ها'), findsOneWidget);
   });
 
-  testWidgets('home app bar shows shop branding instead of dashboard title and exposes search and add',
+  testWidgets('home app bar shows shop branding and exposes search and add',
       (tester) async {
     await tester.pumpWidget(const HoseinApp());
 
@@ -54,16 +62,5 @@ void main() {
     );
     expect(find.byTooltip('جست‌وجوی سراسری'), findsOneWidget);
     expect(find.byTooltip('افزودن مورد جدید'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('جست‌وجوی سراسری'));
-    await tester.pumpAndSettle();
-    expect(find.text('جست‌وجوی سراسری'), findsOneWidget);
-    expect(
-      find.text('برای جست‌وجو، عبارت موردنظر را وارد کنید.'),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('بستن'));
-    await tester.pumpAndSettle();
   });
-
 }
