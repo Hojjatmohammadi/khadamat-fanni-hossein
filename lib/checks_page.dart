@@ -452,7 +452,10 @@ class _CheckPageState extends State<CheckPage> {
                     DropdownMenuItem(
                       value: party['id'] as String,
                       child: Text(
-                        party['display_name']?.toString() ?? '',
+                        (party['display_name']?.toString() ?? '') +
+                            ((party['phone']?.toString().trim().isNotEmpty ?? false)
+                                ? ' • ${party['phone']}'
+                                : ''),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
