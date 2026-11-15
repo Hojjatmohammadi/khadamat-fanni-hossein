@@ -1,0 +1,170 @@
+name: Build Android APK
+# The generated Android project is upgraded to compileSdk 36 before release builds.
+
+on:
+  push:
+    branches:
+      - phase2/database-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+          fi
+
+      - name: Remove untracked Flutter scaffolding
+        run: |
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
+
+      - name: Configure app label and notification permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+          if "android.permission.POST_NOTIFICATIONS" not in content:
+              content = content.replace("<application", permission + "\n\n    <application", 1)
+          content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
+          manifest.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Set Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+          
+          content = gradle.read_text(encoding="utf-8")
+          pattern = re.compile(r'(?m)^([ \t]*compileSdk(?:Version)?[ \t]*(?:=[ \t]*)?)(?:flutter[.]compileSdkVersion|[0-9]+)([ \t]*(?:#.*)?$)')
+          content, count = pattern.subn(lambda match: match.group(1) + "36" + match.group(2), content, count=1)
+          if count != 1:
+              raise SystemExit("Could not safely set Android compileSdk to 36")
+          gradle.write_text(content, encoding="utf-8")
+          print(f"Configured compileSdk 36 in {gradle}")
+          PY
+
+      - name: Install Android SDK platform 36
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+            for candidate in "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$SDK_ROOT/tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
+            done
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Android sdkmanager was not found"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "platforms;android-36"
+
+      - name: Enable Android core library desugaring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+
+          content = gradle.read_text(encoding="utf-8")
+          is_kotlin = gradle.suffix == ".kts"
+          enabled = "isCoreLibraryDesugaringEnabled = true" if is_kotlin else "coreLibraryDesugaringEnabled true"
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kotlin else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+
+          if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
+              content, count = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enabled, content, count=1)
+              if count != 1:
+                  raise SystemExit("Could not find Android compileOptions block")
+
+          if "desugar_jdk_libs" not in content:
+              if re.search(r"dependencies\s*\{", content):
+                  content = re.sub(r"(dependencies\s*\{)", r"\1\n    " + dependency, content, count=1)
+              else:
+                  content += "\n\ndependencies {\n    " + dependency + "\n}\n"
+
+          gradle.write_text(content, encoding="utf-8")
+          print(f"Enabled core library desugaring in {gradle}")
+          PY
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Align file_picker Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(Path.home().joinpath(".pub-cache/hosted/pub.dev").glob("file_picker-*/android/build.gradle*"))
+          if not packages:
+              raise SystemExit("Could not locate the resolved file_picker Android Gradle file")
+          updated = []
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content, count = re.subn(
+                  r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)34(\s*(?://.*)?$)",
+                  lambda match: match.group(1) + "36" + match.group(2),
+                  content,
+                  count=1,
+              )
+              if count:
+                  gradle.write_text(content, encoding="utf-8")
+                  updated.append(str(gradle))
+          if not updated:
+              raise SystemExit("file_picker compileSdk was not the expected API 34; refusing an unsafe patch")
+          print("Updated file_picker Android compile SDK to 36: " + ", ".join(updated))
+          PY
+
+      - name: Analyze source
+        run: flutter analyze --no-pub
+
+      - name: Run automated tests
+        run: flutter test --no-pub
+
+      - name: Build optimized release APKs
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
+
+      - name: Upload installable APKs and symbol files
+        uses: actions/upload-artifact@v4
+        with:
+          name: khadamat-fanni-hossein-android-release
+          path: |
+            build/app/outputs/flutter-apk/*-release.apk
+            build/symbols/**
+          if-no-files-found: error
+          retention-days: 14
