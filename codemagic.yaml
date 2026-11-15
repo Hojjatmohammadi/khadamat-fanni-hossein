@@ -20,7 +20,7 @@ workflows:
           content = manifest.read_text(encoding="utf-8")
           permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
           if "android.permission.POST_NOTIFICATIONS" not in content:
-              content = content.replace("<application", permission + "\\n\\n    <application", 1)
+              content = content.replace("<application", permission + "\n\n    <application", 1)
           content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
           manifest.write_text(content, encoding="utf-8")
           PY
