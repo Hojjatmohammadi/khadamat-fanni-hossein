@@ -6,6 +6,10 @@ void main() {
   testWidgets('home screen shows only the requested category cards',
       (tester) async {
     final selectedTabs = <int>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
       MaterialApp(
