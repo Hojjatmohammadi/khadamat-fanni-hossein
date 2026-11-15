@@ -246,15 +246,20 @@ class BackupService {
       rethrow;
     }
 
-    final activeDb = await _appDatabase.database;
-    final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
-    if (checkpoint.isNotEmpty) {
-      final busy = checkpoint.first['busy'];
-      if (busy is num && busy != 0) {
-        throw StateError(
-          'پایگاه داده در حال استفاده است؛ بازیابی انجام نشد. دوباره تلاش کنید.',
-        );
+    try {
+      final activeDb = await _appDatabase.database;
+      final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      if (checkpoint.isNotEmpty) {
+        final busy = checkpoint.first['busy'];
+        if (busy is num && busy != 0) {
+          throw StateError(
+            'پایگاه داده در حال استفاده است؛ بازیابی انجام نشد. دوباره تلاش کنید.',
+          );
+        }
       }
+    } catch (_) {
+      if (await staged.exists()) await staged.delete();
+      rethrow;
     }
 
     await _appDatabase.close();
