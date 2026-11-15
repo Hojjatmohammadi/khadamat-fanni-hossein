@@ -227,7 +227,21 @@ class PartyRepository {
     ''', [partyId]);
     final totalDebit = (totals.single['total_debit'] as num).toInt();
     final totalCredit = (totals.single['total_credit'] as num).toInt();
-    final rawClosing = totalDebit - totalCredit;
+
+    // The closing balance represents the balance at the end of the selected
+    // period, not the party's current balance when later entries exist.
+    final closingArgs = <Object?>[partyId];
+    final closingDateFilter = toExclusive == null ? '' : 'AND e.entry_date < ?';
+    if (toExclusive != null) {
+      closingArgs.add(toExclusive.toIso8601String().substring(0, 10));
+    }
+    final closingRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(l.debit - l.credit), 0) AS balance
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.journal_entry_id
+      WHERE l.party_id = ? $closingDateFilter
+    ''', closingArgs);
+    final rawClosing = (closingRows.single['balance'] as num).toInt();
     final closingBalance = isSupplier ? -rawClosing : rawClosing;
 
     var openingRaw = 0;
