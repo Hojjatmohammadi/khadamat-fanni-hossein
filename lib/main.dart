@@ -47,13 +47,159 @@ class HoseinApp extends StatelessWidget {
         title: 'خدمات فنی حسین',
         theme: ThemeData(
           useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: yellow, brightness: Brightness.light),
-          scaffoldBackgroundColor: const Color(0xFFF7F7F7),
-          appBarTheme: const AppBarTheme(backgroundColor: black, foregroundColor: yellow),
-          inputDecorationTheme: const InputDecorationTheme(
-            border: OutlineInputBorder(),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: yellow,
+            brightness: Brightness.light,
+          ).copyWith(
+            primary: black,
+            onPrimary: yellow,
+            secondary: yellow,
+            onSecondary: black,
+            tertiary: const Color(0xFFB58B00),
+            surface: Colors.white,
+          ),
+          scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+          canvasColor: Colors.white,
+          cardColor: Colors.white,
+          dividerColor: const Color(0xFFE5E1D5),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: black,
+            foregroundColor: yellow,
+            surfaceTintColor: Colors.transparent,
+            elevation: 1,
+            centerTitle: false,
+            iconTheme: IconThemeData(color: yellow),
+            actionsIconTheme: IconThemeData(color: yellow),
+          ),
+          drawerTheme: const DrawerThemeData(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            width: 304,
+          ),
+          listTileTheme: const ListTileThemeData(
+            iconColor: black,
+            textColor: black,
+            selectedColor: black,
+            selectedTileColor: Color(0xFFFFF4BF),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFD6D1C5)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFD6D1C5)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: yellow, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFB3261E)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFB3261E), width: 2),
+            ),
             filled: true,
             fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: black,
+              foregroundColor: yellow,
+              disabledBackgroundColor: const Color(0xFFE0E0E0),
+              disabledForegroundColor: const Color(0xFF777777),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: yellow,
+              foregroundColor: black,
+              disabledBackgroundColor: const Color(0xFFE0E0E0),
+              disabledForegroundColor: const Color(0xFF777777),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: black,
+              side: const BorderSide(color: black, width: 1.2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          checkboxTheme: CheckboxThemeData(
+            fillColor: WidgetStateProperty.resolveWith((states) =>
+                states.contains(WidgetState.selected) ? yellow : Colors.white),
+            checkColor: WidgetStateProperty.all(black),
+            side: const BorderSide(color: black),
+          ),
+          radioTheme: RadioThemeData(
+            fillColor: WidgetStateProperty.resolveWith((states) =>
+                states.contains(WidgetState.selected) ? black : Colors.grey),
+          ),
+          switchTheme: SwitchThemeData(
+            thumbColor: WidgetStateProperty.resolveWith((states) =>
+                states.contains(WidgetState.selected) ? black : Colors.white),
+            trackColor: WidgetStateProperty.resolveWith((states) =>
+                states.contains(WidgetState.selected) ? yellow : Colors.grey.shade300),
+          ),
+          progressIndicatorTheme: const ProgressIndicatorThemeData(
+            color: Color(0xFFB58B00),
+          ),
+          snackBarTheme: SnackBarThemeData(
+            backgroundColor: black,
+            contentTextStyle: const TextStyle(color: Colors.white),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          dialogTheme: DialogThemeData(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            titleTextStyle: const TextStyle(
+              color: black,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          popupMenuTheme: PopupMenuThemeData(
+            color: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         home: const HomePage(),
