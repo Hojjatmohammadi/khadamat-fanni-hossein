@@ -17,6 +17,13 @@ void main() {
     );
 
     expect(find.byType(SafeArea), findsOneWidget);
+    expect(find.byType(ListView), findsOneWidget);
+
+    // The quick actions intentionally live below the summary cards and may
+    // be lazily built only after scrolling on smaller test viewports.
+    await tester.drag(find.byType(ListView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+
     expect(find.text('دسترسی سریع'), findsOneWidget);
     expect(find.text('ثبت کالا'), findsOneWidget);
     expect(find.text('ثبت مشتری'), findsOneWidget);
