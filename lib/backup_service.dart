@@ -80,7 +80,10 @@ class BackupService {
   }
 
   /// Makes a consistent on-disk copy after checking that SQLite can checkpoint.
-  Future<File> createBackup({bool daily = false}) async {
+  Future<File> createBackup({bool daily = false, bool emergency = false}) async {
+    if (daily && emergency) {
+      throw ArgumentError('پشتیبان روزانه و اضطراری نمی‌توانند هم‌زمان انتخاب شوند.');
+    }
     final db = await _appDatabase.database;
     final checkpoint = await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
     if (checkpoint.isNotEmpty) {
@@ -105,8 +108,11 @@ class BackupService {
       final now = _clock();
       final fileName = daily
           ? 'khadamat-backup-daily-${_dateStamp(now)}.db'
-          : 'khadamat-backup-${_dateStamp(now)}-${_timeStamp(now)}-'
-              '${now.microsecondsSinceEpoch % 1000000}.db';
+          : emergency
+              ? 'khadamat-backup-emergency-${_dateStamp(now)}-${_timeStamp(now)}-'
+                  '${now.microsecondsSinceEpoch % 1000000}.db'
+              : 'khadamat-backup-${_dateStamp(now)}-${_timeStamp(now)}-'
+                  '${now.microsecondsSinceEpoch % 1000000}.db';
       destination = File(p.join(directory.path, fileName));
 
       await source.copy(destination.path);
@@ -223,6 +229,11 @@ class BackupService {
       '$targetPath.restore-${_clock().microsecondsSinceEpoch}',
     );
     var hadOriginal = false;
+
+    // Keep a separately listed, validated emergency copy before replacing the
+    // live database. The rollback file below protects the swap itself; this
+    // backup remains available to the user after a successful restore.
+    await createBackup(emergency: true);
 
     final activeDb = await _appDatabase.database;
     final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
