@@ -346,6 +346,8 @@ class BackupService {
         required.addAll(['parties', 'check_records', 'check_events']);
       }
       if (version >= 7) required.add('bank_reconciliations');
+      if (version >= 11) required.add('invoice_archives');
+      if (version >= 12) required.add('invoice_settings');
 
       final missing = required.difference(tables);
       if (missing.isNotEmpty) {
