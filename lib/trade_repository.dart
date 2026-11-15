@@ -159,7 +159,10 @@ class TradeRepository {
 
   static const Set<String> _cashAccounts = {'1000', '1010'};
 
-  Future<int> recordPurchase(TradeDocumentDraft draft) async {
+  Future<int> recordPurchase(
+    TradeDocumentDraft draft, {
+    String? documentPrefix,
+  }) async {
     _validateTradeDraft(draft, type: 'purchase');
     final payload = jsonEncode(draft.toPayload('purchase'));
     final db = await _database.database;
@@ -241,7 +244,9 @@ class TradeRepository {
         txn,
         type: 'purchase',
         date: draft.documentDate,
-        prefix: 'PUR',
+        prefix: documentPrefix?.trim().isNotEmpty == true
+            ? documentPrefix!.trim()
+            : 'PUR',
         counterpartyName: draft.counterpartyName,
         counterpartyId: draft.counterpartyId,
         subtotal: subtotal,
@@ -290,6 +295,7 @@ class TradeRepository {
   Future<int> recordSale(
     TradeDocumentDraft draft, {
     Map<String, Object?>? invoiceHeaderSnapshot,
+    String? documentPrefix,
   }) async {
     _validateTradeDraft(draft, type: 'sale');
     if (draft.shippingCost != 0 ||
@@ -360,7 +366,9 @@ class TradeRepository {
         txn,
         type: 'sale',
         date: draft.documentDate,
-        prefix: 'SAL',
+        prefix: documentPrefix?.trim().isNotEmpty == true
+            ? documentPrefix!.trim()
+            : 'SAL',
         counterpartyName: draft.counterpartyName,
         counterpartyId: draft.counterpartyId,
         subtotal: subtotal,
