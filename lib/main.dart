@@ -2153,6 +2153,7 @@ class TradeEntryPage extends StatefulWidget {
 
 class _TradeEntryPageState extends State<TradeEntryPage> {
   final _partyController = TextEditingController();
+  final _documentSearchController = TextEditingController();
   DateTime _documentDate = DateTime.now();
   final _quantityController = TextEditingController(text: '1');
   final _priceController = TextEditingController();
@@ -2187,6 +2188,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   @override
   void dispose() {
     _partyController.dispose();
+    _documentSearchController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
     _discountController.dispose();
@@ -2905,6 +2907,11 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final documentQuery = ProductDuplicateChecker.normalize(_documentSearchController.text);
+    final visibleDocuments = _documents.where((document) {
+      if (documentQuery.isEmpty) return true;
+      return document.entries.any((entry) => ProductDuplicateChecker.normalize('${entry.key} ${entry.value}').contains(documentQuery));
+    }).toList();
     final products = DemoStore.products
         .where((item) => int.tryParse(item['__database_id'] ?? '') != null)
         .toList();
@@ -3134,12 +3141,28 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             _isPurchase ? 'فاکتورهای خرید ثبت‌شده' : 'فاکتورهای فروش ثبت‌شده',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
-          if (_documents.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Center(child: Text('هنوز فاکتوری ثبت نشده است')),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: TextField(
+              controller: _documentSearchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: _isPurchase ? 'جست‌وجو در فاکتورهای خرید' : 'جست‌وجو در فاکتورهای فروش',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _documentSearchController.text.isEmpty ? null : IconButton(
+                  tooltip: 'پاک کردن جست‌وجو',
+                  onPressed: () { _documentSearchController.clear(); setState(() {}); },
+                  icon: const Icon(Icons.close),
+                ),
+              ),
             ),
-          for (final document in _documents)
+          ),
+          if (visibleDocuments.isEmpty)
+            Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: Text(_documents.isEmpty ? 'هنوز فاکتوری ثبت نشده است' : 'نتیجه‌ای در این بخش پیدا نشد')),
+            ),
+          for (final document in visibleDocuments)
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
