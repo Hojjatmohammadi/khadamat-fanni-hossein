@@ -3268,8 +3268,43 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     }
   }
 
+  Future<bool> _confirmLogoRequirements() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('راهنمای انتخاب لوگو'),
+          content: const SingleChildScrollView(
+            child: Text(
+              'محل ذخیره‌سازی: فقط روی همین گوشی ذخیره می‌شود و به گوشی‌های دیگر منتقل نمی‌شود.\n\n'
+              'محل نمایش: در سربرگ برنامه و کنار نام فروشگاه.\n\n'
+              'فرمت مجاز: JPG، JPEG و PNG\n\n'
+              'ابعاد پیشنهادی: ۵۱۲ × ۵۱۲ پیکسل (مربع)\n\n'
+              'حداکثر حجم فایل: ۱ مگابایت\n\n'
+              'پیشنهاد: لوگو با پس‌زمینه شفاف در قالب PNG یا با پس‌زمینه سفید در قالب JPG.\n\n'
+              'نکته: تصویر بهتر است وسط‌چین، واضح و بدون نوشته‌های ریز باشد.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('متوجه شدم، ادامه'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _pickLogo() async {
     if (_pickingLogo) return;
+    if (!await _confirmLogoRequirements() || !mounted) return;
     setState(() => _pickingLogo = true);
     try {
       final picked = await _picker.pickImage(
@@ -3289,10 +3324,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       if (bytes == null || bytes.isEmpty) {
         throw StateError('فشرده‌سازی لوگو انجام نشد');
       }
-      final encoded = base64Encode(bytes);
-      if (encoded.length > 1500000) {
-        throw ArgumentError('حجم لوگو زیاد است؛ تصویر کوچک‌تری انتخاب کنید');
+      if (bytes.length > 1024 * 1024) {
+        throw ArgumentError('حجم لوگو پس از فشرده‌سازی باید حداکثر ۱ مگابایت باشد');
       }
+      final encoded = base64Encode(bytes);
       if (mounted) setState(() => _logoBase64 = encoded);
     } catch (error) {
       if (mounted) {
@@ -3406,8 +3441,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      const Text('لوگو فقط روی همین گوشی ذخیره می‌شود و در سربرگ برنامه نمایش داده می‌شود.'),
                       const Divider(height: 28),
                       Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 12),
