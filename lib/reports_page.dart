@@ -30,6 +30,13 @@ class _ReportsPageState extends State<ReportsPage> {
   String _report = 'documents';
   bool _loading = false;
   List<Map<String, Object?>> _rows = [];
+  final _reportSearchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _reportSearchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -285,8 +292,10 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _reportSearchController.text.trim().toLowerCase();
+    final visibleRows = _rows.where((row) => query.isEmpty || row.values.any((value) => value?.toString().toLowerCase().contains(query) ?? false)).toList();
     final total = switch (_report) {
-      'stock' => _rows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
+      'stock' => visibleRows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
       'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
       'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
       'expenses' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
@@ -322,6 +331,20 @@ class _ReportsPageState extends State<ReportsPage> {
             DropdownMenuItem(value: 'repair_income', child: Text('درآمد خدمات تعمیر')),
           ],
           onChanged: (value) { if (value != null) setState(() { _report = value; }); _load(); },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _reportSearchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: 'جست‌وجو در همین گزارش',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _reportSearchController.text.isEmpty ? null : IconButton(
+              tooltip: 'پاک کردن جست‌وجو',
+              onPressed: () { _reportSearchController.clear(); setState(() {}); },
+              icon: const Icon(Icons.close),
+            ),
+          ),
         ),
         if (_report == 'documents') ...[
           const SizedBox(height: 8),
@@ -379,7 +402,7 @@ class _ReportsPageState extends State<ReportsPage> {
         if (!_loading && _rows.isEmpty)
           const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('در این بازه اطلاعاتی ثبت نشده است'))),
         if (_report == 'documents')
-          for (final row in _rows)
+          for (final row in visibleRows)
             Card(child: ListTile(
               title: Text('${_typeName(row['document_type'])} — ${row['document_number']}'),
               subtitle: Text('${row['document_date']} • ${row['counterparty_name']}'),
