@@ -98,6 +98,32 @@ void main() {
     expect(rows.single['نام مشتری'], 'باقی بماند');
   });
 
+
+  test('rejects a current-version backup missing required invoice tables', () async {
+    await database.insert('customers', {'نام مشتری': 'اطلاعات باید حفظ شود'});
+    final backup = await service.createBackup();
+
+    final damaged = await databaseFactory.openDatabase(
+      backup.path,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onOpen: (db) async {
+          await db.execute('DROP TABLE invoice_settings');
+        },
+      ),
+    );
+    await damaged.close();
+
+    await expectLater(
+      service.restoreFromPath(backup.path),
+      throwsA(isA<FormatException>()),
+    );
+
+    final rows = await database.getAll('customers');
+    expect(rows, hasLength(1));
+    expect(rows.single['نام مشتری'], 'اطلاعات باید حفظ شود');
+  });
+
   test('prevents deleting files outside the app backup folder', () async {
     final outside = File('${root.path}/keep.db');
     await outside.writeAsString('keep');
