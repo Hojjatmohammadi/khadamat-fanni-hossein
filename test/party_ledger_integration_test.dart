@@ -30,6 +30,30 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+
+  test('rejects reusing a customer id as a supplier id', () async {
+    const sharedId = 'party-id-type-conflict';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری شناسه‌دار',
+      preferredId: sharedId,
+    ));
+
+    await expectLater(
+      parties.ensureParty(const PartyDraft(
+        partyType: 'supplier',
+        displayName: 'فروشنده با شناسه تکراری',
+        preferredId: sharedId,
+      )),
+      throwsA(isA<StateError>()),
+    );
+
+    final saved = await parties.getParties();
+    expect(saved, hasLength(1));
+    expect(saved.single['party_type'], 'customer');
+    expect(saved.single['display_name'], 'مشتری شناسه‌دار');
+  });
+
   test('linked customer receipts and returns inherit the invoice party in the ledger', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه دفتر مشتری',
