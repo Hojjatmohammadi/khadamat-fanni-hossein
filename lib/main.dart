@@ -343,115 +343,58 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  List<Map<String, Object>> _globalSearchEntries() {
-    final sources = <({int tab, String category, List<Map<String, String>> items, List<String> labels})>[
-      (tab: 1, category: 'کالا', items: DemoStore.products, labels: ['نام کالا', 'کد کالا']),
-      (tab: 3, category: 'مشتری', items: DemoStore.customers, labels: ['نام مشتری', 'نام', 'شماره تماس']),
-      (tab: 4, category: 'تعمیر', items: DemoStore.repairs, labels: ['نام مشتری', 'نام دستگاه', 'نوع دستگاه']),
-      (tab: 5, category: 'فاکتور فروش', items: DemoStore.sales, labels: ['شماره فاکتور', 'نام مشتری']),
-    ];
+  Future<List<Map<String, Object>>> _globalSearchEntries() async {
     final entries = <Map<String, Object>>[];
-    for (final source in sources) {
-      for (final item in source.items) {
-        final label = source.labels
-            .map((key) => item[key]?.trim() ?? '')
-            .firstWhere((value) => value.isNotEmpty, orElse: () => source.category);
-        final details = item.entries
-            .where((entry) => !entry.key.startsWith('__') && entry.value.trim().isNotEmpty)
-            .take(3)
-            .map((entry) => '${entry.key}: ${entry.value}')
-            .join(' • ');
-        entries.add({
-          'tab': source.tab,
-          'category': source.category,
-          'label': label,
-          'details': details,
-          'searchText': item.entries.map((entry) => entry.value).join(' ').toLowerCase(),
-        });
+    void addRows({required int tab, required String category, required Iterable<Map<String, Object?>> rows, required List<String> labels}) {
+      for (final row in rows) {
+        final values = row.entries.where((e) => !e.key.startsWith('__') && e.value != null).map((e) => '${e.key}: ${e.value}').toList();
+        final label = labels.map((key) => row[key]?.toString().trim() ?? '').firstWhere((v) => v.isNotEmpty, orElse: () => category);
+        entries.add({'tab': tab, 'category': category, 'label': label, 'details': values.take(3).join(' • '), 'searchText': row.values.where((v) => v != null).join(' ').toLowerCase()});
       }
+    }
+    addRows(tab: 1, category: 'کالا', rows: DemoStore.products, labels: const ['نام کالا', 'کد کالا']);
+    addRows(tab: 3, category: 'مشتری', rows: DemoStore.customers, labels: const ['نام مشتری', 'نام', 'شماره تماس']);
+    addRows(tab: 4, category: 'پذیرش تعمیر', rows: DemoStore.repairs, labels: const ['نام مشتری', 'نام دستگاه', 'نوع دستگاه']);
+    final docs = await DemoStore.trades.getDocuments();
+    for (final doc in docs) {
+      final type = doc['document_type']?.toString() ?? '';
+      final targetTab = (type == 'purchase' || type == 'supplier_return') ? 2 : 5;
+      final category = switch (type) {'purchase' => 'فاکتور خرید', 'sale' => 'فاکتور فروش', 'supplier_return' => 'برگشت از خرید', 'customer_return' => 'برگشت از فروش', _ => 'سند تجاری'};
+      final id = int.tryParse(doc['id']?.toString() ?? '');
+      final lines = id == null ? <Map<String, Object?>>[] : await DemoStore.trades.getDocumentLines(id);
+      final searchable = [...doc.values.map((v) => v?.toString() ?? ''), ...lines.expand((line) => line.values.map((v) => v?.toString() ?? ''))].join(' ').toLowerCase();
+      entries.add({'tab': targetTab, 'category': category, 'label': doc['document_number']?.toString() ?? category, 'details': '${doc['counterparty_name'] ?? ''} • ${doc['document_date'] ?? ''} • ${doc['total_amount'] ?? ''}', 'searchText': searchable});
+    }
+    addRows(tab: 6, category: 'طرف حساب', rows: await DemoStore.parties.getParties(), labels: const ['display_name', 'phone']);
+    addRows(tab: 7, category: 'چک', rows: await DemoStore.checks.getChecks(), labels: const ['check_number', 'bank_name', 'serial_number']);
+    for (final entry in await DemoStore.accounting.getJournalEntries()) {
+      final lines = entry['lines'] is List ? entry['lines'] as List : const [];
+      final searchable = [...entry.values.where((v) => v is! List).map((v) => v?.toString() ?? ''), ...lines.expand((line) => line is Map ? line.values.map((v) => v?.toString() ?? '') : const <String>[])].join(' ').toLowerCase();
+      entries.add({'tab': 9, 'category': 'سند حسابداری', 'label': entry['description']?.toString() ?? 'سند حسابداری', 'details': entry['entry_date']?.toString() ?? '', 'searchText': searchable});
     }
     return entries;
   }
 
   Future<void> _showGlobalSearch() async {
     final controller = TextEditingController();
-    final entries = _globalSearchEntries();
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: StatefulBuilder(
-          builder: (context, refreshDialog) {
-            final query = controller.text.trim().toLowerCase();
-            final results = query.isEmpty
-                ? <Map<String, Object>>[]
-                : entries
-                    .where((entry) => (entry['searchText']! as String).contains(query))
-                    .take(30)
-                    .toList();
-            return AlertDialog(
-              title: const Text('جست‌وجوی سراسری'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      autofocus: true,
-                      controller: controller,
-                      onChanged: (_) => refreshDialog(() {}),
-                      decoration: const InputDecoration(
-                        hintText: 'نام کالا، مشتری، شماره تماس یا فاکتور',
-                        prefixIcon: Icon(Icons.search),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 320),
-                      child: query.isEmpty
-                          ? const Center(
-                              child: Text('برای جست‌وجو، عبارت موردنظر را وارد کنید.'),
-                            )
-                          : results.isEmpty
-                              ? const Center(child: Text('نتیجه‌ای پیدا نشد.'))
-                              : ListView.builder(
-                                  shrinkWrap: true,
-                                  itemCount: results.length,
-                                  itemBuilder: (context, index) {
-                                    final result = results[index];
-                                    return ListTile(
-                                      dense: true,
-                                      title: Text(result['label']! as String),
-                                      subtitle: Text(
-                                        '${result['category']} • ${result['details']}',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      onTap: () {
-                                        Navigator.pop(dialogContext);
-                                        _selectTab(result['tab']! as int);
-                                      },
-                                    );
-                                  },
-                                ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('بستن'),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
+    List<Map<String, Object>> entries = [];
+    var loadError = false;
+    try { entries = await _globalSearchEntries(); } catch (_) { loadError = true; }
+    if (!mounted) { controller.dispose(); return; }
+    await showDialog<void>(context: context, builder: (dialogContext) => Directionality(textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (context, refresh) {
+      final query = controller.text.trim().toLowerCase();
+      final results = query.isEmpty ? <Map<String, Object>>[] : entries.where((e) => (e['searchText']! as String).contains(query)).take(50).toList();
+      return AlertDialog(title: const Text('جست‌وجوی سراسری'), content: SizedBox(width: 460, child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(autofocus: true, controller: controller, onChanged: (_) => refresh(() {}), decoration: const InputDecoration(hintText: 'کالا، خرید، فروش، اشخاص، چک و حسابداری', prefixIcon: Icon(Icons.search))),
+        const SizedBox(height: 8),
+        ConstrainedBox(constraints: const BoxConstraints(maxHeight: 360), child: loadError ? const Text('بارگذاری اطلاعات جست‌وجو ناموفق بود.') : query.isEmpty ? const Text('عبارت موردنظر را وارد کنید.') : results.isEmpty ? const Text('نتیجه‌ای پیدا نشد.') : ListView.builder(shrinkWrap: true, itemCount: results.length, itemBuilder: (context, index) {
+          final item = results[index];
+          return ListTile(dense: true, title: Text(item['label']! as String), subtitle: Text('${item['category']} • ${item['details']}', maxLines: 2, overflow: TextOverflow.ellipsis), onTap: () { Navigator.pop(dialogContext); _selectTab(item['tab']! as int); });
+        })),
+      ])), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('بستن'))]);
+    })));
     controller.dispose();
   }
-
   Future<void> _handleBack() async {
     if (scaffoldKey.currentState?.isDrawerOpen == true) {
       scaffoldKey.currentState?.closeDrawer();
@@ -605,24 +548,10 @@ class _HomePageState extends State<HomePage> {
                             key: const ValueKey('drawer-settings-button'),
                             tooltip: 'تنظیمات برنامه',
                             onPressed: () {
-                              showDialog<void>(
-                                context: context,
-                                builder: (dialogContext) => Directionality(
-                                  textDirection: TextDirection.rtl,
-                                  child: AlertDialog(
-                                    title: const Text('تنظیمات برنامه'),
-                                    content: const Text(
-                                      'صفحه تنظیمات کامل در مرحله بعدی تکمیل می‌شود.',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(dialogContext),
-                                        child: const Text('بستن'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
+                              Navigator.pop(context);
+                              Navigator.of(context).push(MaterialPageRoute<void>(
+                                builder: (_) => const AppSettingsPage(),
+                              ));
                             },
                             icon: const Icon(
                               Icons.settings_outlined,
@@ -3262,3 +3191,39 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   }
 }
 
+
+
+class AppSettingsPage extends StatefulWidget {
+  const AppSettingsPage({super.key});
+  @override State<AppSettingsPage> createState() => _AppSettingsPageState();
+}
+
+class _AppSettingsPageState extends State<AppSettingsPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _controllers = <String, TextEditingController>{for (final k in ['shopName','ownerName','phone','postalCode','address','vatPercent','defaultDiscount','invoicePrefix']) k: TextEditingController()};
+  String _currency = 'تومان'; bool _loading = true; bool _saving = false;
+  @override void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    try { final values = await DemoStore.invoiceSettings.getSettings(); for (final e in _controllers.entries) { e.value.text = values[e.key] ?? ''; } if (mounted) setState(() { _currency = values['currency'] ?? 'تومان'; _loading = false; }); }
+    catch (error) { if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خواندن تنظیمات ناموفق بود: $error'))); } }
+  }
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return; setState(() => _saving = true);
+    try { await DemoStore.invoiceSettings.saveSettings({for (final e in _controllers.entries) e.key: e.value.text, 'currency': _currency}); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تنظیمات ذخیره شد.'))); }
+    catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره ناموفق بود: $error'))); }
+    finally { if (mounted) setState(() => _saving = false); }
+  }
+  @override void dispose() { for (final c in _controllers.values) { c.dispose(); } super.dispose(); }
+  Widget _field(String key, String label, {TextInputType? type, int lines = 1}) => Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(controller: _controllers[key], keyboardType: type, maxLines: lines, decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()), validator: (v) {
+    if ((key == 'shopName' || key == 'ownerName') && (v == null || v.trim().isEmpty)) return 'این فیلد الزامی است';
+    if (key == 'vatPercent' || key == 'defaultDiscount') { final n = double.tryParse((v ?? '').trim()); if (n == null || n < 0 || n > 100) return 'عدد باید بین صفر تا ۱۰۰ باشد'; } return null;
+  }));
+  @override Widget build(BuildContext context) => Directionality(textDirection: TextDirection.rtl, child: Scaffold(appBar: AppBar(title: const Text('تنظیمات برنامه')), body: _loading ? const Center(child: CircularProgressIndicator()) : Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+    Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
+    _field('shopName','نام فروشگاه'), _field('ownerName','نام مسئول'), _field('phone','شماره تماس',type: TextInputType.phone), _field('postalCode','کد پستی'), _field('address','نشانی',lines: 2),
+    const Divider(height: 28), Text('تنظیمات مالی', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
+    DropdownButtonFormField<String>(value: _currency, decoration: const InputDecoration(labelText: 'واحد پول', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'تومان', child: Text('تومان')), DropdownMenuItem(value: 'ریال', child: Text('ریال'))], onChanged: (v) => setState(() => _currency = v ?? 'تومان')),
+    const SizedBox(height: 12), _field('vatPercent','درصد مالیات بر ارزش افزوده',type: const TextInputType.numberWithOptions(decimal: true)), _field('defaultDiscount','درصد تخفیف پیش‌فرض',type: const TextInputType.numberWithOptions(decimal: true)), _field('invoicePrefix','پیشوند شماره فاکتور'),
+    FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: const Text('ذخیره تنظیمات')),
+  ]))));
+}
