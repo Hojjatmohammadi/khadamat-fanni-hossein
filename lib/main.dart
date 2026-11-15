@@ -756,6 +756,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
 
   Future<void> addItem() async {
     final controllers = widget.fields.map((_) => TextEditingController()).toList();
+    String? selectedRepairCustomerPartyId;
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
     final saved = await showDialog<bool>(
       context: context,
@@ -775,19 +776,26 @@ class _SimpleListPageState extends State<SimpleListPage> {
                       decoration: const InputDecoration(
                         labelText: 'انتخاب مشتری ثبت‌شده',
                       ),
-                      items: DemoStore.customers
-                          .map((customer) => customer['نام مشتری']?.trim() ?? '')
-                          .where((name) => name.isNotEmpty)
-                          .toSet()
-                          .map((name) => DropdownMenuItem<String>(
-                                value: name,
-                                child: Text(name, overflow: TextOverflow.ellipsis),
-                              ))
-                          .toList(),
-                      onChanged: (name) {
-                        if (name != null) {
-                          controllers[0].text = name;
-                        }
+                      items: [
+                        for (final customer in DemoStore.customers)
+                          if ((customer['نام مشتری'] ?? '').trim().isNotEmpty &&
+                              (customer['__database_id'] ?? '').isNotEmpty)
+                            DropdownMenuItem<String>(
+                              value: 'customer:${customer['__database_id']}',
+                              child: Text(
+                                '${customer['نام مشتری']} • ${customer['شماره تماس'] ?? 'بدون شماره'}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                      ],
+                      onChanged: (partyId) {
+                        if (partyId == null) return;
+                        selectedRepairCustomerPartyId = partyId;
+                        final customerId = partyId.substring('customer:'.length);
+                        final customer = DemoStore.customers.firstWhere(
+                          (item) => item['__database_id'] == customerId,
+                        );
+                        controllers[0].text = customer['نام مشتری'] ?? '';
                       },
                     ),
                     const SizedBox(height: 10),
@@ -801,6 +809,20 @@ class _SimpleListPageState extends State<SimpleListPage> {
                         textInputAction: i == widget.fields.length - 1
                             ? TextInputAction.done
                             : TextInputAction.next,
+                        onChanged: i == 0 && widget.title == 'پذیرش تعمیر'
+                            ? (value) {
+                                final selectedId = selectedRepairCustomerPartyId;
+                                if (selectedId != null) {
+                                  final customerId = selectedId.substring('customer:'.length);
+                                  final selected = DemoStore.customers.firstWhere(
+                                    (item) => item['__database_id'] == customerId,
+                                  );
+                                  if (value.trim() != (selected['نام مشتری'] ?? '').trim()) {
+                                    selectedRepairCustomerPartyId = null;
+                                  }
+                                }
+                              }
+                            : null,
                         onSubmitted: (_) {
                           if (i < focusNodes.length - 1) {
                             FocusScope.of(dialogContext).requestFocus(focusNodes[i + 1]);
@@ -825,6 +847,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 }
                 if (item.values.any((value) => value.isNotEmpty)) {
                   final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
+                  if (category == 'repairs' && selectedRepairCustomerPartyId != null) {
+                    item['شناسه طرف حساب'] = selectedRepairCustomerPartyId!;
+                    item['شناسه مشتری'] = selectedRepairCustomerPartyId!.substring('customer:'.length);
+                  }
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((Object error, StackTrace stackTrace) {
@@ -1956,7 +1982,7 @@ class _RepairPageState extends State<RepairPage> {
                       documentDate: DateTime.now().toIso8601String().split('T').first,
                       repairId: selectedRepairId.toString(),
                       customerName: repair['نام مشتری'] ?? 'مشتری تعمیر',
-                      customerId: null,
+                      customerId: repair['شناسه طرف حساب'],
                       idempotencyKey:
                           'repair-parts-${selectedRepairId}-${DateTime.now().microsecondsSinceEpoch}',
                       parts: [
@@ -2035,7 +2061,12 @@ class _RepairPageState extends State<RepairPage> {
     try {
       final customerName = (repair['نام مشتری'] ?? '').trim();
       if (customerName.isEmpty) throw ArgumentError('نام مشتری ثبت نشده است');
-      final customerId = await DemoStore.parties.ensureParty(PartyDraft(partyType: 'customer', displayName: customerName));
+      final linkedPartyId = repair['شناسه طرف حساب']?.trim();
+      final customerId = linkedPartyId != null && linkedPartyId.isNotEmpty
+          ? linkedPartyId
+          : await DemoStore.parties.ensureParty(
+              PartyDraft(partyType: 'customer', displayName: customerName),
+            );
       await DemoStore.accounting.recordRepairServiceIncome(
         serviceDate: DateTime.now().toIso8601String().split('T').first,
         description: 'اجرت تعمیر ' + (repair['نوع دستگاه'] ?? ''),
@@ -2959,7 +2990,10 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                   DropdownMenuItem(
                     value: party['id'] as String,
                     child: Text(
-                      '${party['display_name']}',
+                      (party['display_name']?.toString() ?? '') +
+                          ((party['phone']?.toString().trim().isNotEmpty ?? false)
+                              ? ' • ${party['phone']}'
+                              : ''),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
