@@ -68,6 +68,9 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       _selectedPartyId = id;
       _statement = null;
       _loading = true;
+      _loadingMore = false;
+      _nextOffset = 0;
+      _hasMore = false;
     });
     try {
       final result = await widget.repository.getPartyStatementPage(
@@ -101,8 +104,12 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         offset: _nextOffset,
       );
       if (!mounted || partyId != _selectedPartyId) return;
-      final existing = (_statement?['lines'] as List?) ?? const [];
-      final incoming = (page['lines'] as List?) ?? const [];
+      final existing = List<Map<String, Object?>>.from(
+        (_statement?['lines'] as List?) ?? const [],
+      );
+      final incoming = List<Map<String, Object?>>.from(
+        (page['lines'] as List?) ?? const [],
+      );
       setState(() {
         _statement = {
           ...?_statement,
