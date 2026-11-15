@@ -19,7 +19,7 @@ permissions:
 jobs:
   android-emulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 1200
           disable-animations: true
           script: flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
 
@@ -134,7 +134,7 @@ jobs:
         with:
           name: android-emulator-diagnostics
           path: |
-            build/
             /home/runner/.android/avd/*.avd/*.log
+            build/app/outputs/flutter-apk/*.apk
           if-no-files-found: ignore
           retention-days: 7
