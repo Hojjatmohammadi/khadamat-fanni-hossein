@@ -75,5 +75,9 @@ void main() {
     );
     expect(find.byTooltip('جست‌وجوی سراسری'), findsOneWidget);
     expect(find.byTooltip('افزودن مورد جدید'), findsOneWidget);
+    await tester.tap(find.byTooltip('منو'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
+    expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
   });
 }
