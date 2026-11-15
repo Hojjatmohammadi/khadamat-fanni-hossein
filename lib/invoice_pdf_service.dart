@@ -131,7 +131,8 @@ class InvoicePdfService {
     canvas.drawLine(ui.Offset(_margin, y), ui.Offset(right, y), borderPaint);
     y += 18;
     final items = (snapshot['items'] as List? ?? const [])
-        .whereType<Map>()
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => Map<String, dynamic>.from(item))
         .toList(growable: false);
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
