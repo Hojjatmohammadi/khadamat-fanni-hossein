@@ -58,7 +58,10 @@ void main() {
     await tester.tap(find.byTooltip('جست‌وجوی سراسری'));
     await tester.pumpAndSettle();
     expect(find.text('جست‌وجوی سراسری'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      find.text('برای جست‌وجو، عبارت موردنظر را وارد کنید.'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('بستن'));
     await tester.pumpAndSettle();
   });
