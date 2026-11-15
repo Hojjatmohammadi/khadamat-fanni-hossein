@@ -631,19 +631,19 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                           ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                             child: Image.asset(
                               'assets/logo.jpg',
-                              width: 68,
-                              height: 68,
+                              width: 52,
+                              height: 52,
                               fit: BoxFit.cover,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 22, fontWeight: FontWeight.bold)),
-                      Text('نسخه آزمایشی', style: TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 4),
+                      const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text('مدیریت فروشگاه و تعمیرات', style: TextStyle(color: Colors.white70, fontSize: 11)),
                     ],
                   ),
                 ),
@@ -808,6 +808,14 @@ class SimpleListPage extends StatefulWidget {
 }
 
 class _SimpleListPageState extends State<SimpleListPage> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> addItem() async {
     final controllers = widget.fields.map((_) => TextEditingController()).toList();
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
@@ -895,33 +903,76 @@ class _SimpleListPageState extends State<SimpleListPage> {
           onPressed: addItem,
           child: const Icon(Icons.add),
         ),
-        body: ListView(
-          padding: const EdgeInsets.all(12),
+        body: Column(
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.icon(
-                onPressed: addItem,
-                icon: const Icon(Icons.add),
-                label: const Text('ثبت مورد جدید'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (widget.data.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(28),
-                child: Center(child: Text('هنوز اطلاعاتی ثبت نشده است')),
-              ),
-            for (final item in widget.data.reversed)
-              Card(
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.description)),
-                  title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
-                  subtitle: Text(
-                    item.entries.where((e) => !e.key.startsWith('__') && e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
-                  ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'جست‌وجو در ${widget.title}',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'پاک کردن جست‌وجو',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
                 ),
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: addItem,
+                  icon: const Icon(Icons.add),
+                  label: const Text('ثبت مورد جدید'),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Builder(
+                builder: (context) {
+                  final query = ProductDuplicateChecker.normalize(_searchController.text);
+                  final filtered = widget.data.reversed.where((item) {
+                    if (query.isEmpty) return true;
+                    return item.entries.any((entry) =>
+                        !entry.key.startsWith('__') &&
+                        ProductDuplicateChecker.normalize(entry.key + ' ' + entry.value).contains(query));
+                  }).toList();
+                  if (filtered.isEmpty) {
+                    return Center(
+                      child: Text(_searchController.text.trim().isEmpty
+                          ? 'هنوز اطلاعاتی ثبت نشده است'
+                          : 'در ${widget.title} نتیجه‌ای پیدا نشد'),
+                    );
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final item = filtered[index];
+                      return Card(
+                        child: ListTile(
+                          leading: const CircleAvatar(child: Icon(Icons.description)),
+                          title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
+                          subtitle: Text(
+                            item.entries.where((e) => !e.key.startsWith('__') && e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
           ],
         ),
       );
