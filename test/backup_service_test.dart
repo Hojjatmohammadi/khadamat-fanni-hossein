@@ -81,6 +81,24 @@ void main() {
     final restored = await database.getAll('customers');
     expect(restored, hasLength(1));
     expect(restored.single['نام مشتری'], 'مشتری قبل از پشتیبان');
+
+    // A successful restore must leave a separately accessible emergency
+    // backup of the database state that existed immediately before restore.
+    final history = await service.listBackups();
+    final emergency = history.singleWhere(
+      (file) => file.path.contains('khadamat-backup-emergency-'),
+    );
+    final emergencyDb = await databaseFactory.openDatabase(emergency.path);
+    try {
+      final emergencyCustomers = await emergencyDb.query('customers');
+      expect(emergencyCustomers, hasLength(2));
+      expect(
+        emergencyCustomers.map((row) => row['نام مشتری']),
+        containsAll(['مشتری قبل از پشتیبان', 'مشتری بعد از پشتیبان']),
+      );
+    } finally {
+      await emergencyDb.close();
+    }
   });
 
   test('rejects a malformed backup without changing current data', () async {
