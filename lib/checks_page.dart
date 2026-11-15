@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'check_repository.dart';
 import 'jalali_date_field.dart';
+import 'localized_number.dart';
 import 'party_repository.dart';
 import 'trade_repository.dart';
 
@@ -134,7 +135,7 @@ class _CheckPageState extends State<CheckPage> {
 
   Future<void> _saveCheck() async {
     if (_saving) return;
-    final amount = int.tryParse(_amount.text.trim().replaceAll(',', ''));
+    final amount = LocalizedNumber.tryParseInt(_amount.text);
     if (_number.text.trim().isEmpty ||
         _bank.text.trim().isEmpty ||
         _drawer.text.trim().isEmpty ||
