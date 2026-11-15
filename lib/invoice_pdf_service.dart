@@ -93,6 +93,14 @@ class InvoicePdfService {
       fontSize: 48,
       bold: true,
       top: y,
+      maxWidth: _width - 2 * _margin - 150,
+    );
+    await drawEncodedImage(
+      snapshot['appLogoBase64']?.toString(),
+      _margin,
+      y - 4,
+      112,
+      112,
     );
     y += headerHeight + 12;
     y += drawText(
