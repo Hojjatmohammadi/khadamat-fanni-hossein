@@ -388,6 +388,7 @@ class _HomePageState extends State<HomePage> {
           appBar: AppBar(
             title: tab == 0
                 ? Row(
+                    key: const ValueKey('home-brand-title'),
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ClipRRect(
