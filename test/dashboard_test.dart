@@ -38,8 +38,20 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
-    expect(find.text('خدمات فنی حسین'), findsOneWidget);
-    expect(find.text('داشبورد'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('خدمات فنی حسین'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('داشبورد'),
+      ),
+      findsNothing,
+    );
     expect(find.byTooltip('جست‌وجوی سراسری'), findsOneWidget);
     expect(find.byTooltip('افزودن مورد جدید'), findsOneWidget);
 
@@ -47,6 +59,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('جست‌وجوی سراسری'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
+    await tester.tap(find.text('بستن'));
+    await tester.pumpAndSettle();
   });
 
 }
