@@ -44,7 +44,16 @@ class PartyRepository {
           whereArgs: [draft.preferredId],
           limit: 1,
         );
-        if (byId.isNotEmpty) return draft.preferredId!;
+        if (byId.isNotEmpty) {
+          final existingType = byId.single['party_type'] as String?;
+          if (existingType != type) {
+            throw StateError(
+              'شناسه طرف حساب قبلاً برای نوع دیگری ثبت شده است؛ '
+              'شناسه مشتری و فروشنده باید مستقل باشد.',
+            );
+          }
+          return draft.preferredId!;
+        }
       }
 
       if (draft.preferredId?.trim().isEmpty != false) {
