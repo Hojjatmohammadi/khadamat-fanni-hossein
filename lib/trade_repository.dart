@@ -1156,28 +1156,51 @@ class TradeRepository {
     }
   }
 
+  /// Splits an integer amount proportionally without creating negative
+  /// residual shares or losing/duplicating even one smallest currency unit.
+  /// Largest remainders are assigned first; ties keep the original line order.
   List<int> _allocate(int amount, List<int> weights) {
     if (weights.isEmpty) return const [];
-    final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
-    if (amount == 0) {
-      return List<int>.filled(weights.length, 0);
+    if (weights.any((weight) => weight < 0)) {
+      throw ArgumentError('وزن تقسیم مبلغ نمی‌تواند منفی باشد');
     }
-    if (weightTotal == 0) {
+    if (amount == 0) return List<int>.filled(weights.length, 0);
+
+    final totalWeight = weights.fold<BigInt>(
+      BigInt.zero,
+      (sum, weight) => sum + BigInt.from(weight),
+    );
+    if (totalWeight == BigInt.zero) {
       final result = List<int>.filled(weights.length, 0);
       result[result.length - 1] = amount;
       return result;
     }
-    final result = List<int>.filled(weights.length, 0);
-    var assigned = 0;
+
+    final sign = amount < 0 ? -1 : 1;
+    final absoluteAmount = BigInt.from(amount.abs());
+    final shares = List<int>.filled(weights.length, 0);
+    final remainders = <({int index, BigInt remainder})>[];
+    var assigned = BigInt.zero;
+
     for (var i = 0; i < weights.length; i++) {
-      if (i == weights.length - 1) {
-        result[i] = amount - assigned;
-      } else {
-        result[i] = (amount * weights[i] / weightTotal).round();
-        assigned += result[i];
-      }
+      final product = absoluteAmount * BigInt.from(weights[i]);
+      final quotient = product ~/ totalWeight;
+      final remainder = product.remainder(totalWeight);
+      shares[i] = quotient.toInt();
+      assigned += quotient;
+      remainders.add((index: i, remainder: remainder));
     }
-    return result;
+
+    final remaining = (absoluteAmount - assigned).toInt();
+    remainders.sort((a, b) {
+      final byRemainder = b.remainder.compareTo(a.remainder);
+      return byRemainder != 0 ? byRemainder : a.index.compareTo(b.index);
+    });
+    for (var i = 0; i < remaining; i++) {
+      shares[remainders[i].index]++;
+    }
+
+    return shares.map((share) => share * sign).toList();
   }
 
   Future<int?> _findDuplicate(
