@@ -207,7 +207,7 @@ class HoseinApp extends StatelessWidget {
 }
 
 class DemoStore {
-  static String? appLogoBase64;
+  static final ValueNotifier<String?> appLogo = ValueNotifier<String?>(null);
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
   static final AccountingRepository accounting = AccountingRepository(_database);
@@ -224,7 +224,7 @@ class DemoStore {
 
   static Future<void> init() async {
     await _database.database;
-    appLogoBase64 = (await invoiceSettings.getSettings())['appLogoBase64'];
+    appLogo.value = (await invoiceSettings.getSettings())['appLogoBase64'];
     await _loadCategory('products', products);
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
@@ -490,9 +490,12 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: DemoStore.appLogoBase64?.isNotEmpty == true
-                            ? Image.memory(base64Decode(DemoStore.appLogoBase64!), width: 36, height: 36, fit: BoxFit.cover)
-                            : Image.asset('assets/logo.jpg', width: 36, height: 36, fit: BoxFit.cover),
+                        child: ValueListenableBuilder<String?>(
+                          valueListenable: DemoStore.appLogo,
+                          builder: (context, logo, _) => logo?.isNotEmpty == true
+                              ? Image.memory(base64Decode(logo!), width: 36, height: 36, fit: BoxFit.cover)
+                              : Image.asset('assets/logo.jpg', width: 36, height: 36, fit: BoxFit.cover),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       const Flexible(
@@ -560,9 +563,12 @@ class _HomePageState extends State<HomePage> {
                           ),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: DemoStore.appLogoBase64?.isNotEmpty == true
-                                ? Image.memory(base64Decode(DemoStore.appLogoBase64!), width: 52, height: 52, fit: BoxFit.cover)
-                                : Image.asset('assets/logo.jpg', width: 52, height: 52, fit: BoxFit.cover),
+                            child: ValueListenableBuilder<String?>(
+                              valueListenable: DemoStore.appLogo,
+                              builder: (context, logo, _) => logo?.isNotEmpty == true
+                                  ? Image.memory(base64Decode(logo!), width: 52, height: 52, fit: BoxFit.cover)
+                                  : Image.asset('assets/logo.jpg', width: 52, height: 52, fit: BoxFit.cover),
+                            ),
                           ),
                         ],
                       ),
@@ -3248,7 +3254,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         setState(() {
           _currency = values['currency'] ?? 'تومان';
           _logoBase64 = values['appLogoBase64'] ?? '';
-          DemoStore.appLogoBase64 = _logoBase64.isEmpty ? null : _logoBase64;
+          DemoStore.appLogo.value = _logoBase64.isEmpty ? null : _logoBase64;
           _loading = false;
         });
       }
