@@ -277,6 +277,292 @@ void main() {
     await tester.tap(find.text('ذخیره تنظیمات'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('تنظیمات و لوگوی فروشگاه ذخیره شد.'), findsOneWidget);
+
+    
+    // A new invoice must load VAT, discount and numbering defaults from Settings.
+    await tester.pageBack();
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    await openSection('فروش و فاکتور');
+    final configuredPartyDropdown = find.byWidgetPredicate(
+      (widget) => widget is DropdownButtonFormField<String> &&
+          widget.decoration.labelText?.startsWith('انتخاب از اشخاص ثبت‌شده') == true,
+    );
+    expect(configuredPartyDropdown, findsOneWidget);
+    await tester.tap(configuredPartyDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('09130000002').last);
+    await tester.pumpAndSettle();
+    await fillField('تعداد', '1');
+    await fillField('قیمت فروش واحد', '2000');
+    await tester.tap(find.text('افزودن کالا به فاکتور'));
+    await tester.pumpAndSettle();
+
+    final discountField = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.labelText == 'تخفیف کل (تومان)',
+    );
+    final vatField = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.labelText == 'درصد ارزش افزوده',
+    );
+    expect(tester.widget<TextField>(discountField).controller?.text, '100');
+    expect(tester.widget<TextField>(vatField).controller?.text, '12.5');
+    expect(find.text('مبلغ تقریبی فاکتور: 2138 تومان'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('ثبت قطعی فاکتور'));
+    await tester.tap(find.text('ثبت قطعی فاکتور'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.text('فاکتور فروش ثبت و بایگانی شد'), findsOneWidget);
+
+    final saleDocuments = await app.DemoStore.trades.getDocuments(type: 'sale');
+    final configuredSale = saleDocuments.firstWhere(
+      (document) => document['document_number'].toString().startsWith('EMU-'),
+    );
+    final configuredSaleId = (configuredSale['id'] as num).toInt();
+    expect(configuredSale['subtotal'], 2000);
+    expect(configuredSale['discount_amount'], 100);
+    expect(configuredSale['vat_amount'], 238);
+    expect(configuredSale['total_amount'], 2138);
+
+    // The archived invoice is immutable and must contain the saved shop header.
+    final archive = await app.DemoStore.invoiceArchives.getArchive(configuredSaleId);
+    expect(archive, isNotNull);
+    final snapshot = archive!['snapshot'] as Map<String, dynamic>;
+    expect(snapshot['shopName'], 'خدمات فنی آزمایشی');
+    expect(snapshot['documentNumber'].toString().startsWith('EMU-'), isTrue);
+
+    // Verify actual invoice rendering output, not just the presence of buttons.
+    final invoiceService = InvoicePdfService();
+    final invoicePng = await invoiceService.buildImage(snapshot);
+    expect(invoicePng.sublist(0, 8), <int>[137, 80, 78, 71, 13, 10, 26, 10]);
+    final invoicePdf = await invoiceService.build(snapshot);
+    expect(String.fromCharCodes(invoicePdf.take(4)), '%PDF');
+
+    // Return a sold unit and a purchased unit; both must post stock and ledger entries.
+    final initialSale = saleDocuments.firstWhere(
+      (document) =>
+          document['document_number'].toString().startsWith('SAL-') &&
+          (document['total_amount'] as num).toInt() == 2000,
+    );
+    final initialSaleId = (initialSale['id'] as num).toInt();
+    final initialSaleLines = await app.DemoStore.trades.getDocumentLines(initialSaleId);
+    await app.DemoStore.trades.recordCustomerReturn(
+      ReturnDocumentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        sourceDocumentId: initialSaleId,
+        counterpartyName: initialSale['counterparty_name'].toString(),
+        counterpartyId: initialSale['counterparty_id'].toString(),
+        idempotencyKey: 'emu-customer-return-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        lines: [
+          ReturnLineDraft(
+            sourceLineId: (initialSaleLines.single['id'] as num).toInt(),
+            quantity: 1,
+          ),
+        ],
+      ),
+    );
+
+    final purchaseDocuments = await app.DemoStore.trades.getDocuments(type: 'purchase');
+    final purchase = purchaseDocuments.firstWhere(
+      (document) => document['counterparty_name'] == 'فروشنده آزمایشی شبیه‌ساز',
+    );
+    final purchaseId = (purchase['id'] as num).toInt();
+    final purchaseLines = await app.DemoStore.trades.getDocumentLines(purchaseId);
+    await app.DemoStore.trades.recordSupplierReturn(
+      ReturnDocumentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        sourceDocumentId: purchaseId,
+        counterpartyName: purchase['counterparty_name'].toString(),
+        counterpartyId: purchase['counterparty_id'].toString(),
+        idempotencyKey: 'emu-supplier-return-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        lines: [
+          ReturnLineDraft(
+            sourceLineId: (purchaseLines.single['id'] as num).toInt(),
+            quantity: 1,
+          ),
+        ],
+      ),
+    );
+    await app.DemoStore.trades.recordSupplierPayment(
+      PartyPaymentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        counterpartyName: purchase['counterparty_name'].toString(),
+        counterpartyId: purchase['counterparty_id'].toString(),
+        amount: 1000,
+        idempotencyKey: 'emu-supplier-payment-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        referenceId: purchaseId.toString(),
+        cashAccountCode: '1010',
+      ),
+    );
+    expect(await app.DemoStore.trades.getOutstandingAmount(purchaseId), 3000);
+    final supplierStatement = await app.DemoStore.parties.getPartyStatement(
+      purchase['counterparty_id'].toString(),
+    );
+    expect(supplierStatement['closing_balance'], 3000);
+
+    await expectLater(
+      app.DemoStore.trades.recordSupplierPayment(
+        PartyPaymentDraft(
+          documentDate: DateTime.now().toIso8601String().substring(0, 10),
+          counterpartyName: purchase['counterparty_name'].toString(),
+          counterpartyId: purchase['counterparty_id'].toString(),
+          amount: 3001,
+          idempotencyKey: 'emu-supplier-overpay-' + DateTime.now().microsecondsSinceEpoch.toString(),
+          referenceId: purchaseId.toString(),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    // A cheque linked to the new invoice must lower the invoice balance;
+    // then a cash receipt lowers it again without double-counting the cheque.
+    final customerId = configuredSale['counterparty_id'].toString();
+    final linkedCheckId = await app.DemoStore.checks.createCheck(
+      CheckDraft(
+        direction: 'incoming',
+        checkNumber: 'EMU-LINKED-02',
+        bankName: 'بانک آزمایشی',
+        drawerName: 'مشتری آزمایشی',
+        partyName: configuredSale['counterparty_name'].toString(),
+        partyId: customerId,
+        amount: 500,
+        issueDate: DateTime.now().toIso8601String().substring(0, 10),
+        dueDate: DateTime.now().add(const Duration(days: 7)).toIso8601String().substring(0, 10),
+        idempotencyKey: 'emu-linked-check-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        sourceDocumentId: configuredSaleId,
+      ),
+    );
+    expect(await app.DemoStore.trades.getOutstandingAmount(configuredSaleId), 1638);
+    await app.DemoStore.trades.recordCustomerReceipt(
+      PartyPaymentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        counterpartyName: configuredSale['counterparty_name'].toString(),
+        counterpartyId: customerId,
+        amount: 500,
+        idempotencyKey: 'emu-customer-receipt-' + DateTime.now().microsecondsSinceEpoch.toString(),
+        referenceId: configuredSaleId.toString(),
+        cashAccountCode: '1000',
+      ),
+    );
+    expect(await app.DemoStore.trades.getOutstandingAmount(configuredSaleId), 1138);
+
+    final incomingChecks = await app.DemoStore.checks.getChecks(direction: 'incoming');
+    final uiCheck = incomingChecks.firstWhere(
+      (check) => check['check_number'] == 'EMU-CHECK-01',
+    );
+    final uiCheckId = (uiCheck['id'] as num).toInt();
+    await app.DemoStore.checks.updateCheckStatus(
+      checkId: uiCheckId,
+      newStatus: 'deposited',
+      reason: 'تحویل بانک در آزمون شبیه‌ساز',
+    );
+    await app.DemoStore.checks.updateCheckStatus(
+      checkId: uiCheckId,
+      newStatus: 'cleared',
+      reason: 'وصول در آزمون شبیه‌ساز',
+    );
+    expect((await app.DemoStore.checks.getCheck(uiCheckId))['status'], 'cleared');
+    expect(await app.DemoStore.checks.getCheckEvents(uiCheckId), hasLength(3));
+    expect((await app.DemoStore.checks.getCheck(linkedCheckId))['status'], 'received');
+    expect(await app.DemoStore.checks.getDueChecks(
+      asOfDate: DateTime(2100, 1, 1),
+    ), isNotEmpty);
+
+    await app.DemoStore.refreshProducts();
+    final product = app.DemoStore.products.singleWhere(
+      (item) => item['کد کالا'] == 'EMU-001',
+    );
+    expect(double.parse(product['موجودی']!), 2);
+
+    // All six report repositories must read real records from this test data.
+    final reportRepository = ReportRepository(AppDatabase());
+    final from = DateTime(2020, 1, 1);
+    final to = DateTime(2099, 12, 31);
+    final documentReport = await reportRepository.getTradeDocuments(from: from, to: to);
+    final stockReport = await reportRepository.getInventoryMovements(from: from, to: to);
+    final profitReport = await reportRepository.getProfitAndLoss(from: from, to: to);
+    final itemProfitReport = await reportRepository.getItemProfit(from: from, to: to);
+    final expenseReport = await reportRepository.getExpenses(from: from, to: to);
+    final repairIncomeReport = await reportRepository.getRepairServiceRevenue(from: from, to: to);
+    expect(documentReport.any((row) => row['document_type'] == 'customer_return'), isTrue);
+    expect(documentReport.any((row) => row['document_type'] == 'supplier_return'), isTrue);
+    expect(stockReport.any((row) => row['product_name'] == 'قطعه آزمایشی شبیه‌ساز'), isTrue);
+    expect(profitReport, isNotEmpty);
+    expect(itemProfitReport.any((row) => row['product_name'] == 'قطعه آزمایشی شبیه‌ساز'), isTrue);
+    expect(expenseReport.any((row) => row['description'] == 'هزینه آزمایشی شبیه‌ساز'), isTrue);
+    expect(repairIncomeReport, isNotEmpty);
+
+    // Global search must return a real saved item, not only display its dialog.
+    await tester.tap(find.byTooltip('جست‌وجوی سراسری'));
+    await tester.pumpAndSettle();
+    final globalSearchField = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.hintText == 'کالا، خرید، فروش، اشخاص، چک و حسابداری',
+    );
+    expect(globalSearchField, findsOneWidget);
+    await tester.enterText(globalSearchField, 'قطعه آزمایشی شبیه‌ساز');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('قطعه آزمایشی شبیه‌ساز'), findsWidgets);
+    await tester.tap(find.text('بستن'));
+    await tester.pumpAndSettle();
+
+    // Reports expose their export controls for populated data.
+    await openSection('گزارش‌ها');
+    expect(find.text('Excel'), findsOneWidget);
+    expect(find.text('PDF'), findsOneWidget);
+    for (final reportName in const [
+      'فاکتورهای خرید، فروش و برگشت',
+      'سود و زیان حسابداری',
+      'سود هر کالا',
+      'هزینه‌های ثبت‌شده',
+      'درآمد خدمات تعمیر',
+      'کاردکس و گردش انبار',
+    ]) {
+      final dropdown = find.byWidgetPredicate(
+        (widget) => widget is DropdownButtonFormField<String> &&
+            widget.decoration.labelText == 'نوع گزارش',
+      );
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(reportName).last);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text('گزارش‌های عملیاتی'), findsOneWidget);
+      expect(find.textContaining('تعداد ردیف‌ها:'), findsOneWidget);
+    }
+
+    // Create a real database backup, add a record after it, and restore it.
+    final manualBackup = await app.DemoStore.backups.createBackup();
+    await app.DemoStore.add('customers', {
+      'نام مشتری': 'رکورد موقت پس از پشتیبان',
+      'شماره تماس': '09129999999',
+    });
+    expect(
+      app.DemoStore.customers.any((item) => item['نام مشتری'] == 'رکورد موقت پس از پشتیبان'),
+      isTrue,
+    );
+    await app.DemoStore.backups.restoreFromPath(manualBackup.path);
+    await app.DemoStore.init();
+    expect(
+      app.DemoStore.customers.any((item) => item['نام مشتری'] == 'رکورد موقت پس از پشتیبان'),
+      isFalse,
+    );
+    expect(
+      app.DemoStore.products.any((item) => item['کد کالا'] == 'EMU-001'),
+      isTrue,
+    );
+    expect(
+      (await app.DemoStore.invoiceSettings.getSettings())['shopName'],
+      'خدمات فنی آزمایشی',
+    );
+    final backupHistory = await app.DemoStore.backups.listBackups();
+    expect(
+      backupHistory.any((file) => file.path.contains('khadamat-backup-emergency-')),
+      isTrue,
+    );
+    expect(
+      (await app.DemoStore.trades.getDocuments(type: 'sale')),
+      isNotEmpty,
+    );
   });
 
 }
