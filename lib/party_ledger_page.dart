@@ -182,7 +182,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 key: ValueKey(_selectedPartyId),
-                initialValue: _selectedPartyId,
+                initialValue: visibleParties.any((item) => item['id'] == _selectedPartyId) ? _selectedPartyId : null,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'انتخاب مشتری یا فروشنده'),
                 items: [
