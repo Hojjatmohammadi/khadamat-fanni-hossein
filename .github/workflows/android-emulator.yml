@@ -10,7 +10,7 @@ on:
       - phase2/database-foundation
 
 concurrency:
-  group: android-emulator-${{ github.event.pull_request.number || github.ref }}
+  group: android-emulator-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
