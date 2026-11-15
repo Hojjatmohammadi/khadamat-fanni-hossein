@@ -18,6 +18,10 @@ class InvoiceSettingsRepository {
     'address': '',
     'stampImageBase64': '',
     'signatureImageBase64': '',
+    'currency': 'تومان',
+    'vatPercent': '0',
+    'defaultDiscount': '0',
+    'invoicePrefix': '',
   };
 
   Future<Map<String, String>> getSettings() async {
