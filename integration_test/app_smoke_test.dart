@@ -138,7 +138,7 @@ void main() {
     await openSection('فروش و فاکتور');
     final partyDropdown = find.byWidgetPredicate(
       (widget) => widget is DropdownButtonFormField<String> &&
-          widget.decoration?.labelText?.startsWith('انتخاب از اشخاص ثبت‌شده') == true,
+          widget.decoration.labelText.startsWith('انتخاب از اشخاص ثبت‌شده'),
     );
     expect(partyDropdown, findsOneWidget);
     await tester.tap(partyDropdown);
