@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -92,8 +93,14 @@ void main() {
     try {
       final emergencyCustomers = await emergencyDb.query('customers');
       expect(emergencyCustomers, hasLength(2));
+      final emergencyNames = emergencyCustomers
+          .map(
+            (row) => (jsonDecode(row['data_json']! as String)
+                as Map<String, dynamic>)['نام مشتری'],
+          )
+          .toList();
       expect(
-        emergencyCustomers.map((row) => row['نام مشتری']),
+        emergencyNames,
         containsAll(['مشتری قبل از پشتیبان', 'مشتری بعد از پشتیبان']),
       );
     } finally {
