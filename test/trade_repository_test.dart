@@ -531,5 +531,65 @@ void main() {
     );
     expect(await trades.getOutstandingAmount(saleId), 1000);
   });
+  test('proportional discount and VAT allocation never creates negative line shares', () async {
+    final productIds = <int>[];
+    for (var i = 0; i < 4; i++) {
+      productIds.add(await addProduct(name: 'کالای تقسیم مبلغ $i'));
+    }
+
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'فروشنده تقسیم مبلغ',
+        idempotencyKey: 'allocation-purchase',
+        lines: [
+          for (final productId in productIds)
+            TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1),
+        ],
+        discountAmount: 2,
+        vatRate: 50,
+      ),
+    );
+
+    final purchaseLines = await trades.getDocuments(type: 'purchase');
+    expect(purchaseLines.single['subtotal'], 4);
+    expect(purchaseLines.single['discount_amount'], 2);
+    expect(purchaseLines.single['vat_amount'], 1);
+    final purchaseId = purchaseLines.single['id'] as int;
+    final allocatedPurchaseLines = await trades.getDocumentLines(purchaseId);
+    final purchaseDiscountShares = allocatedPurchaseLines
+        .map((line) => 1 - (line['line_total'] as int))
+        .toList();
+    expect(purchaseDiscountShares.every((share) => share >= 0), isTrue);
+    expect(purchaseDiscountShares.fold<int>(0, (sum, share) => sum + share), 2);
+
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'مشتری تقسیم مبلغ',
+        idempotencyKey: 'allocation-sale',
+        lines: [
+          for (final productId in productIds)
+            TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1),
+        ],
+        vatRate: 50,
+        paidAmount: 6,
+      ),
+    );
+
+    final sale = (await trades.getDocuments(type: 'sale')).single;
+    expect(sale['subtotal'], 4);
+    expect(sale['vat_amount'], 2);
+    expect(sale['total_amount'], 6);
+    final saleId = sale['id'] as int;
+    final allocatedSaleLines = await trades.getDocumentLines(saleId);
+    final taxShares = allocatedSaleLines
+        .map((line) => line['tax_amount'] as int)
+        .toList();
+    expect(taxShares.every((share) => share >= 0), isTrue);
+    expect(taxShares.fold<int>(0, (sum, share) => sum + share), 2);
+    expect(allocatedSaleLines.every((line) => (line['line_total'] as int) >= 0),
+        isTrue);
+  });
 
 }
