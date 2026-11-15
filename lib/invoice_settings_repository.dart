@@ -18,6 +18,7 @@ class InvoiceSettingsRepository {
     'address': '',
     'stampImageBase64': '',
     'signatureImageBase64': '',
+    'appLogoBase64': '',
     'currency': 'تومان',
     'vatPercent': '0',
     'defaultDiscount': '0',
@@ -52,9 +53,9 @@ class InvoiceSettingsRepository {
       throw ArgumentError('نام فروشگاه و نام مسئول فاکتور الزامی است');
     }
     // Keep each compressed image bounded to avoid oversized SQLite backups.
-    for (final key in ['stampImageBase64', 'signatureImageBase64']) {
+    for (final key in ['stampImageBase64', 'signatureImageBase64', 'appLogoBase64']) {
       if (clean[key]!.length > 1500000) {
-        throw ArgumentError('حجم تصویر مهر یا امضا بیش از حد مجاز است');
+        throw ArgumentError('حجم تصویر لوگو، مهر یا امضا بیش از حد مجاز است');
       }
     }
 
