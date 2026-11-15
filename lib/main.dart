@@ -716,6 +716,13 @@ class Dashboard extends StatelessWidget {
   }
 }
 
+List<Map<String, String>> filterCategoryRecords(Iterable<Map<String, String>> records, String query) {
+  final normalizedQuery = ProductDuplicateChecker.normalize(query);
+  return records.where((item) => normalizedQuery.isEmpty || item.entries.any((entry) =>
+      !entry.key.startsWith('__') &&
+      ProductDuplicateChecker.normalize('${entry.key} ${entry.value}').contains(normalizedQuery))).toList();
+}
+
 class SimpleListPage extends StatefulWidget {
   final String title;
   final List<Map<String, String>> data;
@@ -869,13 +876,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
             Expanded(
               child: Builder(
                 builder: (context) {
-                  final query = ProductDuplicateChecker.normalize(_searchController.text);
-                  final filtered = widget.data.reversed.where((item) {
-                    if (query.isEmpty) return true;
-                    return item.entries.any((entry) =>
-                        !entry.key.startsWith('__') &&
-                        ProductDuplicateChecker.normalize(entry.key + ' ' + entry.value).contains(query));
-                  }).toList();
+                  final filtered = filterCategoryRecords(widget.data.reversed, _searchController.text);
                   if (filtered.isEmpty) {
                     return Center(
                       child: Text(_searchController.text.trim().isEmpty
