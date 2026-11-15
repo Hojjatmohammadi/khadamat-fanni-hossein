@@ -1,0 +1,66 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - phase2/database-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+          fi
+
+      - name: Configure app label and notification permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+          if "android.permission.POST_NOTIFICATIONS" not in content:
+              content = content.replace("<application", permission + "\\n\\n    <application", 1)
+          content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
+          manifest.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Analyze source
+        run: flutter analyze --no-pub
+
+      - name: Run automated tests
+        run: flutter test --no-pub
+
+      - name: Build optimized release APKs
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
+
+      - name: Upload installable APKs and symbol files
+        uses: actions/upload-artifact@v4
+        with:
+          name: khadamat-fanni-hossein-android-release
+          path: |
+            build/app/outputs/flutter-apk/*-release.apk
+            build/symbols/**
+          if-no-files-found: error
+          retention-days: 14
