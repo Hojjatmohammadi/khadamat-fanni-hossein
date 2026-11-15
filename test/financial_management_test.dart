@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/party_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -63,6 +64,54 @@ void main() {
     final ledger = await accounting.getAccountLedger('6100');
     expect(ledger['closing_balance'], 2500000);
     expect((ledger['lines'] as List), hasLength(1));
+  });
+
+
+  test('repair service charges and receipts keep the customer ledger balance correct', () async {
+    final parties = PartyRepository(database);
+    final customerId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری تعمیر آزمایشی',
+      ),
+    );
+
+    await accounting.recordRepairServiceIncome(
+      serviceDate: '2026-11-14',
+      description: 'اجرت تعمیر دستگاه جوش',
+      amount: 10000,
+      paidAmount: 4000,
+      cashAccountCode: '1000',
+      idempotencyKey: 'repair-income-ledger-001',
+      repairId: 'repair-ledger-001',
+      customerId: customerId,
+    );
+
+    var statement = await parties.getPartyStatement(customerId);
+    expect(statement['closing_balance'], 10000);
+    expect(statement['total_debit'], 10000);
+    expect(statement['total_credit'], 0);
+
+    await accounting.recordRepairServiceReceipt(
+      receiptDate: '2026-11-15',
+      repairId: 'repair-ledger-001',
+      customerId: customerId,
+      description: 'دریافت مانده اجرت دستگاه جوش',
+      amount: 3000,
+      cashAccountCode: '1000',
+      idempotencyKey: 'repair-income-receipt-ledger-001',
+    );
+
+    statement = await parties.getPartyStatement(customerId);
+    expect(statement['closing_balance'], 7000);
+    expect(statement['total_debit'], 10000);
+    expect(statement['total_credit'], 3000);
+
+    final trial = await accounting.getTrialBalance();
+    expect(
+      trial.fold<int>(0, (sum, row) => sum + (row['total_debit'] as num).toInt()),
+      trial.fold<int>(0, (sum, row) => sum + (row['total_credit'] as num).toInt()),
+    );
   });
 
   test('rejects invalid expense account and zero amount', () async {
