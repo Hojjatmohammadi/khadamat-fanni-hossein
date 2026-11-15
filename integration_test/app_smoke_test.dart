@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/check_repository.dart';
+import 'package:khadamat_fanni_hosein/invoice_pdf_service.dart';
+import 'package:khadamat_fanni_hosein/report_repository.dart';
+import 'package:khadamat_fanni_hosein/trade_repository.dart';
 import 'package:khadamat_fanni_hosein/main.dart' as app;
 
 void main() {
@@ -12,6 +17,13 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expect(find.text('خدمات فنی حسین'), findsWidgets);
+
+    await tester.tap(find.byTooltip('افزودن مورد جدید'));
+    await tester.pumpAndSettle();
+    expect(find.text('ثبت کالا'), findsOneWidget);
+    await tester.tap(find.text('ثبت کالا'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.text('انبار کالا'), findsWidgets);
 
     const sections = <String>[
       'انبار کالا',
@@ -219,7 +231,7 @@ void main() {
     await fillField('شماره چک', 'EMU-CHECK-01');
     await fillField('نام بانک', 'بانک آزمایشی');
     await fillField('نام صاحب حساب / صادرکننده', 'مشتری آزمایشی');
-    await fillField('مبلغ چک (تومان)', '۱۲۳۴۵');
+    await fillField('مبلغ چک (تومان)', '۵۰۰');
     await tester.tap(find.text('ثبت چک'));
     await tester.pumpAndSettle(const Duration(seconds: 3));
     expect(find.text('چک و سند حسابداری آن ثبت شد'), findsOneWidget);
@@ -261,6 +273,7 @@ void main() {
     await fillFormField('نام مسئول', 'کاربر آزمایشی');
     await fillFormField('درصد مالیات بر ارزش افزوده', '۱۲٫۵');
     await fillFormField('درصد تخفیف پیش‌فرض', '۵');
+    await fillFormField('پیشوند شماره فاکتور', 'EMU');
     await tester.tap(find.text('ذخیره تنظیمات'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('تنظیمات و لوگوی فروشگاه ذخیره شد.'), findsOneWidget);
