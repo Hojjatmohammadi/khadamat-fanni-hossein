@@ -445,14 +445,49 @@ class _HomePageState extends State<HomePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          'assets/logo.jpg',
-                          width: 68,
-                          height: 68,
-                          fit: BoxFit.cover,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          IconButton(
+                            key: const ValueKey('drawer-settings-button'),
+                            tooltip: 'تنظیمات برنامه',
+                            onPressed: () {
+                              showDialog<void>(
+                                context: context,
+                                builder: (dialogContext) => Directionality(
+                                  textDirection: TextDirection.rtl,
+                                  child: AlertDialog(
+                                    title: const Text('تنظیمات برنامه'),
+                                    content: const Text(
+                                      'صفحه تنظیمات کامل در مرحله بعدی تکمیل می‌شود.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(dialogContext),
+                                        child: const Text('بستن'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.settings_outlined,
+                              color: yellow,
+                              size: 30,
+                            ),
+                          ),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.asset(
+                              'assets/logo.jpg',
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 22, fontWeight: FontWeight.bold)),
