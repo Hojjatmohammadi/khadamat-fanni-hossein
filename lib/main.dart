@@ -2221,6 +2221,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   final _priceController = TextEditingController();
   final _discountController = TextEditingController(text: '0');
   final _vatRateController = TextEditingController(text: '0');
+  double _defaultDiscountPercent = 0;
+  bool _discountManuallyEdited = false;
   final _paidController = TextEditingController(text: '0');
   final _shippingController = TextEditingController(text: '0');
   final _freightController = TextEditingController(text: '0');
@@ -2245,6 +2247,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     _selectedProductId = _firstProductId();
     _loadDocuments();
     _loadParties();
+    _loadInvoiceDefaults();
   }
 
   @override
@@ -2301,6 +2304,31 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     return net + charges + vat;
   }
 
+  Future<void> _loadInvoiceDefaults() async {
+    try {
+      final settings = await DemoStore.invoiceSettings.getSettings();
+      final vat = LocalizedNumber.parseDoubleOrZero(settings['vatPercent'] ?? '0');
+      final discount = LocalizedNumber.parseDoubleOrZero(settings['defaultDiscount'] ?? '0');
+      if (!mounted) return;
+      setState(() {
+        _vatRateController.text = vat.clamp(0, 100).toString();
+        _defaultDiscountPercent = discount.clamp(0, 100).toDouble();
+        _applyDefaultDiscount();
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خواندن تنظیمات پیش‌فرض فاکتور ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
+  void _applyDefaultDiscount() {
+    if (_discountManuallyEdited) return;
+    _discountController.text = (_subtotal * _defaultDiscountPercent / 100).round().toString();
+  }
+
   Future<void> _loadParties() async {
     final rows = await DemoStore.parties.getParties(
       partyType: _isPurchase ? 'supplier' : 'customer',
@@ -2340,6 +2368,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         quantity: quantity,
         unitPrice: price,
       ));
+      _applyDefaultDiscount();
       _quantityController.text = '1';
       _priceController.clear();
     });
@@ -2704,6 +2733,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
           preferredId: _selectedPartyId,
         ),
       );
+      final invoiceSettings = await DemoStore.invoiceSettings.getSettings();
       final draft = TradeDocumentDraft(
         documentDate: _documentDate.toIso8601String().split('T').first,
         counterpartyName: partyName,
@@ -2720,13 +2750,17 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         paidAmount: _int(_paidController),
         cashAccountCode: _cashAccountCode,
       );
+      final configuredPrefix = invoiceSettings['invoicePrefix'];
       if (_isPurchase) {
-        await DemoStore.trades.recordPurchase(draft);
+        await DemoStore.trades.recordPurchase(
+          draft,
+          documentPrefix: configuredPrefix,
+        );
       } else {
-        final invoiceHeader = await DemoStore.invoiceSettings.getSettings();
         await DemoStore.trades.recordSale(
           draft,
-          invoiceHeaderSnapshot: invoiceHeader,
+          invoiceHeaderSnapshot: invoiceSettings,
+          documentPrefix: configuredPrefix,
         );
       }
       await DemoStore.refreshProducts();
@@ -2739,8 +2773,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         _documentDate = DateTime.now();
         _partyController.clear();
         _selectedPartyId = null;
-        _discountController.text = '0';
-        _vatRateController.text = '0';
+        _discountManuallyEdited = false;
+        _applyDefaultDiscount();
         _paidController.text = '0';
         _shippingController.text = '0';
         _freightController.text = '0';
@@ -3115,7 +3149,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
           TextField(
                         textInputAction: TextInputAction.next,
             controller: _discountController,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() => _discountManuallyEdited = true),
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(labelText: 'تخفیف کل (تومان)'),
           ),
