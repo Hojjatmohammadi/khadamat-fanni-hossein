@@ -2111,7 +2111,12 @@ class _RepairPageState extends State<RepairPage> {
     amountController.dispose();
     if (amount == null || amount <= 0 || !mounted) return;
     try {
-      final customerId = await DemoStore.parties.ensureParty(PartyDraft(partyType: 'customer', displayName: customerName));
+      final linkedPartyId = repair['شناسه طرف حساب']?.trim();
+      final customerId = linkedPartyId != null && linkedPartyId.isNotEmpty
+          ? linkedPartyId
+          : await DemoStore.parties.ensureParty(
+              PartyDraft(partyType: 'customer', displayName: customerName),
+            );
       await DemoStore.accounting.recordRepairServiceReceipt(
         receiptDate: DateTime.now().toIso8601String().split('T').first,
         repairId: repairId,
