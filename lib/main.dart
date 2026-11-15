@@ -485,7 +485,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  }).catchError((error) {
+                  }).catchError((Object error, StackTrace stackTrace) {
                     if (dialogContext.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
                     }
@@ -2143,7 +2143,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       }
       final snapshot = archive['snapshot'] as Map<String, dynamic>;
       final items = (snapshot['items'] as List? ?? const [])
-          .whereType<Map>()
+          .whereType<Map<Object?, Object?>>()
+          .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
 
       Widget imagePreview(String key, String label) {
