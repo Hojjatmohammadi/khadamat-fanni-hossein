@@ -112,7 +112,7 @@ void main() {
         reason: 'Repair intake must offer previously saved customers');
     await tester.tap(customerDropdown);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('مشتری آزمایشی شبیه‌ساز').last);
+    await tester.tap(find.textContaining('مشتری آزمایشی شبیه‌ساز').last);
     await tester.pumpAndSettle();
     await fillField('نوع دستگاه', 'دریل آزمایشی');
     await fillField('شرح عیب', 'روشن نمی‌شود');
@@ -126,6 +126,8 @@ void main() {
     await tester.tap(find.text('ذخیره'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('دریل آزمایشی'), findsWidgets);
+    expect(app.DemoStore.repairs.single['شناسه طرف حساب'],
+        'customer:${app.DemoStore.customers.single['__database_id']}');
 
     // Consume one unit from inventory against the registered repair.
     await tester.tap(find.text('ثبت مصرف قطعه در تعمیر'));
@@ -143,7 +145,7 @@ void main() {
     expect(partyDropdown, findsOneWidget);
     await tester.tap(partyDropdown);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('مشتری آزمایشی شبیه‌ساز').last);
+    await tester.tap(find.textContaining('مشتری آزمایشی شبیه‌ساز').last);
     await tester.pumpAndSettle();
     await fillField('تعداد', '1');
     await fillField('قیمت فروش واحد', '2000');
