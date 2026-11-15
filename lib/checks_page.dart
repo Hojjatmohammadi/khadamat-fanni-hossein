@@ -30,6 +30,7 @@ class _CheckPageState extends State<CheckPage> {
   final _party = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  final _listSearch = TextEditingController();
 
   String _direction = 'incoming';
   DateTime _issueDate = DateTime.now();
@@ -56,6 +57,7 @@ class _CheckPageState extends State<CheckPage> {
     _party.dispose();
     _amount.dispose();
     _note.dispose();
+    _listSearch.dispose();
     super.dispose();
   }
 
@@ -375,6 +377,8 @@ class _CheckPageState extends State<CheckPage> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _listSearch.text.trim().toLowerCase();
+    final visibleChecks = _checks.where((check) => check.values.any((value) => value?.toString().toLowerCase().contains(query) ?? false)).toList();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: RefreshIndicator(
@@ -554,12 +558,26 @@ class _CheckPageState extends State<CheckPage> {
             for (final check in _dueChecks) _checkCard(check, reminder: true),
             const Divider(height: 28),
             const Text('همه چک‌ها', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-            if (_checks.isEmpty)
+            const SizedBox(height: 8),
+            TextField(
+              controller: _listSearch,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'جست‌وجو در چک‌ها',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _listSearch.text.isEmpty ? null : IconButton(
+                  tooltip: 'پاک کردن جست‌وجو',
+                  onPressed: () { _listSearch.clear(); setState(() {}); },
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+            ),
+            if (visibleChecks.isEmpty)
               const Card(child: Padding(
                 padding: EdgeInsets.all(14),
-                child: Text('هنوز چکی ثبت نشده است'),
+                child: Text(_checks.isEmpty ? 'هنوز چکی ثبت نشده است' : 'چکی با این عبارت پیدا نشد'),
               )),
-            for (final check in _checks) _checkCard(check),
+            for (final check in visibleChecks) _checkCard(check),
           ],
         ),
       ),
