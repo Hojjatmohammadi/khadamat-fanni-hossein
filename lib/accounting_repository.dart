@@ -608,6 +608,7 @@ class AccountingRepository {
       lines.add(JournalLineDraft(
         accountCode: cashAccountCode,
         debit: paidAmount,
+        partyId: customerId,
         memo: description.trim(),
       ));
     }
@@ -620,10 +621,11 @@ class AccountingRepository {
         memo: description.trim(),
       ));
     }
+    // Party ledger entries must represent the full service charge as a debit
+    // (cash paid now plus receivable), never the income credit as a party credit.
     lines.add(JournalLineDraft(
       accountCode: '4100',
       credit: amount,
-      partyId: customerId,
       memo: description.trim(),
     ));
     return postJournalEntry(JournalEntryDraft(
