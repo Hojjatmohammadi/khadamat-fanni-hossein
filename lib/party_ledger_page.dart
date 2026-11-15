@@ -16,11 +16,18 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
   List<Map<String, Object?>> _parties = [];
   Map<String, Object?>? _statement;
   String? _selectedPartyId;
+  final _partySearchController = TextEditingController();
   bool _loading = true;
   bool _loadingMore = false;
   int _nextOffset = 0;
   bool _hasMore = false;
   static const int _pageSize = 100;
+
+  @override
+  void dispose() {
+    _partySearchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -143,6 +150,8 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     final party = _statement?['party'] as Map<String, Object?>?;
     final lines = (_statement?['lines'] as List<Map<String, Object?>>?) ?? [];
     final closing = (_statement?['closing_balance'] as num?)?.toInt() ?? 0;
+    final partyQuery = _partySearchController.text.trim().toLowerCase();
+    final visibleParties = _parties.where((item) => ['display_name', 'phone', 'party_type'].any((key) => (item[key]?.toString() ?? '').toLowerCase().contains(partyQuery))).toList();
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -156,14 +165,28 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            if (_parties.isNotEmpty)
+            if (_parties.isNotEmpty) ...[
+              TextField(
+                controller: _partySearchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'جست‌وجو در اشخاص',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _partySearchController.text.isEmpty ? null : IconButton(
+                    tooltip: 'پاک کردن جست‌وجو',
+                    onPressed: () { _partySearchController.clear(); setState(() {}); },
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 key: ValueKey(_selectedPartyId),
                 initialValue: _selectedPartyId,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'انتخاب مشتری یا فروشنده'),
                 items: [
-                  for (final item in _parties)
+                  for (final item in visibleParties)
                     DropdownMenuItem(
                       value: item['id'] as String,
                       child: Text(
@@ -174,6 +197,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                 ],
                 onChanged: _selectParty,
               ),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
