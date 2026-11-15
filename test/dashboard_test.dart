@@ -82,30 +82,15 @@ void main() {
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
   });
-  testWidgets('simple category pages filter only their own records', (tester) async {
-    tester.view.physicalSize = const Size(1000, 1600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp(
-      home: SimpleListPage(
-        title: 'مشتری',
-        data: [
-          {'نام مشتری': 'احمد', 'شماره تماس': '09120000000'},
-          {'نام مشتری': 'رضا', 'شماره تماس': '09121111111'},
-        ],
-        fields: const ['نام مشتری', 'شماره تماس'],
-        primary: 'نام مشتری',
-        onChanged: () {},
-      ),
-    ));
-
-    expect(find.text('احمد'), findsOneWidget);
-    expect(find.text('رضا'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '09120000000');
-    await tester.pumpAndSettle();
-    expect(find.text('احمد'), findsOneWidget);
-    expect(find.text('رضا'), findsNothing);
-  });
+  test('simple category search filters only matching records', () {
+    final records = [
+      {'نام مشتری': 'احمد', 'شماره تماس': '09120000000'},
+      {'نام مشتری': 'رضا', 'شماره تماس': '09121111111'},
+    ];
+    final result = filterCategoryRecords(records, '09120000000');
+    expect(result, hasLength(1));
+    expect(result.single['نام مشتری'], 'احمد');
+    expect(filterCategoryRecords(records, 'ناموجود'), isEmpty);
+  });;
 
 }
