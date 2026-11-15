@@ -64,8 +64,9 @@ void main() {
     }
 
     Future<void> fillFormField(String label, String value) async {
-      final field = find.byWidgetPredicate(
-        (widget) => widget is TextFormField && widget.decoration.labelText == label,
+      final field = find.ancestor(
+        of: find.text(label),
+        matching: find.byType(TextFormField),
       );
       expect(field, findsOneWidget, reason: 'Missing form field: $label');
       await tester.enterText(field, value);
