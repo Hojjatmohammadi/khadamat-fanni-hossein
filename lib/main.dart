@@ -349,7 +349,7 @@ class _HomePageState extends State<HomePage> {
       for (final row in rows) {
         final values = row.entries.where((e) => !e.key.startsWith('__') && e.value != null).map((e) => '${e.key}: ${e.value}').toList();
         final label = labels.map((key) => row[key]?.toString().trim() ?? '').firstWhere((v) => v.isNotEmpty, orElse: () => category);
-        entries.add({'tab': tab, 'category': category, 'label': label, 'details': values.take(3).join(' • '), 'searchText': row.values.where((v) => v != null).join(' ').toLowerCase()});
+        entries.add({'tab': tab, 'category': category, 'label': label, 'details': values.take(3).join(' • '), 'searchText': ProductDuplicateChecker.normalize(row.values.where((v) => v != null).join(' '))});
       }
     }
     addRows(tab: 1, category: 'کالا', rows: DemoStore.products, labels: const ['نام کالا', 'کد کالا']);
@@ -362,15 +362,15 @@ class _HomePageState extends State<HomePage> {
       final category = switch (type) {'purchase' => 'فاکتور خرید', 'sale' => 'فاکتور فروش', 'supplier_return' => 'برگشت از خرید', 'customer_return' => 'برگشت از فروش', _ => 'سند تجاری'};
       final id = int.tryParse(doc['id']?.toString() ?? '');
       final lines = id == null ? <Map<String, Object?>>[] : await DemoStore.trades.getDocumentLines(id);
-      final searchable = [...doc.values.map((v) => v?.toString() ?? ''), ...lines.expand((line) => line.values.map((v) => v?.toString() ?? ''))].join(' ').toLowerCase();
-      entries.add({'tab': targetTab, 'category': category, 'label': doc['document_number']?.toString() ?? category, 'details': '${doc['counterparty_name'] ?? ''} • ${doc['document_date'] ?? ''} • ${doc['total_amount'] ?? ''}', 'searchText': searchable});
+      final searchable = [...doc.values.map((v) => v?.toString() ?? ''), ...lines.expand((line) => line.values.map((v) => v?.toString() ?? ''))].join(' ');
+      entries.add({'tab': targetTab, 'category': category, 'label': doc['document_number']?.toString() ?? category, 'details': '${doc['counterparty_name'] ?? ''} • ${doc['document_date'] ?? ''} • ${doc['total_amount'] ?? ''}', 'searchText': ProductDuplicateChecker.normalize(searchable)});
     }
     addRows(tab: 6, category: 'طرف حساب', rows: await DemoStore.parties.getParties(), labels: const ['display_name', 'phone']);
     addRows(tab: 7, category: 'چک', rows: await DemoStore.checks.getChecks(), labels: const ['check_number', 'bank_name', 'serial_number']);
     for (final entry in await DemoStore.accounting.getJournalEntries()) {
       final lines = entry['lines'] is List ? entry['lines'] as List : const <Object?>[];
-      final searchable = [...entry.values.where((v) => v is! List).map((v) => v?.toString() ?? ''), ...lines.expand((line) => line is Map ? line.values.map((v) => v?.toString() ?? '') : const <String>[])].join(' ').toLowerCase();
-      entries.add({'tab': 9, 'category': 'سند حسابداری', 'label': entry['description']?.toString() ?? 'سند حسابداری', 'details': entry['entry_date']?.toString() ?? '', 'searchText': searchable});
+      final searchable = [...entry.values.where((v) => v is! List).map((v) => v?.toString() ?? ''), ...lines.expand((line) => line is Map ? line.values.map((v) => v?.toString() ?? '') : const <String>[])].join(' ');
+      entries.add({'tab': 9, 'category': 'سند حسابداری', 'label': entry['description']?.toString() ?? 'سند حسابداری', 'details': entry['entry_date']?.toString() ?? '', 'searchText': ProductDuplicateChecker.normalize(searchable)});
     }
     return entries;
   }
@@ -382,7 +382,7 @@ class _HomePageState extends State<HomePage> {
     try { entries = await _globalSearchEntries(); } catch (_) { loadError = true; }
     if (!mounted) { controller.dispose(); return; }
     await showDialog<void>(context: context, builder: (dialogContext) => Directionality(textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (context, refresh) {
-      final query = controller.text.trim().toLowerCase();
+      final query = ProductDuplicateChecker.normalize(controller.text);
       final results = query.isEmpty ? <Map<String, Object>>[] : entries.where((e) => (e['searchText']! as String).contains(query)).take(50).toList();
       return AlertDialog(title: const Text('جست‌وجوی سراسری'), content: SizedBox(width: 460, child: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(autofocus: true, controller: controller, onChanged: (_) => refresh(() {}), decoration: const InputDecoration(hintText: 'کالا، خرید، فروش، اشخاص، چک و حسابداری', prefixIcon: Icon(Icons.search))),
