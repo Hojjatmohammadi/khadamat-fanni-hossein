@@ -2,9 +2,6 @@ name: Build Android APK
 # The generated Android project is upgraded to compileSdk 36 before release builds.
 
 on:
-  push:
-    branches:
-      - fix/dashboard-layout-phase2
   workflow_dispatch:
 
 permissions:
