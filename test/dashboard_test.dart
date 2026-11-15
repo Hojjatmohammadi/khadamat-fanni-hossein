@@ -82,4 +82,26 @@ void main() {
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
   });
+  testWidgets('simple category pages filter only their own records', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: SimpleListPage(
+        title: 'مشتری',
+        data: [
+          {'نام مشتری': 'احمد', 'شماره تماس': '09120000000'},
+          {'نام مشتری': 'رضا', 'شماره تماس': '09121111111'},
+        ],
+        fields: const ['نام مشتری', 'شماره تماس'],
+        primary: 'نام مشتری',
+        onChanged: () {},
+      ),
+    ));
+
+    expect(find.text('احمد'), findsOneWidget);
+    expect(find.text('رضا'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'احمد');
+    await tester.pumpAndSettle();
+    expect(find.text('احمد'), findsOneWidget);
+    expect(find.text('رضا'), findsNothing);
+  });
+
 }
