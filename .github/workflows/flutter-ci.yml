@@ -26,3 +26,14 @@ jobs:
         run: flutter analyze --no-pub --no-fatal-infos
       - name: Run tests
         run: flutter test --no-pub
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosein-technical-services-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
