@@ -137,7 +137,7 @@ jobs:
           for gradle in packages:
               content = gradle.read_text(encoding="utf-8")
               content, count = re.subn(
-                  r"(?m)^(\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?)34(\\s*(?://.*)?$)",
+                  r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)34(\s*(?://.*)?$)",
                   lambda match: match.group(1) + "36" + match.group(2),
                   content,
                   count=1,
