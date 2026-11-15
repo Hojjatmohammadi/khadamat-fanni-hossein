@@ -197,6 +197,115 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  List<Map<String, Object>> _globalSearchEntries() {
+    final sources = <({int tab, String category, List<Map<String, String>> items, List<String> labels})>[
+      (tab: 1, category: 'کالا', items: DemoStore.products, labels: ['نام کالا', 'کد کالا']),
+      (tab: 3, category: 'مشتری', items: DemoStore.customers, labels: ['نام مشتری', 'نام', 'شماره تماس']),
+      (tab: 4, category: 'تعمیر', items: DemoStore.repairs, labels: ['نام مشتری', 'نام دستگاه', 'نوع دستگاه']),
+      (tab: 5, category: 'فاکتور فروش', items: DemoStore.sales, labels: ['شماره فاکتور', 'نام مشتری']),
+    ];
+    final entries = <Map<String, Object>>[];
+    for (final source in sources) {
+      for (final item in source.items) {
+        final label = source.labels
+            .map((key) => item[key]?.trim() ?? '')
+            .firstWhere((value) => value.isNotEmpty, orElse: () => source.category);
+        final details = item.entries
+            .where((entry) => !entry.key.startsWith('__') && entry.value.trim().isNotEmpty)
+            .take(3)
+            .map((entry) => '${entry.key}: ${entry.value}')
+            .join(' • ');
+        entries.add({
+          'tab': source.tab,
+          'category': source.category,
+          'label': label,
+          'details': details,
+          'searchText': item.entries.map((entry) => entry.value).join(' ').toLowerCase(),
+        });
+      }
+    }
+    return entries;
+  }
+
+  Future<void> _showGlobalSearch() async {
+    final controller = TextEditingController();
+    final entries = _globalSearchEntries();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (context, refreshDialog) {
+            final query = controller.text.trim().toLowerCase();
+            final results = query.isEmpty
+                ? <Map<String, Object>>[]
+                : entries
+                    .where((entry) => (entry['searchText']! as String).contains(query))
+                    .take(30)
+                    .toList();
+            return AlertDialog(
+              title: const Text('جست‌وجوی سراسری'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      controller: controller,
+                      onChanged: (_) => refreshDialog(() {}),
+                      decoration: const InputDecoration(
+                        hintText: 'نام کالا، مشتری، شماره تماس یا فاکتور',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      child: query.isEmpty
+                          ? const Center(
+                              child: Text('برای جست‌وجو، عبارت موردنظر را وارد کنید.'),
+                            )
+                          : results.isEmpty
+                              ? const Center(child: Text('نتیجه‌ای پیدا نشد.'))
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: results.length,
+                                  itemBuilder: (context, index) {
+                                    final result = results[index];
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(result['label']! as String),
+                                      subtitle: Text(
+                                        '${result['category']} • ${result['details']}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(dialogContext);
+                                        _selectTab(result['tab']! as int);
+                                      },
+                                    );
+                                  },
+                                ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('بستن'),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
   Future<void> _handleBack() async {
     if (scaffoldKey.currentState?.isDrawerOpen == true) {
       scaffoldKey.currentState?.closeDrawer();
@@ -277,7 +386,53 @@ class _HomePageState extends State<HomePage> {
         child: Scaffold(
           key: scaffoldKey,
           appBar: AppBar(
-            title: Text(titles[tab]),
+            title: tab == 0
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          'assets/logo.jpg',
+                          width: 36,
+                          height: 36,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Flexible(
+                        child: Text(
+                          'خدمات فنی حسین',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(titles[tab]),
+            actions: [
+              IconButton(
+                tooltip: 'جست‌وجوی سراسری',
+                onPressed: _showGlobalSearch,
+                icon: const Icon(Icons.search),
+              ),
+              PopupMenuButton<int>(
+                tooltip: 'افزودن مورد جدید',
+                icon: const Icon(Icons.add_circle_outline),
+                onSelected: _selectTab,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 1, child: Text('ثبت کالا')),
+                  PopupMenuItem(value: 2, child: Text('ثبت خرید')),
+                  PopupMenuItem(value: 3, child: Text('ثبت مشتری')),
+                  PopupMenuItem(value: 4, child: Text('پذیرش تعمیر')),
+                  PopupMenuItem(value: 5, child: Text('صدور فاکتور فروش')),
+                ],
+              ),
+            ],
           ),
           body: pages[tab],
           drawer: Drawer(
@@ -343,34 +498,7 @@ class Dashboard extends StatelessWidget {
       child: ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: black, borderRadius: BorderRadius.circular(18)),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.asset(
-                  'assets/logo.jpg',
-                  width: 62,
-                  height: 62,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontWeight: FontWeight.bold, fontSize: 20)),
-                    Text('مدیریت فروشگاه و تعمیرات', style: TextStyle(color: Colors.white70)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 4),
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
