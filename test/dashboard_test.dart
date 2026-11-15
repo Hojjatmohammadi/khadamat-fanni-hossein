@@ -75,7 +75,9 @@ void main() {
     );
     expect(find.byTooltip('جست‌وجوی سراسری'), findsOneWidget);
     expect(find.byTooltip('افزودن مورد جدید'), findsOneWidget);
-    tester.state<ScaffoldState>(find.byType(Scaffold)).openDrawer();
+    expect(find.byKey(const ValueKey('open-navigation-drawer')), findsOneWidget);
+    expect(find.byTooltip('باز کردن فهرست'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('open-navigation-drawer')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
