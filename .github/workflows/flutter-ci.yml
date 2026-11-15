@@ -6,6 +6,10 @@ on:
       - '**'
   pull_request:
 
+concurrency:
+  group: flutter-ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
