@@ -36,18 +36,18 @@ void main() {
 
   testWidgets('home app bar shows shop branding instead of dashboard title and exposes search and add',
       (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpWidget(const HoseinApp());
 
     expect(
       find.descendant(
-        of: find.byType(AppBar),
+        of: find.byKey(const ValueKey('home-brand-title')),
         matching: find.text('خدمات فنی حسین'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
-        of: find.byType(AppBar),
+        of: find.byKey(const ValueKey('home-brand-title')),
         matching: find.text('داشبورد'),
       ),
       findsNothing,
