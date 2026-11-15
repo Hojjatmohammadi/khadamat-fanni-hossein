@@ -63,6 +63,15 @@ void main() {
       await tester.pump();
     }
 
+    Future<void> fillFormField(String label, String value) async {
+      final field = find.byWidgetPredicate(
+        (widget) => widget is TextFormField && widget.decoration.labelText == label,
+      );
+      expect(field, findsOneWidget, reason: 'Missing form field: $label');
+      await tester.enterText(field, value);
+      await tester.pump();
+    }
+
     // Create one customer and reuse the same customer in repair and sales.
     await openSection('مشتریان');
     await tester.tap(find.byType(FloatingActionButton));
@@ -160,6 +169,68 @@ void main() {
     await openSection('پشتیبان‌گیری و بازیابی');
     expect(find.text('تهیه و ارسال نسخه پشتیبان'), findsOneWidget);
     expect(find.text('نسخه‌های ذخیره‌شده'), findsOneWidget);
+    await tester.tap(find.byTooltip('تازه‌سازی'));
+    await tester.pumpAndSettle();
+
+    // Register an incoming check using Persian digits for the amount.
+    await openSection('مدیریت چک‌ها');
+    final checkPartyDropdown = find.byWidgetPredicate(
+      (widget) => widget is DropdownButtonFormField<String> &&
+          widget.decoration.labelText?.startsWith('انتخاب از اشخاص ثبت‌شده') == true,
+    );
+    expect(checkPartyDropdown, findsOneWidget);
+    await tester.tap(checkPartyDropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('مشتری آزمایشی شبیه‌ساز').last);
+    await tester.pumpAndSettle();
+    await fillField('شماره چک', 'EMU-CHECK-01');
+    await fillField('نام بانک', 'بانک آزمایشی');
+    await fillField('نام صاحب حساب / صادرکننده', 'مشتری آزمایشی');
+    await fillField('مبلغ چک (تومان)', '۱۲۳۴۵');
+    await tester.tap(find.text('ثبت چک'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.text('چک و سند حسابداری آن ثبت شد'), findsOneWidget);
+
+    // Record an expense with Persian digits and open the journal/trial balance tabs.
+    await openSection('دفتر روزنامه و هزینه‌ها');
+    await fillField('شرح هزینه', 'هزینه آزمایشی شبیه‌ساز');
+    await fillField('مبلغ (تومان)', '۲۵۰۰');
+    await tester.tap(find.text('ثبت هزینه و سند حسابداری'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.text('هزینه ثبت شد و سند حسابداری متوازن ایجاد شد'), findsOneWidget);
+    await tester.tap(find.text('دفتر روزنامه'));
+    await tester.pumpAndSettle();
+    expect(find.text('دفتر روزنامه'), findsWidgets);
+    await tester.tap(find.text('تراز آزمایشی'));
+    await tester.pumpAndSettle();
+    expect(find.text('تراز آزمایشی'), findsWidgets);
+
+    // Load a real inventory movement report from the transactions above.
+    await openSection('گزارش‌ها');
+    final reportType = find.byWidgetPredicate(
+      (widget) => widget is DropdownButtonFormField<String> &&
+          widget.decoration.labelText == 'نوع گزارش',
+    );
+    expect(reportType, findsOneWidget);
+    await tester.tap(reportType);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('کاردکس و گردش انبار'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.text('گزارش‌های عملیاتی'), findsOneWidget);
+    expect(find.text('قطعه آزمایشی شبیه‌ساز'), findsWidgets);
+
+    // Save settings with Persian numeric percentages.
+    await tester.tap(find.byTooltip('باز کردن فهرست'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('drawer-settings-button')));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    await fillFormField('نام فروشگاه', 'خدمات فنی آزمایشی');
+    await fillFormField('نام مسئول', 'کاربر آزمایشی');
+    await fillFormField('درصد مالیات بر ارزش افزوده', '۱۲٫۵');
+    await fillFormField('درصد تخفیف پیش‌فرض', '۵');
+    await tester.tap(find.text('ذخیره تنظیمات'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(find.text('تنظیمات و لوگوی فروشگاه ذخیره شد.'), findsOneWidget);
   });
 
 }
