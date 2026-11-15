@@ -172,6 +172,7 @@ void main() {
         'address': 'عشق آباد',
         'stampImageBase64': 'stamp-fixed-at-issue',
         'signatureImageBase64': 'signature-fixed-at-issue',
+        'appLogoBase64': 'logo-fixed-at-issue',
       },
     );
 
@@ -187,6 +188,7 @@ void main() {
     expect(snapshot['shopName'], 'خدمات فنی حسین');
     expect(snapshot['stampImageBase64'], 'stamp-fixed-at-issue');
     expect(snapshot['signatureImageBase64'], 'signature-fixed-at-issue');
+    expect(snapshot['appLogoBase64'], 'logo-fixed-at-issue');
     expect(snapshot['counterpartyName'], 'مشتری فاکتور');
     expect(snapshot['totalAmount'], 5000);
     expect(snapshot['paidAmount'], 5000);
