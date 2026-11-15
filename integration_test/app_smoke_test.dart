@@ -8,7 +8,7 @@ void main() {
 
   testWidgets('Android emulator opens every primary section and global search',
       (tester) async {
-    app.main();
+    await app.main();
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expect(find.text('خدمات فنی حسین'), findsWidgets);
@@ -44,7 +44,7 @@ void main() {
   });
   testWidgets('Android emulator completes customer, stock, purchase, repair and sale workflows',
       (tester) async {
-    app.main();
+    await app.main();
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     Future<void> openSection(String section) async {
