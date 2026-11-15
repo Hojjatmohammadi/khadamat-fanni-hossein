@@ -368,7 +368,7 @@ class _HomePageState extends State<HomePage> {
     addRows(tab: 6, category: 'طرف حساب', rows: await DemoStore.parties.getParties(), labels: const ['display_name', 'phone']);
     addRows(tab: 7, category: 'چک', rows: await DemoStore.checks.getChecks(), labels: const ['check_number', 'bank_name', 'serial_number']);
     for (final entry in await DemoStore.accounting.getJournalEntries()) {
-      final lines = entry['lines'] is List ? entry['lines'] as List : const [];
+      final lines = entry['lines'] is List ? entry['lines'] as List : const <Object?>[];
       final searchable = [...entry.values.where((v) => v is! List).map((v) => v?.toString() ?? ''), ...lines.expand((line) => line is Map ? line.values.map((v) => v?.toString() ?? '') : const <String>[])].join(' ').toLowerCase();
       entries.add({'tab': 9, 'category': 'سند حسابداری', 'label': entry['description']?.toString() ?? 'سند حسابداری', 'details': entry['entry_date']?.toString() ?? '', 'searchText': searchable});
     }
