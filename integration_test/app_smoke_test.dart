@@ -18,6 +18,47 @@ void main() {
 
     expect(find.text('خدمات فنی حسین'), findsWidgets);
 
+    // Exercise every home card on the Android emulator and verify its destination.
+    const homeCardDestinations = <String, String>{
+      'خرید': 'خرید و برگشت',
+      'فروش': 'فروش و فاکتور',
+      'انبار': 'انبار کالا',
+      'پشتیبان‌گیری': 'پشتیبان‌گیری و بازیابی',
+      'فاکتور': 'فروش و فاکتور',
+      'پذیرش دستگاه': 'تعمیرات',
+      'صورت‌حساب اشخاص': 'دفتر گردش اشخاص',
+      'تماس / ارسال پیامک': 'مشتریان',
+    };
+    for (final entry in homeCardDestinations.entries) {
+      await tester.tap(find.text(entry.key));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text(entry.value), findsWidgets,
+          reason: 'Home card "${entry.key}" must open "${entry.value}"');
+      await tester.tap(find.byTooltip('باز کردن فهرست'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      await tester.pumpAndSettle();
+    }
+
+    // Exercise the three actions inside the "other operations" home card.
+    const otherDestinations = <String>[
+      'مدیریت چک‌ها',
+      'گزارش‌ها',
+      'دفتر روزنامه و هزینه‌ها',
+    ];
+    for (final destination in otherDestinations) {
+      await tester.tap(find.text('عملیات‌های دیگر'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(destination));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.text(destination), findsWidgets,
+          reason: 'Other operation did not open: $destination');
+      await tester.tap(find.byTooltip('باز کردن فهرست'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      await tester.pumpAndSettle();
+    }
+
     await tester.tap(find.byTooltip('افزودن مورد جدید'));
     await tester.pumpAndSettle();
     expect(find.text('ثبت کالا'), findsOneWidget);
