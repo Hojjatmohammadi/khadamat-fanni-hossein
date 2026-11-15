@@ -4,7 +4,7 @@ name: Build Android APK
 on:
   push:
     branches:
-      - phase2/database-foundation
+      - fix/dashboard-layout-phase2
   workflow_dispatch:
 
 permissions:
