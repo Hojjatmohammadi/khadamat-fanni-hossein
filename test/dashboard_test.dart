@@ -15,7 +15,9 @@ void main() {
       MaterialApp(
         home: Directionality(
           textDirection: TextDirection.rtl,
-          child: Dashboard(onSelect: selectedTabs.add),
+          child: Scaffold(
+            body: Dashboard(onSelect: selectedTabs.add),
+          ),
         ),
       ),
     );
