@@ -1,0 +1,129 @@
+name: Android emulator smoke tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  android-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform when absent
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+          fi
+
+      - name: Remove untracked Flutter scaffolding
+        run: |
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Configure Android API 36 and core library desugaring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle")
+          if not gradle.exists():
+              gradle = Path("android/app/build.gradle.kts")
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file is missing")
+          text = gradle.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)(?:flutter\.compileSdkVersion|\d+)(\s*(?://.*)?$)",
+              lambda m: m.group(1) + "36" + m.group(2),
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not safely configure compileSdk 36")
+          is_kts = gradle.suffix == ".kts"
+          enable = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+          if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
+              text, n = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enable, text, count=1)
+              if n != 1:
+                  raise SystemExit("Could not find compileOptions block")
+          if "desugar_jdk_libs" not in text:
+              if re.search(r"dependencies\s*\{", text):
+                  text = re.sub(r"(dependencies\s*\{)", r"\1\n    " + dependency, text, count=1)
+              else:
+                  text += "\n\ndependencies {\n    " + dependency + "\n}\n"
+          gradle.write_text(text, encoding="utf-8")
+          print(f"Configured {gradle} for API 36 and desugaring")
+          PY
+
+      - name: Install Android SDK platform 36
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "platforms;android-36"
+
+      - name: Align file_picker Android compile SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          packages = sorted(Path.home().joinpath(".pub-cache/hosted/pub.dev").glob("file_picker-*/android/build.gradle*"))
+          changed = []
+          for path in packages:
+              source = path.read_text(encoding="utf-8")
+              updated, count = re.subn(
+                  r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)34(\s*(?://.*)?$)",
+                  lambda m: m.group(1) + "36" + m.group(2),
+                  source,
+                  count=1,
+              )
+              if count:
+                  path.write_text(updated, encoding="utf-8")
+                  changed.append(str(path))
+          print("file_picker Gradle files adjusted: " + (", ".join(changed) if changed else "no API 34 override found"))
+          PY
+
+      - name: Run app on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
+
+      - name: Upload emulator test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-diagnostics
+          path: |
+            build/
+            /home/runner/.android/avd/*.avd/*.log
+          if-no-files-found: ignore
+          retention-days: 7
