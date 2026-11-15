@@ -532,6 +532,12 @@ class _HomePageState extends State<HomePage> {
         child: Scaffold(
           key: scaffoldKey,
           appBar: AppBar(
+            leading: IconButton(
+              key: const ValueKey('open-navigation-drawer'),
+              tooltip: 'باز کردن فهرست',
+              icon: const Icon(Icons.menu),
+              onPressed: () => scaffoldKey.currentState?.openDrawer(),
+            ),
             title: tab == 0
                 ? Row(
                     key: const ValueKey('home-brand-title'),
