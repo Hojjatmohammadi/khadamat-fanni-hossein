@@ -69,12 +69,12 @@ jobs:
           dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kotlin else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
 
           if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
-              content, count = re.subn(r"(compileOptions\\s*\\{)", r"\\1\\n        " + enabled, content, count=1)
+              content, count = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enabled, content, count=1)
               if count != 1:
                   raise SystemExit("Could not find Android compileOptions block")
 
           if "desugar_jdk_libs" not in content:
-              content, count = re.subn(r"(dependencies\\s*\\{)", r"\\1\\n    " + dependency, content, count=1)
+              content, count = re.subn(r"(dependencies\s*\{)", r"\1\n    " + dependency, content, count=1)
               if count != 1:
                   raise SystemExit("Could not find Android dependencies block")
 
