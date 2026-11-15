@@ -5,47 +5,54 @@ import 'package:khadamat_fanni_hosein/main.dart';
 void main() {
   testWidgets('home screen shows only the requested category cards',
       (tester) async {
-    final selectedTabs = <int>[];
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Scaffold(
-            body: Dashboard(onSelect: selectedTabs.add),
-          ),
-        ),
-      ),
-    );
+    await tester.pumpWidget(const HoseinApp());
 
-    expect(find.byType(SafeArea), findsOneWidget);
     expect(find.byType(GridView), findsOneWidget);
     expect(find.text('دسترسی سریع'), findsNothing);
     expect(find.text('کالاهای ثبت‌شده'), findsNothing);
     expect(find.text('مشتریان'), findsNothing);
-    expect(find.text('پذیرش دستگاه'), findsOneWidget);
-    expect(find.text('خرید'), findsOneWidget);
-    expect(find.text('فروش'), findsOneWidget);
-    expect(find.text('انبار'), findsOneWidget);
-    expect(find.text('پشتیبان‌گیری'), findsOneWidget);
-    expect(find.text('فاکتور'), findsOneWidget);
-    expect(find.text('صورت‌حساب اشخاص'), findsOneWidget);
-    expect(find.text('تماس / ارسال پیامک'), findsOneWidget);
+    for (final title in [
+      'خرید',
+      'فروش',
+      'انبار',
+      'پشتیبان‌گیری',
+      'فاکتور',
+      'پذیرش دستگاه',
+      'صورت‌حساب اشخاص',
+      'تماس / ارسال پیامک',
+      'عملیات‌های دیگر',
+    ]) {
+      expect(find.text(title), findsOneWidget, reason: 'Missing home card: $title');
+    }
 
-    await tester.ensureVisible(find.text('انبار'));
     await tester.tap(find.text('انبار'));
-    expect(selectedTabs, contains(1));
+    await tester.pumpAndSettle();
+    expect(find.text('انبار کالا'), findsOneWidget);
+  });
 
-    await tester.ensureVisible(find.text('عملیات‌های دیگر'));
+  testWidgets('other operations card opens its secondary actions',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
     await tester.tap(find.text('عملیات‌های دیگر'));
     await tester.pumpAndSettle();
+
     expect(find.text('مدیریت چک‌ها'), findsOneWidget);
     expect(find.text('گزارش‌ها'), findsOneWidget);
     expect(find.text('دفتر روزنامه و هزینه‌ها'), findsOneWidget);
+
+    await tester.tap(find.text('گزارش‌ها'));
+    await tester.pumpAndSettle();
+    expect(find.text('گزارش‌ها'), findsOneWidget);
   });
 
   testWidgets('home app bar shows shop branding and exposes search and add',
