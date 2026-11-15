@@ -3314,7 +3314,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'currency': _currency,
         'appLogoBase64': _logoBase64,
       });
-      DemoStore.appLogoBase64 = _logoBase64.isEmpty ? null : _logoBase64;
+      DemoStore.appLogo.value = _logoBase64.isEmpty ? null : _logoBase64;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تنظیمات و لوگوی فروشگاه ذخیره شد.')),
