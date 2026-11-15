@@ -335,8 +335,13 @@ class Dashboard extends StatelessWidget {
       ('پذیرش تعمیرات', DemoStore.repairs.length.toString(), Icons.build),
       ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt),
     ];
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    // Keep dashboard content clear of Android's gesture/navigation area.
+    // SafeArea also prevents the last quick-action card from being obscured
+    // on devices using transparent system navigation bars.
+    return SafeArea(
+      top: false,
+      child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
         Container(
           padding: const EdgeInsets.all(18),
@@ -370,7 +375,9 @@ class Dashboard extends StatelessWidget {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 2,
-          childAspectRatio: 1.20,
+          // A slightly wider card ratio reduces unnecessary vertical
+          // scrolling while keeping the two-column dashboard readable.
+          childAspectRatio: 1.38,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
           children: [
@@ -392,7 +399,7 @@ class Dashboard extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         const Text('دسترسی سریع', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         for (final e in [(1, 'ثبت کالا'), (2, 'ثبت خرید'), (3, 'ثبت مشتری'), (4, 'پذیرش تعمیر'), (5, 'صدور فاکتور'), (6, 'دفتر گردش اشخاص'), (7, 'مدیریت چک‌ها'), (9, 'دفتر روزنامه و هزینه‌ها')])
           Card(
@@ -410,6 +417,7 @@ class Dashboard extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }
