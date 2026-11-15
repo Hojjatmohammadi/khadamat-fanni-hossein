@@ -31,6 +31,7 @@ void main() {
     expect(value['shopName'], 'خدمات فنی حسین');
     expect(value['ownerName'], 'حجت محمدی');
     expect(value['stampImageBase64'], '');
+    expect(value['appLogoBase64'], '');
     expect(value['signatureImageBase64'], '');
     expect(value['currency'], 'تومان');
     expect(value['vatPercent'], '0');
@@ -47,6 +48,7 @@ void main() {
       'address': 'عشق آباد',
       'stampImageBase64': 'compressed-stamp-data',
       'signatureImageBase64': 'compressed-signature-data',
+      'appLogoBase64': 'compressed-logo-data',
     });
 
     await settings.saveSettings(value);
@@ -84,7 +86,7 @@ void main() {
     await expectLater(
       settings.saveSettings({
         ...InvoiceSettingsRepository.defaults,
-        'stampImageBase64': List<String>.filled(1500001, 'x').join(),
+        'appLogoBase64': List<String>.filled(1500001, 'x').join(),
       }),
       throwsArgumentError,
     );
