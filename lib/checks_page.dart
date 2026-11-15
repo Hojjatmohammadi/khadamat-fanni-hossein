@@ -573,8 +573,8 @@ class _CheckPageState extends State<CheckPage> {
               ),
             ),
             if (visibleChecks.isEmpty)
-              const Card(child: Padding(
-                padding: EdgeInsets.all(14),
+              Card(child: Padding(
+                padding: const EdgeInsets.all(14),
                 child: Text(_checks.isEmpty ? 'هنوز چکی ثبت نشده است' : 'چکی با این عبارت پیدا نشد'),
               )),
             for (final check in visibleChecks) _checkCard(check),
