@@ -124,6 +124,32 @@ jobs:
       - name: Resolve Flutter packages
         run: flutter pub get
 
+      - name: Align file_picker Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(Path.home().joinpath(".pub-cache/hosted/pub.dev").glob("file_picker-*/android/build.gradle*"))
+          if not packages:
+              raise SystemExit("Could not locate the resolved file_picker Android Gradle file")
+          updated = []
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content, count = re.subn(
+                  r"(?m)^(\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?)34(\\s*(?://.*)?$)",
+                  lambda match: match.group(1) + "36" + match.group(2),
+                  content,
+                  count=1,
+              )
+              if count:
+                  gradle.write_text(content, encoding="utf-8")
+                  updated.append(str(gradle))
+          if not updated:
+              raise SystemExit("file_picker compileSdk was not the expected API 34; refusing an unsafe patch")
+          print("Updated file_picker Android compile SDK to 36: " + ", ".join(updated))
+          PY
+
       - name: Analyze source
         run: flutter analyze --no-pub
 
