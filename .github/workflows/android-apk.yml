@@ -74,9 +74,10 @@ jobs:
                   raise SystemExit("Could not find Android compileOptions block")
 
           if "desugar_jdk_libs" not in content:
-              content, count = re.subn(r"(dependencies\s*\{)", r"\1\n    " + dependency, content, count=1)
-              if count != 1:
-                  raise SystemExit("Could not find Android dependencies block")
+              if re.search(r"dependencies\\s*\\{", content):
+                  content = re.sub(r"(dependencies\\s*\\{)", r"\\1\\n    " + dependency, content, count=1)
+              else:
+                  content += "\\n\\ndependencies {\\n    " + dependency + "\\n}\\n"
 
           gradle.write_text(content, encoding="utf-8")
           print(f"Enabled core library desugaring in {gradle}")
