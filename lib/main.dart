@@ -3447,7 +3447,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             return 'این فیلد الزامی است';
           }
           if (key == 'vatPercent' || key == 'defaultDiscount') {
-            final number = double.tryParse((value ?? '').trim());
+            final number = LocalizedNumber.tryParseDouble(value ?? '');
             if (number == null || number < 0 || number > 100) {
               return 'عدد باید بین صفر تا ۱۰۰ باشد';
             }
