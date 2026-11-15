@@ -155,6 +155,29 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 3));
     expect(find.text('مصرف قطعه و سند حسابداری ثبت شد'), findsOneWidget);
 
+    // Post labor income and collect the outstanding amount to the exact same customer.
+    await tester.tap(find.text('ثبت درآمد اجرت تعمیر'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('دریل آزمایشی').last);
+    await tester.pumpAndSettle();
+    await fillField('مبلغ دریافت‌شده (تومان)', '۱۰۰۰');
+    await tester.tap(find.text('ثبت'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.text('درآمد اجرت ثبت شد؛ مانده دریافت‌نشده در حساب مشتری باقی ماند'),
+        findsOneWidget);
+
+    await tester.tap(find.text('دریافت مانده اجرت تعمیر'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('دریل آزمایشی').last);
+    await tester.pumpAndSettle();
+    await fillField('مبلغ دریافتی (تومان)', '۲۰۰۰');
+    await tester.tap(find.text('ثبت دریافت'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+    expect(find.text('دریافت مانده اجرت ثبت شد'), findsOneWidget);
+    final linkedRepairPartyId = app.DemoStore.repairs.single['شناسه طرف حساب']!;
+    final repairStatement = await app.DemoStore.parties.getPartyStatement(linkedRepairPartyId);
+    expect(repairStatement['closing_balance'], 0);
+
     // Sell one unit to the same saved customer and verify the invoice is archived.
     await openSection('فروش و فاکتور');
     final partyDropdown = find.byWidgetPredicate(
