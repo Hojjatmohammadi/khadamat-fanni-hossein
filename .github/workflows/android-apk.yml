@@ -51,6 +51,37 @@ jobs:
           manifest.write_text(content, encoding="utf-8")
           PY
 
+      - name: Enable Android core library desugaring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+
+          content = gradle.read_text(encoding="utf-8")
+          is_kotlin = gradle.suffix == ".kts"
+          enabled = "isCoreLibraryDesugaringEnabled = true" if is_kotlin else "coreLibraryDesugaringEnabled true"
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kotlin else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+
+          if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
+              content, count = re.subn(r"(compileOptions\\s*\\{)", r"\\1\\n        " + enabled, content, count=1)
+              if count != 1:
+                  raise SystemExit("Could not find Android compileOptions block")
+
+          if "desugar_jdk_libs" not in content:
+              content, count = re.subn(r"(dependencies\\s*\\{)", r"\\1\\n    " + dependency, content, count=1)
+              if count != 1:
+                  raise SystemExit("Could not find Android dependencies block")
+
+          gradle.write_text(content, encoding="utf-8")
+          print(f"Enabled core library desugaring in {gradle}")
+          PY
+
       - name: Resolve Flutter packages
         run: flutter pub get
 
