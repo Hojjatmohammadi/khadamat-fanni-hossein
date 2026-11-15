@@ -562,6 +562,13 @@ void main() {
         .toList();
     expect(purchaseDiscountShares.every((share) => share >= 0), isTrue);
     expect(purchaseDiscountShares.fold<int>(0, (sum, share) => sum + share), 2);
+    expect(
+      allocatedPurchaseLines
+          .where((line) => line['line_total'] == 0)
+          .every((line) => line['tax_amount'] == 0),
+      isTrue,
+      reason: 'Fully discounted purchase lines must not receive VAT',
+    );
 
     await trades.recordSale(
       TradeDocumentDraft(
@@ -572,24 +579,33 @@ void main() {
           for (final productId in productIds)
             TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1),
         ],
+        discountAmount: 2,
         vatRate: 50,
-        paidAmount: 6,
+        paidAmount: 3,
       ),
     );
 
     final sale = (await trades.getDocuments(type: 'sale')).single;
     expect(sale['subtotal'], 4);
-    expect(sale['vat_amount'], 2);
-    expect(sale['total_amount'], 6);
+    expect(sale['discount_amount'], 2);
+    expect(sale['vat_amount'], 1);
+    expect(sale['total_amount'], 3);
     final saleId = sale['id'] as int;
     final allocatedSaleLines = await trades.getDocumentLines(saleId);
     final taxShares = allocatedSaleLines
         .map((line) => line['tax_amount'] as int)
         .toList();
     expect(taxShares.every((share) => share >= 0), isTrue);
-    expect(taxShares.fold<int>(0, (sum, share) => sum + share), 2);
+    expect(taxShares.fold<int>(0, (sum, share) => sum + share), 1);
     expect(allocatedSaleLines.every((line) => (line['line_total'] as int) >= 0),
         isTrue);
+    expect(
+      allocatedSaleLines
+          .where((line) => line['line_total'] == 0)
+          .every((line) => line['tax_amount'] == 0),
+      isTrue,
+      reason: 'Fully discounted sale lines must not receive VAT',
+    );
   });
 
 }
