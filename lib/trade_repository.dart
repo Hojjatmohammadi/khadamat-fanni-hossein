@@ -185,10 +185,15 @@ class TradeRepository {
       }
       final chargeTotal = draft.shippingCost + draft.freightCost + draft.otherCost;
       final netBase = subtotal - draft.discountAmount;
+      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final netBaseShares = List<int>.generate(
+        baseAmounts.length,
+        (i) => baseAmounts[i] - discountShares[i],
+      );
       final vatAmount = draft.vatExempt
           ? 0
           : (netBase * draft.vatRate / 100).round();
-      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final purchaseTaxShares = _allocate(vatAmount, netBaseShares);
       final chargeShares = _allocate(chargeTotal, baseAmounts);
 
       final landedTotals = <int>[];
@@ -272,7 +277,7 @@ class TradeRepository {
           unitPrice: line.unitPrice,
           unitCost: landedUnitCosts[i],
           lineTotal: landedTotals[i],
-          taxAmount: _allocate(vatAmount, baseAmounts)[i],
+          taxAmount: purchaseTaxShares[i],
         );
         await _accounting.recordStockMovementInTransaction(
           txn,
@@ -320,9 +325,15 @@ class TradeRepository {
         throw ArgumentError('تخفیف فروش نمی‌تواند از مبلغ کالاها بیشتر باشد');
       }
       final netSales = subtotal - draft.discountAmount;
+      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final netShares = List<int>.generate(
+        baseAmounts.length,
+        (i) => baseAmounts[i] - discountShares[i],
+      );
       final vatAmount = draft.vatExempt
           ? 0
           : (netSales * draft.vatRate / 100).round();
+      final taxShares = _allocate(vatAmount, netShares);
       final total = netSales + vatAmount;
       _validatePaidAmount(draft.paidAmount, total);
       _validateCashAccount(draft.cashAccountCode);
@@ -382,8 +393,6 @@ class TradeRepository {
         payload: payload,
       );
 
-      final taxShares = _allocate(vatAmount, baseAmounts);
-      final netShares = _allocate(netSales, baseAmounts);
       for (var i = 0; i < draft.lines.length; i++) {
         final line = draft.lines[i];
         final valuation = await _stockValuation(txn, line.productId);
