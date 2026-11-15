@@ -25,6 +25,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('دسترسی سریع'), findsOneWidget);
+    expect(find.text('خدمات فنی حسین'), findsNothing);
     expect(find.text('ثبت کالا'), findsOneWidget);
     expect(find.text('ثبت مشتری'), findsOneWidget);
 
@@ -32,4 +33,20 @@ void main() {
     await tester.tap(find.text('ثبت کالا'));
     expect(selectedTabs, contains(1));
   });
+
+  testWidgets('home app bar shows shop branding instead of dashboard title and exposes search and add',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+
+    expect(find.text('خدمات فنی حسین'), findsOneWidget);
+    expect(find.text('داشبورد'), findsNothing);
+    expect(find.byTooltip('جست‌وجوی سراسری'), findsOneWidget);
+    expect(find.byTooltip('افزودن مورد جدید'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('جست‌وجوی سراسری'));
+    await tester.pumpAndSettle();
+    expect(find.text('جست‌وجوی سراسری'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
 }
