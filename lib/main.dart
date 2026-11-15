@@ -769,6 +769,29 @@ class _SimpleListPageState extends State<SimpleListPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (widget.title == 'پذیرش تعمیر' && DemoStore.customers.isNotEmpty) ...[
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('repair-existing-customer-selector'),
+                      decoration: const InputDecoration(
+                        labelText: 'انتخاب مشتری ثبت‌شده',
+                      ),
+                      items: DemoStore.customers
+                          .map((customer) => customer['نام مشتری']?.trim() ?? '')
+                          .where((name) => name.isNotEmpty)
+                          .toSet()
+                          .map((name) => DropdownMenuItem<String>(
+                                value: name,
+                                child: Text(name, overflow: TextOverflow.ellipsis),
+                              ))
+                          .toList(),
+                      onChanged: (name) {
+                        if (name != null) {
+                          controllers[0].text = name;
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   for (int i = 0; i < widget.fields.length; i++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
