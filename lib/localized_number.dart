@@ -11,11 +11,17 @@ class LocalizedNumber {
       result = result.replaceAll(arabic[i], '$i');
     }
     return result
+        // Arabic text may include directional marks around a leading sign.
+        // Normalize the Unicode minus to the ASCII sign understood by Dart.
+        .replaceAll('\u061C', '')
+        .replaceAll('\u200E', '')
+        .replaceAll('\u200F', '')
+        .replaceAll('−', '-')
         .replaceAll(',', '')
         .replaceAll('٬', '')
         .replaceAll('٫', '.')
         .replaceAll('،', '')
-        .replaceAll(' ', '');
+        .replaceAll(RegExp(r'[\\s\\u00A0\\u202F]'), '');
   }
 
   static int? tryParseInt(String value) =>
