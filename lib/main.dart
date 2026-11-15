@@ -207,6 +207,7 @@ class HoseinApp extends StatelessWidget {
 }
 
 class DemoStore {
+  static String? appLogoBase64;
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
   static final AccountingRepository accounting = AccountingRepository(_database);
@@ -223,6 +224,7 @@ class DemoStore {
 
   static Future<void> init() async {
     await _database.database;
+    appLogoBase64 = (await invoiceSettings.getSettings())['appLogoBase64'];
     await _loadCategory('products', products);
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
@@ -488,12 +490,9 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.asset(
-                          'assets/logo.jpg',
-                          width: 36,
-                          height: 36,
-                          fit: BoxFit.cover,
-                        ),
+                        child: DemoStore.appLogoBase64?.isNotEmpty == true
+                            ? Image.memory(base64Decode(DemoStore.appLogoBase64!), width: 36, height: 36, fit: BoxFit.cover)
+                            : Image.asset('assets/logo.jpg', width: 36, height: 36, fit: BoxFit.cover),
                       ),
                       const SizedBox(width: 8),
                       const Flexible(
@@ -561,12 +560,9 @@ class _HomePageState extends State<HomePage> {
                           ),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: Image.asset(
-                              'assets/logo.jpg',
-                              width: 52,
-                              height: 52,
-                              fit: BoxFit.cover,
-                            ),
+                            child: DemoStore.appLogoBase64?.isNotEmpty == true
+                                ? Image.memory(base64Decode(DemoStore.appLogoBase64!), width: 52, height: 52, fit: BoxFit.cover)
+                                : Image.asset('assets/logo.jpg', width: 52, height: 52, fit: BoxFit.cover),
                           ),
                         ],
                       ),
@@ -3219,35 +3215,227 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
 
 class AppSettingsPage extends StatefulWidget {
   const AppSettingsPage({super.key});
-  @override State<AppSettingsPage> createState() => _AppSettingsPageState();
+  @override
+  State<AppSettingsPage> createState() => _AppSettingsPageState();
 }
 
 class _AppSettingsPageState extends State<AppSettingsPage> {
   final _formKey = GlobalKey<FormState>();
-  final _controllers = <String, TextEditingController>{for (final k in ['shopName','ownerName','phone','postalCode','address','vatPercent','defaultDiscount','invoicePrefix']) k: TextEditingController()};
-  String _currency = 'تومان'; bool _loading = true; bool _saving = false;
-  @override void initState() { super.initState(); _load(); }
+  final _picker = ImagePicker();
+  final _controllers = <String, TextEditingController>{
+    for (final key in ['shopName', 'ownerName', 'phone', 'postalCode', 'address', 'vatPercent', 'defaultDiscount', 'invoicePrefix'])
+      key: TextEditingController(),
+  };
+  String _currency = 'تومان';
+  String _logoBase64 = '';
+  bool _loading = true;
+  bool _saving = false;
+  bool _pickingLogo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
   Future<void> _load() async {
-    try { final values = await DemoStore.invoiceSettings.getSettings(); for (final e in _controllers.entries) { e.value.text = values[e.key] ?? ''; } if (mounted) setState(() { _currency = values['currency'] ?? 'تومان'; _loading = false; }); }
-    catch (error) { if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خواندن تنظیمات ناموفق بود: $error'))); } }
+    try {
+      final values = await DemoStore.invoiceSettings.getSettings();
+      for (final entry in _controllers.entries) {
+        entry.value.text = values[entry.key] ?? '';
+      }
+      if (mounted) {
+        setState(() {
+          _currency = values['currency'] ?? 'تومان';
+          _logoBase64 = values['appLogoBase64'] ?? '';
+          DemoStore.appLogoBase64 = _logoBase64.isEmpty ? null : _logoBase64;
+          _loading = false;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خواندن تنظیمات ناموفق بود: $error')),
+        );
+      }
+    }
   }
+
+  Future<void> _pickLogo() async {
+    if (_pickingLogo) return;
+    setState(() => _pickingLogo = true);
+    try {
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 75,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+      if (picked == null) return;
+      final bytes = await FlutterImageCompress.compressWithFile(
+        picked.path,
+        minWidth: 512,
+        minHeight: 512,
+        quality: 65,
+        format: CompressFormat.jpeg,
+      );
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('فشرده‌سازی لوگو انجام نشد');
+      }
+      final encoded = base64Encode(bytes);
+      if (encoded.length > 1500000) {
+        throw ArgumentError('حجم لوگو زیاد است؛ تصویر کوچک‌تری انتخاب کنید');
+      }
+      if (mounted) setState(() => _logoBase64 = encoded);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('انتخاب لوگو ناموفق بود: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingLogo = false);
+    }
+  }
+
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return; setState(() => _saving = true);
-    try { await DemoStore.invoiceSettings.saveSettings({for (final e in _controllers.entries) e.key: e.value.text, 'currency': _currency}); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تنظیمات ذخیره شد.'))); }
-    catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره ناموفق بود: $error'))); }
-    finally { if (mounted) setState(() => _saving = false); }
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      await DemoStore.invoiceSettings.saveSettings({
+        for (final entry in _controllers.entries) entry.key: entry.value.text,
+        'currency': _currency,
+        'appLogoBase64': _logoBase64,
+      });
+      DemoStore.appLogoBase64 = _logoBase64.isEmpty ? null : _logoBase64;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تنظیمات و لوگوی فروشگاه ذخیره شد.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ذخیره ناموفق بود: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
-  @override void dispose() { for (final c in _controllers.values) { c.dispose(); } super.dispose(); }
-  Widget _field(String key, String label, {TextInputType? type, int lines = 1}) => Padding(padding: const EdgeInsets.only(bottom: 12), child: TextFormField(controller: _controllers[key], keyboardType: type, maxLines: lines, decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()), validator: (v) {
-    if ((key == 'shopName' || key == 'ownerName') && (v == null || v.trim().isEmpty)) return 'این فیلد الزامی است';
-    if (key == 'vatPercent' || key == 'defaultDiscount') { final n = double.tryParse((v ?? '').trim()); if (n == null || n < 0 || n > 100) return 'عدد باید بین صفر تا ۱۰۰ باشد'; } return null;
-  }));
-  @override Widget build(BuildContext context) => Directionality(textDirection: TextDirection.rtl, child: Scaffold(appBar: AppBar(title: const Text('تنظیمات برنامه')), body: _loading ? const Center(child: CircularProgressIndicator()) : Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
-    Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
-    _field('shopName','نام فروشگاه'), _field('ownerName','نام مسئول'), _field('phone','شماره تماس',type: TextInputType.phone), _field('postalCode','کد پستی'), _field('address','نشانی',lines: 2),
-    const Divider(height: 28), Text('تنظیمات مالی', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
-    DropdownButtonFormField<String>(value: _currency, decoration: const InputDecoration(labelText: 'واحد پول', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'تومان', child: Text('تومان')), DropdownMenuItem(value: 'ریال', child: Text('ریال'))], onChanged: (v) => setState(() => _currency = v ?? 'تومان')),
-    const SizedBox(height: 12), _field('vatPercent','درصد مالیات بر ارزش افزوده',type: const TextInputType.numberWithOptions(decimal: true)), _field('defaultDiscount','درصد تخفیف پیش‌فرض',type: const TextInputType.numberWithOptions(decimal: true)), _field('invoicePrefix','پیشوند شماره فاکتور'),
-    FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: const Text('ذخیره تنظیمات')),
-  ]))));
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _field(String key, String label, {TextInputType? type, int lines = 1}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: _controllers[key],
+        keyboardType: type,
+        maxLines: lines,
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        validator: (value) {
+          if ((key == 'shopName' || key == 'ownerName') &&
+              (value == null || value.trim().isEmpty)) {
+            return 'این فیلد الزامی است';
+          }
+          if (key == 'vatPercent' || key == 'defaultDiscount') {
+            final number = double.tryParse((value ?? '').trim());
+            if (number == null || number < 0 || number > 100) {
+              return 'عدد باید بین صفر تا ۱۰۰ باشد';
+            }
+          }
+          return null;
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          appBar: AppBar(title: const Text('تنظیمات برنامه')),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : Form(
+                  key: _formKey,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Text('لوگوی فروشگاه', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 10),
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: _logoBase64.isEmpty
+                              ? Image.asset('assets/logo.jpg', width: 112, height: 112, fit: BoxFit.cover)
+                              : Image.memory(base64Decode(_logoBase64), width: 112, height: 112, fit: BoxFit.cover),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _pickingLogo ? null : _pickLogo,
+                            icon: _pickingLogo
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.photo_library_outlined),
+                            label: Text(_logoBase64.isEmpty ? 'انتخاب لوگو از گالری' : 'تعویض لوگو'),
+                          ),
+                          if (_logoBase64.isNotEmpty)
+                            TextButton.icon(
+                              onPressed: () => setState(() => _logoBase64 = ''),
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('حذف لوگوی اختصاصی'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('لوگو فقط روی همین گوشی ذخیره می‌شود و در سربرگ برنامه نمایش داده می‌شود.'),
+                      const Divider(height: 28),
+                      Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 12),
+                      _field('shopName', 'نام فروشگاه'),
+                      _field('ownerName', 'نام مسئول'),
+                      _field('phone', 'شماره تماس', type: TextInputType.phone),
+                      _field('postalCode', 'کد پستی'),
+                      _field('address', 'نشانی', lines: 2),
+                      const Divider(height: 28),
+                      Text('تنظیمات مالی', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _currency,
+                        decoration: const InputDecoration(labelText: 'واحد پول', border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(value: 'تومان', child: Text('تومان')),
+                          DropdownMenuItem(value: 'ریال', child: Text('ریال')),
+                        ],
+                        onChanged: (value) => setState(() => _currency = value ?? 'تومان'),
+                      ),
+                      const SizedBox(height: 12),
+                      _field('vatPercent', 'درصد مالیات بر ارزش افزوده', type: const TextInputType.numberWithOptions(decimal: true)),
+                      _field('defaultDiscount', 'درصد تخفیف پیش‌فرض', type: const TextInputType.numberWithOptions(decimal: true)),
+                      _field('invoicePrefix', 'پیشوند شماره فاکتور'),
+                      FilledButton.icon(
+                        onPressed: _saving ? null : _save,
+                        icon: _saving
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.save_outlined),
+                        label: const Text('ذخیره تنظیمات'),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      );
 }
