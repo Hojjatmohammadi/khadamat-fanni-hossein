@@ -15,6 +15,7 @@ import 'loan_management_page.dart';
 import 'party_repository.dart';
 import 'check_repository.dart';
 import 'party_ledger_page.dart';
+import 'contacts_page.dart';
 import 'checks_page.dart';
 import 'jalali_date_field.dart';
 import 'check_reminder_service.dart';
@@ -342,7 +343,7 @@ class _HomePageState extends State<HomePage> {
   final GlobalKey<_RepairPageState> _repairPageKey = GlobalKey<_RepairPageState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی', 'قرض‌ها و اقساط'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی', 'قرض‌ها و اقساط', 'دفتر مخاطبین'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -472,6 +473,7 @@ class _HomePageState extends State<HomePage> {
         initialMessage: DemoStore.backupStartupNotice,
       ),
       LoanManagementPage(repository: DemoStore.loans),
+      ContactsPage(repository: DemoStore.parties),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -615,7 +617,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book, Icons.backup, Icons.payments][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book, Icons.backup, Icons.payments, Icons.contacts][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
@@ -645,6 +647,7 @@ class Dashboard extends StatelessWidget {
     (title: 'پذیرش دستگاه', icon: Icons.build_outlined, tab: 4),
     (title: 'صورت‌حساب اشخاص', icon: Icons.account_balance_wallet_outlined, tab: 6),
     (title: 'تماس / ارسال پیامک', icon: Icons.contact_phone_outlined, tab: 3),
+    (title: 'مخاطبین', icon: Icons.contacts_outlined, tab: 12),
   ];
 
   void _showOtherOperations(BuildContext context) {
