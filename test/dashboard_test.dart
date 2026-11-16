@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
@@ -172,12 +173,24 @@ void main() {
   });
 
 
-  testWidgets('logo help is temporary and can be dismissed without opening gallery',
+  testWidgets('logo help can be dismissed and gallery opens only on request',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+
+    var galleryRequests = 0;
+    const imagePickerChannel = MethodChannel('plugins.flutter.io/image_picker');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(imagePickerChannel, (call) async {
+      galleryRequests++;
+      return null;
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(imagePickerChannel, null);
+    });
 
     await DemoStore.init();
     await tester.pumpWidget(const MaterialApp(home: AppSettingsPage()));
@@ -190,14 +203,27 @@ void main() {
       matching: find.byType(OutlinedButton),
     );
     expect(chooseLogoButton, findsOneWidget);
+
+    // Use bounded pumps: pumpAndSettle advances fake time and would trigger
+    // the dialog's intentional three-second automatic gallery timer.
     await tester.tap(chooseLogoButton);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('راهنمای انتخاب لوگو'), findsOneWidget);
     expect(find.text('برو به گالری'), findsOneWidget);
+    expect(galleryRequests, 0);
 
     await tester.tap(find.byTooltip('بستن راهنما'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('راهنمای انتخاب لوگو'), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    expect(galleryRequests, 0,
+        reason: 'Dismissing the help must cancel automatic gallery opening');
+
+    await tester.tap(chooseLogoButton);
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('برو به گالری'));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(galleryRequests, 1);
   });
 
   test('simple category search filters only matching records', () {
