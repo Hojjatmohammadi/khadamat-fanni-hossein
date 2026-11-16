@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 14;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -66,6 +66,7 @@ class AppDatabase {
         await _createAccountingSchema(db);
         await _createCommerceSchema(db);
         await _createPartyAndCheckSchema(db);
+        await _createPartyRolesSchema(db);
         await _createBankReconciliationSchema(db);
         await _createInvoiceArchiveSchema(db);
         await _createInvoiceSettingsSchema(db);
@@ -117,6 +118,13 @@ class AppDatabase {
           if (accountTables.isNotEmpty) {
             await _seedAccounts(db);
           }
+        }
+        if (oldVersion < 14) {
+          await _createPartyRolesSchema(db);
+          await db.execute('''
+            INSERT OR IGNORE INTO party_roles (party_id, role, created_at)
+            SELECT id, party_type, created_at FROM parties
+          ''');
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -619,6 +627,21 @@ class AppDatabase {
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  static Future<void> _createPartyRolesSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS party_roles (
+        party_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('customer', 'supplier', 'other')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (party_id, role),
+        FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_party_roles_role ON party_roles(role, party_id)',
     );
   }
 
