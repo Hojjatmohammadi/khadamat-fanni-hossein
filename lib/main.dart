@@ -3165,12 +3165,14 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             ),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              key: const ValueKey('inline-add-trade-party'),
-              tooltip: 'افزودن مخاطب جدید در فاکتور',
-              onPressed: _saving ? null : _addPartyInline,
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('افزودن مخاطب جدید'),
+            child: Tooltip(
+              message: 'افزودن مخاطب جدید در فاکتور',
+              child: TextButton.icon(
+                key: const ValueKey('inline-add-trade-party'),
+                onPressed: _saving ? null : _addPartyInline,
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('افزودن مخاطب جدید'),
+              ),
             ),
           ),
           const SizedBox(height: 4),
