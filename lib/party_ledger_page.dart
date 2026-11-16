@@ -4,9 +4,14 @@ import 'jalali_date_field.dart';
 import 'party_repository.dart';
 
 class PartyLedgerPage extends StatefulWidget {
-  const PartyLedgerPage({super.key, required this.repository});
+  const PartyLedgerPage({
+    super.key,
+    required this.repository,
+    this.initialPartyId,
+  });
 
   final PartyRepository repository;
+  final String? initialPartyId;
 
   @override
   State<PartyLedgerPage> createState() => _PartyLedgerPageState();
@@ -38,9 +43,17 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
   Future<void> _loadParties() async {
     setState(() => _loading = true);
     try {
-      final parties = await widget.repository.getParties();
-      final selected = parties.any((p) => p['id'] == _selectedPartyId)
-          ? _selectedPartyId
+      final storedParties = await widget.repository.getParties();
+      final parties = await Future.wait(storedParties.map((party) async {
+        final id = party['id'] as String;
+        return <String, Object?>{
+          ...party,
+          'roles': await widget.repository.getPartyRoles(id),
+        };
+      }));
+      final preferredId = _selectedPartyId ?? widget.initialPartyId;
+      final selected = parties.any((p) => p['id'] == preferredId)
+          ? preferredId
           : parties.isEmpty
               ? null
               : parties.first['id'] as String;
@@ -136,11 +149,17 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     }
   }
 
-  String _partyTypeLabel(Object? type) => switch (type) {
-        'customer' => 'مشتری',
-        'supplier' => 'فروشنده',
-        _ => 'شخص دیگر',
-      };
+  String _partyTypeLabel(Object? type, [List<String> roles = const []]) {
+    const labels = {
+      'customer': 'مشتری',
+      'supplier': 'فروشنده',
+      'other': 'سایر',
+    };
+    if (roles.isNotEmpty) {
+      return roles.map((role) => labels[role] ?? role).join('، ');
+    }
+    return labels[type] ?? 'شخص دیگر';
+  }
 
   String _amount(Object? value) =>
       ((value as num?)?.toInt() ?? 0).toString();
@@ -151,7 +170,15 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     final lines = (_statement?['lines'] as List<Map<String, Object?>>?) ?? [];
     final closing = (_statement?['closing_balance'] as num?)?.toInt() ?? 0;
     final partyQuery = _partySearchController.text.trim().toLowerCase();
-    final visibleParties = _parties.where((item) => ['display_name', 'phone', 'party_type'].any((key) => (item[key]?.toString() ?? '').toLowerCase().contains(partyQuery))).toList();
+    final visibleParties = _parties.where((item) {
+      final searchable = [
+        item['display_name'],
+        item['phone'],
+        item['party_type'],
+        ...((item['roles'] as List?) ?? const []),
+      ].whereType<Object>().join(' ').toLowerCase();
+      return searchable.contains(partyQuery);
+    }).toList();
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -194,7 +221,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                             ((item['phone']?.toString().trim().isNotEmpty ?? false)
                                 ? ' • ${item['phone']}'
                                 : '') +
-                            ' — ${_partyTypeLabel(item['party_type'])}',
+                            ' — ${_partyTypeLabel(item['party_type'], (item['roles'] as List?)?.cast<String>() ?? const [])}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -228,7 +255,10 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         party?['display_name']?.toString() ?? '',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                       ),
-                      Text(_partyTypeLabel(party?['party_type'])),
+                      Text(_partyTypeLabel(
+                        party?['party_type'],
+                        (_statement?['roles'] as List?)?.cast<String>() ?? const [],
+                      )),
                       const Divider(),
                       Text('جمع بدهکار: ${_amount(_statement?['total_debit'])} تومان'),
                       Text('جمع بستانکار: ${_amount(_statement?['total_credit'])} تومان'),
