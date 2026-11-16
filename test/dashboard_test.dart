@@ -89,6 +89,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
+    expect(find.byKey(const ValueKey('drawer-logo')), findsOneWidget);
+
+    // In RTL layout, the first Row child (the logo) must appear on the right.
+    final logoCenter = tester.getCenter(find.byKey(const ValueKey('drawer-logo')));
+    final settingsCenter =
+        tester.getCenter(find.byKey(const ValueKey('drawer-settings-button')));
+    expect(
+      logoCenter.dx,
+      greaterThan(settingsCenter.dx),
+      reason: 'Drawer logo must be on the right and settings on the left',
+    );
   });
 
   testWidgets('every home card opens its mapped section', (tester) async {
