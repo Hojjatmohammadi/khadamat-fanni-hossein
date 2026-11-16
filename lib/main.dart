@@ -302,7 +302,6 @@ class DemoStore {
       await parties.ensureParty(
         PartyDraft(
           partyType: 'customer',
-          preferredId: 'customer:$id',
           displayName: item['نام مشتری'] ?? item['نام'] ?? 'مشتری $id',
           phone: item['شماره تماس'],
           address: item['آدرس'],
