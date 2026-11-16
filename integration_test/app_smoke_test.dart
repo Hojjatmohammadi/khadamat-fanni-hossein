@@ -28,6 +28,7 @@ void main() {
       'پذیرش دستگاه': 'تعمیرات',
       'صورت‌حساب اشخاص': 'دفتر گردش اشخاص',
       'تماس / ارسال پیامک': 'مشتریان',
+      'مخاطبین': 'دفتر مخاطبین',
     };
     for (final entry in homeCardDestinations.entries) {
       await tester.tap(find.text(entry.key));
