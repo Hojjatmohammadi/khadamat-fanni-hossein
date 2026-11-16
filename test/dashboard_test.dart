@@ -17,6 +17,8 @@ void main() {
 
     await tester.pumpWidget(const HoseinApp());
 
+    final sharedBottomGap = tester.widget<Padding>(find.byKey(const ValueKey('app-page-bottom-gap')));
+    expect(sharedBottomGap.padding, const EdgeInsets.only(bottom: 24));
     expect(find.byType(GridView), findsOneWidget);
     expect(find.text('دسترسی سریع'), findsNothing);
     expect(find.text('کالاهای ثبت‌شده'), findsNothing);
