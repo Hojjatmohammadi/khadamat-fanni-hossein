@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'accounting_repository.dart';
 import 'app_database.dart';
@@ -24,7 +23,7 @@ class LoanRepository {
       final journalId = await _accounting.postJournalEntryInTransaction(txn, JournalEntryDraft(entryDate: loanDate, description: 'دریافت قرض از ${partyName.trim()}', idempotencyKey: 'loan-journal-$idempotencyKey', referenceType: 'loan_received', referenceId: idempotencyKey, lines: [JournalLineDraft(accountCode: cashAccountCode, debit: amount, memo: 'دریافت اصل قرض'), JournalLineDraft(accountCode: '2030', credit: amount, memo: 'بدهی بابت قرض')]));
       final loanId = await txn.insert('loan_records', {'direction':'received','party_name':partyName.trim(),'principal_amount':amount,'loan_date':loanDate,'due_date':dueDate,'note':note,'idempotency_key':idempotencyKey,'journal_entry_id':journalId,'created_at':DateTime.now().toIso8601String()});
       final base = amount ~/ installmentCount; var remainder = amount - base * installmentCount; final start = DateTime.parse(dueDate ?? loanDate);
-      for (var i=0; i<installmentCount; i++) { final due=DateTime(start.year,start.month+i,start.day); final part=base+(remainder>0?1:0); if(remainder>0) remainder--; await txn.insert('loan_installments', {'loan_id':loanId,'installment_number':i+1,'due_date':due.toIso8601String().substring(0,10),'amount':part,'paid_amount':0,'created_at':DateTime.now().toIso8601String()}); }
+      for (var i=0; i<installmentCount; i++) { final month=DateTime(start.year,start.month+i,1); final lastDay=DateTime(month.year,month.month+1,0).day; final due=DateTime(month.year,month.month,start.day>lastDay?lastDay:start.day); final part=base+(remainder>0?1:0); if(remainder>0) remainder--; await txn.insert('loan_installments', {'loan_id':loanId,'installment_number':i+1,'due_date':due.toIso8601String().substring(0,10),'amount':part,'paid_amount':0,'created_at':DateTime.now().toIso8601String()}); }
       return loanId;
     });
   }
@@ -42,6 +41,6 @@ class LoanRepository {
     });
   }
 
-  Future<List<Map<String,Object?>>> getLoans() async { final db=await _database.database; return db.rawQuery("SELECT l.*,COALESCE((SELECT SUM(t.amount) FROM loan_transactions t WHERE t.loan_id=l.id AND t.transaction_type='repayment'),0) AS paid_amount,l.principal_amount-COALESCE((SELECT SUM(t.amount) FROM loan_transactions t WHERE t.loan_id=l.id AND t.transaction_type='repayment'),0) AS remaining_amount FROM loan_records l ORDER BY l.loan_date DESC,l.id DESC"); }
+  Future<List<Map<String,Object?>>> getLoans() async { final db=await _database.database; return db.rawQuery("SELECT l.*,COALESCE((SELECT SUM(t.amount) FROM loan_transactions t WHERE t.loan_id=l.id AND t.transaction_type='repayment'),0) AS paid_amount,l.principal_amount-COALESCE((SELECT SUM(t.amount) FROM loan_transactions t WHERE t.loan_id=l.id AND t.transaction_type='repayment'),0) AS remaining_amount,(SELECT COUNT(*) FROM loan_installments i WHERE i.loan_id=l.id) AS installment_count FROM loan_records l ORDER BY l.loan_date DESC,l.id DESC"); }
   Future<List<Map<String,Object?>>> getInstallments(int loanId) async { final db=await _database.database; return db.query('loan_installments',where:'loan_id=?',whereArgs:[loanId],orderBy:'installment_number ASC'); }
 }
