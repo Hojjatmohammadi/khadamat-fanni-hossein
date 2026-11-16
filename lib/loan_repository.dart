@@ -13,7 +13,14 @@ class LoanRepository {
     final db = await _database.database;
     return db.transaction((txn) async {
       final old = await txn.query('loan_records', where: 'idempotency_key = ?', whereArgs: [idempotencyKey], limit: 1);
-      if (old.isNotEmpty) return old.single['id'] as int;
+      if (old.isNotEmpty) {
+        final row = old.single;
+        if (row['party_name'] != partyName.trim() || row['principal_amount'] != amount ||
+            row['loan_date'] != loanDate || row['due_date'] != dueDate || row['note'] != note) {
+          throw StateError('شناسه ثبت قرض قبلاً با اطلاعات متفاوت استفاده شده است');
+        }
+        return row['id'] as int;
+      }
       final journalId = await _accounting.postJournalEntryInTransaction(txn, JournalEntryDraft(entryDate: loanDate, description: 'دریافت قرض از ${partyName.trim()}', idempotencyKey: 'loan-journal-$idempotencyKey', referenceType: 'loan_received', referenceId: idempotencyKey, lines: [JournalLineDraft(accountCode: cashAccountCode, debit: amount, memo: 'دریافت اصل قرض'), JournalLineDraft(accountCode: '2030', credit: amount, memo: 'بدهی بابت قرض')]));
       final loanId = await txn.insert('loan_records', {'direction':'received','party_name':partyName.trim(),'principal_amount':amount,'loan_date':loanDate,'due_date':dueDate,'note':note,'idempotency_key':idempotencyKey,'journal_entry_id':journalId,'created_at':DateTime.now().toIso8601String()});
       final base = amount ~/ installmentCount; var remainder = amount - base * installmentCount; final start = DateTime.parse(dueDate ?? loanDate);
@@ -26,7 +33,7 @@ class LoanRepository {
     if (DateTime.tryParse(paymentDate)==null || amount<=0 || idempotencyKey.trim().isEmpty || !['1000','1010'].contains(cashAccountCode)) throw ArgumentError('اطلاعات بازپرداخت معتبر نیست');
     final db=await _database.database;
     return db.transaction((txn) async {
-      final previous=await txn.query('loan_transactions',where:'idempotency_key = ?',whereArgs:[idempotencyKey],limit:1); if(previous.isNotEmpty) return previous.single['id'] as int;
+      final previous=await txn.query('loan_transactions',where:'idempotency_key = ?',whereArgs:[idempotencyKey],limit:1); if(previous.isNotEmpty){final row=previous.single;if(row['loan_id']!=loanId||row['amount']!=amount||row['transaction_date']!=paymentDate||row['installment_id']!=installmentId)throw StateError('شناسه بازپرداخت قبلاً برای اطلاعات دیگری استفاده شده است');return row['id'] as int;}
       final loans=await txn.query('loan_records',where:'id = ? AND direction = ?',whereArgs:[loanId,'received'],limit:1); if(loans.isEmpty) throw ArgumentError('قرض موردنظر پیدا نشد');
       final paidRows=await txn.rawQuery("SELECT COALESCE(SUM(amount),0) AS paid FROM loan_transactions WHERE loan_id=? AND transaction_type='repayment'",[loanId]); final paid=(paidRows.single['paid'] as num).toInt(); final principal=(loans.single['principal_amount'] as num).toInt(); if(amount>principal-paid) throw ArgumentError('مبلغ بازپرداخت از مانده قرض بیشتر است');
       if(installmentId!=null){final rows=await txn.query('loan_installments',where:'id=? AND loan_id=?',whereArgs:[installmentId,loanId],limit:1); if(rows.isEmpty) throw ArgumentError('قسط انتخاب‌شده متعلق به این قرض نیست'); final remaining=(rows.single['amount'] as num).toInt()-(rows.single['paid_amount'] as num).toInt(); if(amount>remaining) throw ArgumentError('مبلغ پرداخت از مانده این قسط بیشتر است');}
