@@ -230,6 +230,48 @@ class _ContactsPageState extends State<ContactsPage> {
     notes.dispose();
   }
 
+  Future<void> _deleteContact(Map<String, Object?> contact) async {
+    final id = contact['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final name = contact['display_name']?.toString() ?? 'این مخاطب';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('حذف مخاطب'),
+          content: Text('مخاطب «$name» فقط در صورتی حذف می‌شود که هیچ فاکتور، چک یا سند حسابداری وابسته‌ای نداشته باشد. ادامه می‌دهید؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('حذف مخاطب'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.repository.deleteParty(id);
+      await _loadContacts();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('مخاطب حذف شد.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
+    }
+  }
+
   void _openLedger(Map<String, Object?> contact) {
     final id = contact['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -371,6 +413,11 @@ class _ContactsPageState extends State<ContactsPage> {
                                             tooltip: 'ویرایش مخاطب',
                                             onPressed: () => _editContact(contact: contact),
                                             icon: const Icon(Icons.edit_outlined),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'حذف مخاطب',
+                                            onPressed: () => _deleteContact(contact),
+                                            icon: const Icon(Icons.delete_outline),
                                           ),
                                         ],
                                       ),
