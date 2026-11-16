@@ -52,14 +52,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('مدیریت چک‌ها'), findsOneWidget);
-    expect(find.text('گزارش‌ها'), findsOneWidget);
+    expect(find.text('گزارش‌ها'), findsWidgets);
     expect(find.text('دفتر روزنامه و هزینه‌ها'), findsOneWidget);
 
-    await tester.tap(find.text('گزارش‌ها'));
+    // The menu label can remain mounted beneath the destination page title.
+    await tester.tap(find.text('گزارش‌ها').first);
     // Some destination pages contain repeating animations; advance the route
     // transition without waiting for every ticker to become idle.
     await tester.pump(const Duration(seconds: 2));
-    expect(find.text('گزارش‌ها'), findsOneWidget);
+    expect(find.text('گزارش‌ها'), findsWidgets);
   });
 
   testWidgets('home app bar shows shop branding and exposes search and add',
@@ -145,7 +146,7 @@ void main() {
     for (final entry in destinations.entries) {
       await tester.tap(find.text('عملیات‌های دیگر'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(entry.key));
+      await tester.tap(find.text(entry.key).first);
       await tester.pump(const Duration(seconds: 2));
       expect(find.text(entry.value), findsWidgets,
           reason: 'Other operation "${entry.key}" did not open');
@@ -167,5 +168,4 @@ void main() {
     expect(result.single['نام مشتری'], 'احمد');
     expect(filterCategoryRecords(records, 'ناموجود'), isEmpty);
   });
-
 }
