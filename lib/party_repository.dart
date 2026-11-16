@@ -195,6 +195,56 @@ class PartyRepository {
     });
   }
 
+  Future<void> updateParty({
+    required String partyId,
+    required PartyDraft draft,
+  }) async {
+    final name = draft.displayName.trim();
+    final roles = <String>{
+      draft.partyType.trim(),
+      ...draft.additionalRoles.map((role) => role.trim()),
+    };
+    if (partyId.trim().isEmpty ||
+        name.isEmpty ||
+        roles.isEmpty ||
+        roles.any((role) => !_validRoles.contains(role))) {
+      throw ArgumentError('اطلاعات مخاطب یا نقش‌های انتخاب‌شده معتبر نیست');
+    }
+
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      final existing = await txn.query(
+        'parties',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (existing.isEmpty) throw StateError('مخاطب پیدا نشد');
+
+      await txn.update(
+        'parties',
+        {
+          'party_type': roles.first,
+          'display_name': name,
+          'normalized_name': _normalizeName(name),
+          'phone': draft.phone?.trim(),
+          'address': draft.address?.trim(),
+          'notes': draft.notes?.trim(),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [partyId],
+      );
+      await txn.delete(
+        'party_roles',
+        where: 'party_id = ?',
+        whereArgs: [partyId],
+      );
+      await _addRoles(txn, partyId, roles);
+    });
+  }
+
   Future<List<String>> getPartyRoles(String partyId) async {
     final db = await _database.database;
     final rows = await db.query(
