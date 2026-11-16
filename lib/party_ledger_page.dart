@@ -19,6 +19,9 @@ class PartyLedgerPage extends StatefulWidget {
 
 class _PartyLedgerPageState extends State<PartyLedgerPage> {
   List<Map<String, Object?>> _parties = [];
+  List<Map<String, Object?>> _activityDocuments = [];
+  List<Map<String, Object?>> _activityRepairs = [];
+  List<Map<String, Object?>> _activityChecks = [];
   Map<String, Object?>? _statement;
   String? _selectedPartyId;
   final _partySearchController = TextEditingController();
@@ -58,15 +61,24 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               ? null
               : parties.first['id'] as String;
       Map<String, Object?>? statement;
+      Map<String, List<Map<String, Object?>>> activity = {
+        'documents': [],
+        'repairs': [],
+        'checks': [],
+      };
       if (selected != null) {
         statement = await widget.repository.getPartyStatementPage(
           selected,
           limit: _pageSize,
         );
+        activity = await widget.repository.getPartyActivity(selected);
       }
       if (!mounted) return;
       setState(() {
         _parties = parties;
+        _activityDocuments = activity['documents'] ?? [];
+        _activityRepairs = activity['repairs'] ?? [];
+        _activityChecks = activity['checks'] ?? [];
         _selectedPartyId = selected;
         _statement = statement;
         _nextOffset = (statement?['next_offset'] as num?)?.toInt() ?? 0;
@@ -97,9 +109,13 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         id,
         limit: _pageSize,
       );
+      final activity = await widget.repository.getPartyActivity(id);
       if (!mounted) return;
       setState(() {
         _statement = result;
+        _activityDocuments = activity['documents'] ?? [];
+        _activityRepairs = activity['repairs'] ?? [];
+        _activityChecks = activity['checks'] ?? [];
         _nextOffset = (result['next_offset'] as num?)?.toInt() ?? 0;
         _hasMore = result['has_more'] == true;
         _loading = false;
@@ -163,6 +179,19 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
 
   String _amount(Object? value) =>
       ((value as num?)?.toInt() ?? 0).toString();
+
+  String _dateLabel(Object? value) {
+    final date = DateTime.tryParse(value?.toString() ?? '');
+    return date == null ? '—' : formatJalaliDate(date);
+  }
+
+  String _documentTypeLabel(Object? type) => switch (type) {
+        'purchase' => 'فاکتور خرید',
+        'sale' => 'فاکتور فروش',
+        'supplier_return' => 'برگشت از خرید',
+        'customer_return' => 'برگشت از فروش',
+        _ => 'سند تجاری',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +300,71 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   ),
                 ),
               ),
+              if (_activityDocuments.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'فاکتورها و برگشت‌ها (${_activityDocuments.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final document in _activityDocuments)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title: Text(
+                        '${_documentTypeLabel(document['document_type'])} • ${document['document_number'] ?? ''}',
+                      ),
+                      subtitle: Text(_dateLabel(document['document_date'])),
+                      trailing: Text('${_amount(document['total_amount'])} تومان'),
+                    ),
+                  ),
+              ],
+              if (_activityRepairs.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'سابقه تعمیرات (${_activityRepairs.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final repair in _activityRepairs)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.build_outlined),
+                      title: Text(
+                        repair['نوع دستگاه']?.toString().isNotEmpty == true
+                            ? repair['نوع دستگاه'].toString()
+                            : 'پذیرش تعمیر',
+                      ),
+                      subtitle: Text(
+                        [
+                          if ((repair['نام دستگاه']?.toString() ?? '').isNotEmpty)
+                            repair['نام دستگاه'].toString(),
+                          if ((repair['وضعیت']?.toString() ?? '').isNotEmpty)
+                            repair['وضعیت'].toString(),
+                          _dateLabel(repair['تاریخ'] ?? repair['created_at']),
+                        ].join(' • '),
+                      ),
+                    ),
+                  ),
+              ],
+              if (_activityChecks.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'چک‌های مرتبط (${_activityChecks.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final check in _activityChecks)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.request_quote_outlined),
+                      title: Text(
+                        '${check['direction'] == 'incoming' ? 'چک دریافتی' : 'چک پرداختی'} • ${check['check_number']}',
+                      ),
+                      subtitle: Text(
+                        '${check['bank_name']} • سررسید: ${_dateLabel(check['due_date'])} • ${check['status']}',
+                      ),
+                      trailing: Text('${_amount(check['amount'])} تومان'),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 8),
               const Text('گردش حساب', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
               if (lines.isEmpty)
@@ -283,7 +377,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   child: ListTile(
                     title: Text(line['description']?.toString() ?? 'سند مالی'),
                     subtitle: Text(
-                      '${formatJalaliDate(DateTime.parse(line['entry_date'] as String))} • ${line['account_name']}',
+                      '${_dateLabel(line['entry_date'])} • ${line['account_name']}',
                     ),
                     isThreeLine: true,
                     trailing: Column(
