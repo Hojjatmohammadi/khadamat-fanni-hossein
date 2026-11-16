@@ -31,6 +31,50 @@ void main() {
   });
 
 
+  test('an unused contact can be deleted together with its role links', () async {
+    final id = await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مخاطب بدون سابقه',
+      phone: '09129998877',
+    ));
+
+    await parties.deleteParty(id);
+
+    expect(await parties.getParties(), isEmpty);
+    expect(await parties.getPartyRoles(id), isEmpty);
+  });
+
+  test('a contact with invoice history cannot be deleted', () async {
+    final id = await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مخاطب دارای فاکتور',
+      preferredId: 'party-protected-history',
+    ));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای پرونده مخاطب',
+      'موجودی': '5',
+      'بهای تمام‌شده هر واحد': '400',
+    });
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'مخاطب دارای فاکتور',
+        counterpartyId: id,
+        idempotencyKey: 'protected-contact-delete',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 900),
+        ],
+      ),
+    );
+
+    await expectLater(
+      parties.deleteParty(id),
+      throwsA(isA<StateError>()),
+    );
+    expect((await parties.getParties()).single['id'], id);
+    expect(await parties.getPartyRoles(id), contains('customer'));
+  });
+
   test('one contact can be both a customer and a supplier', () async {
     const sharedId = 'party-id-multiple-roles';
     final customerId = await parties.ensureParty(const PartyDraft(
