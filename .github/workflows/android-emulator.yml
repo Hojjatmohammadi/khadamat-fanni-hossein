@@ -5,13 +5,11 @@ on:
   push:
     branches:
       - fix/dashboard-layout-phase2
-  pull_request:
-    branches:
-      - phase2/database-foundation
-
+# Pushes to the work branch are the single source of automated validation.
+# Manual dispatch remains available for an intentional rerun.
 concurrency:
-  group: android-emulator-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: android-emulator-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

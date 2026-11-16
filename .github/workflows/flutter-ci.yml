@@ -1,14 +1,16 @@
 name: Flutter CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - '**'
-  pull_request:
+      - fix/dashboard-layout-phase2
 
+# Keep the active validation run alive. New pushes may replace a pending run,
+# but must never cancel a run that is already testing this branch.
 concurrency:
-  group: flutter-ci-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
