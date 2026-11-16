@@ -245,6 +245,58 @@ class PartyRepository {
     });
   }
 
+  Future<void> deleteParty(String partyId) async {
+    if (partyId.trim().isEmpty) {
+      throw ArgumentError('شناسه مخاطب معتبر نیست');
+    }
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      final matches = await txn.query(
+        'parties',
+        columns: ['id', 'source_category', 'source_id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (matches.isEmpty) throw StateError('مخاطب پیدا نشد');
+
+      final linkedChecks = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM check_records WHERE party_id = ?',
+        [partyId],
+      );
+      final linkedDocuments = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM business_documents WHERE counterparty_id = ?',
+        [partyId],
+      );
+      final linkedJournal = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM journal_lines WHERE party_id = ?',
+        [partyId],
+      );
+      final references = [
+        linkedChecks.single['total'],
+        linkedDocuments.single['total'],
+        linkedJournal.single['total'],
+      ].fold<int>(0, (sum, value) => sum + (value as num).toInt());
+
+      final record = matches.single;
+      final hasLegacySource =
+          (record['source_category']?.toString().isNotEmpty ?? false) ||
+          (record['source_id']?.toString().isNotEmpty ?? false);
+      if (references > 0 || hasLegacySource) {
+        throw StateError(
+          'این مخاطب سابقه فاکتور، چک، سند حسابداری یا پرونده قدیمی دارد؛ '
+          'برای حفظ سوابق امکان حذف مستقیم وجود ندارد.',
+        );
+      }
+
+      await txn.delete(
+        'parties',
+        where: 'id = ?',
+        whereArgs: [partyId],
+      );
+    });
+  }
+
   Future<List<String>> getPartyRoles(String partyId) async {
     final db = await _database.database;
     final rows = await db.query(
