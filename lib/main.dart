@@ -2346,6 +2346,105 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     _discountController.text = (_subtotal * _defaultDiscountPercent / 100).round().toString();
   }
 
+  Future<void> _addPartyInline() async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final addressController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(_isPurchase ? 'افزودن فروشنده به دفتر مخاطبین' : 'افزودن مشتری به دفتر مخاطبین'),
+          content: SizedBox(
+            width: 420,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'نام و نام خانوادگی'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'نام مخاطب را وارد کنید'
+                        : null,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'شماره همراه'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'نشانی'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'در صورت ثبت قبلی همین شخص با شماره همراه یکسان، نقش جدید به همان پرونده افزوده می‌شود.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('ذخیره و انتخاب'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (saved == true && mounted) {
+      try {
+        final role = _isPurchase ? 'supplier' : 'customer';
+        final id = await DemoStore.parties.ensureParty(
+          PartyDraft(
+            partyType: role,
+            displayName: nameController.text.trim(),
+            phone: phoneController.text.trim(),
+            address: addressController.text.trim(),
+          ),
+        );
+        await _loadParties();
+        if (!mounted) return;
+        setState(() {
+          _selectedPartyId = id;
+          _partyController.text = nameController.text.trim();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('مخاطب ذخیره و در فاکتور انتخاب شد.')),
+        );
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('افزودن مخاطب ناموفق بود: $error')),
+          );
+        }
+      }
+    }
+    nameController.dispose();
+    phoneController.dispose();
+    addressController.dispose();
+  }
+
   Future<void> _loadParties() async {
     final rows = await DemoStore.parties.getParties(
       partyType: _isPurchase ? 'supplier' : 'customer',
@@ -3064,7 +3163,17 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 });
               },
             ),
-          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey('inline-add-trade-party'),
+              tooltip: 'افزودن مخاطب جدید در فاکتور',
+              onPressed: _saving ? null : _addPartyInline,
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('افزودن مخاطب جدید'),
+            ),
+          ),
+          const SizedBox(height: 4),
           TextField(
                         textInputAction: TextInputAction.next,
             controller: _partyController,
