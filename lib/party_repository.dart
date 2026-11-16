@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
@@ -327,6 +329,74 @@ class PartyRepository {
       WHERE r.role = ?
       ORDER BY p.display_name COLLATE NOCASE ASC
     ''', [partyType]);
+  }
+
+  Future<Map<String, List<Map<String, Object?>>>> getPartyActivity(
+    String partyId,
+  ) async {
+    final db = await _database.database;
+    final partyRows = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: [partyId],
+      limit: 1,
+    );
+    if (partyRows.isEmpty) throw StateError('طرف حساب پیدا نشد');
+    final party = partyRows.single;
+
+    final documents = await db.query(
+      'business_documents',
+      where: 'counterparty_id = ?',
+      whereArgs: [partyId],
+      orderBy: 'document_date DESC, id DESC',
+    );
+    final checks = await db.query(
+      'check_records',
+      where: 'party_id = ?',
+      whereArgs: [partyId],
+      orderBy: 'due_date DESC, id DESC',
+    );
+
+    final legacyRows = await db.query(
+      'repairs',
+      columns: ['id', 'data_json', 'created_at', 'updated_at'],
+      orderBy: 'created_at DESC, id DESC',
+    );
+    final repairs = <Map<String, Object?>>[];
+    final normalizedPartyName =
+        _normalizeName(party['display_name']?.toString() ?? '');
+    for (final row in legacyRows) {
+      try {
+        final decoded = jsonDecode(row['data_json']?.toString() ?? '{}');
+        if (decoded is! Map) continue;
+        final data = Map<String, Object?>.from(decoded);
+        final linkedPartyId =
+            data['شناسه طرف حساب']?.toString().trim() ?? '';
+        final repairName = _normalizeName(
+          data['نام مشتری']?.toString() ?? '',
+        );
+        final linked = linkedPartyId == partyId ||
+            (linkedPartyId.isEmpty &&
+                normalizedPartyName.isNotEmpty &&
+                repairName == normalizedPartyName);
+        if (linked) {
+          repairs.add({
+            'id': row['id'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+            ...data,
+          });
+        }
+      } catch (_) {
+        // A malformed legacy repair row must not block the rest of the profile.
+      }
+    }
+
+    return {
+      'documents': documents,
+      'repairs': repairs,
+      'checks': checks,
+    };
   }
 
   Future<Map<String, Object?>> getPartyStatement(String partyId) async {
