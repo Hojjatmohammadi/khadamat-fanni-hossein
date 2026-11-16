@@ -109,9 +109,9 @@ void main() {
       expect(find.text(entry.value), findsWidgets,
           reason: 'Home card "${entry.key}" must open "${entry.value}"');
 
-      await tester.tap(find.byTooltip('باز کردن فهرست'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      // Exercise the app's own back-navigation history instead of relying
+      // on a drawer animation in a widget test.
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.text('خدمات فنی حسین'), findsWidgets);
     }
@@ -141,9 +141,9 @@ void main() {
       expect(find.text(entry.value), findsWidgets,
           reason: 'Other operation "${entry.key}" did not open');
 
-      await tester.tap(find.byTooltip('باز کردن فهرست'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ListTile, 'داشبورد'));
+      // Exercise the app's own back-navigation history instead of relying
+      // on a drawer animation in a widget test.
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
     }
   });
