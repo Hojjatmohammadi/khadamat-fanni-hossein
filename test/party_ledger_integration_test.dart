@@ -75,6 +75,58 @@ void main() {
     expect(await parties.getPartyRoles(id), contains('customer'));
   });
 
+  test('contact activity combines purchase sale and repair history', () async {
+    const contactId = 'party-with-complete-activity';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      additionalRoles: ['supplier'],
+      displayName: 'شخص دارای سابقه کامل',
+      preferredId: contactId,
+    ));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای سابقه',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '500',
+    });
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-15',
+        counterpartyName: 'شخص دارای سابقه کامل',
+        counterpartyId: contactId,
+        idempotencyKey: 'profile-activity-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 800),
+        ],
+      ),
+    );
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'شخص دارای سابقه کامل',
+        counterpartyId: contactId,
+        idempotencyKey: 'profile-activity-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 450),
+        ],
+      ),
+    );
+    await store.insert('repairs', {
+      'نام مشتری': 'شخص دارای سابقه کامل',
+      'شناسه طرف حساب': contactId,
+      'نوع دستگاه': 'دریل',
+      'وضعیت': 'در حال تعمیر',
+    });
+
+    final activity = await parties.getPartyActivity(contactId);
+    expect(activity['documents'], hasLength(2));
+    expect(
+      (activity['documents'] ?? []).map((row) => row['document_type']),
+      containsAll(['sale', 'purchase']),
+    );
+    expect(activity['repairs'], hasLength(1));
+    expect(activity['repairs']!.single['نوع دستگاه'], 'دریل');
+  });
+
   test('one contact can be both a customer and a supplier', () async {
     const sharedId = 'party-id-multiple-roles';
     final customerId = await parties.ensureParty(const PartyDraft(
