@@ -255,7 +255,7 @@ class PartyRepository {
     await db.transaction((txn) async {
       final matches = await txn.query(
         'parties',
-        columns: ['id', 'source_category', 'source_id'],
+        columns: ['id', 'display_name', 'source_category', 'source_id'],
         where: 'id = ?',
         whereArgs: [partyId],
         limit: 1,
@@ -274,19 +274,46 @@ class PartyRepository {
         'SELECT COUNT(*) AS total FROM journal_lines WHERE party_id = ?',
         [partyId],
       );
+      final record = matches.single;
+      final normalizedPartyName =
+          _normalizeName(record['display_name']?.toString() ?? '');
+      var linkedRepairs = 0;
+      final repairRows = await txn.query(
+        'repairs',
+        columns: ['data_json'],
+      );
+      for (final repairRow in repairRows) {
+        try {
+          final decoded = jsonDecode(repairRow['data_json']?.toString() ?? '{}');
+          if (decoded is! Map) continue;
+          final data = Map<String, Object?>.from(decoded);
+          final linkedPartyId =
+              data['شناسه طرف حساب']?.toString().trim() ?? '';
+          final repairName =
+              _normalizeName(data['نام مشتری']?.toString() ?? '');
+          if (linkedPartyId == partyId ||
+              (linkedPartyId.isEmpty &&
+                  normalizedPartyName.isNotEmpty &&
+                  repairName == normalizedPartyName)) {
+            linkedRepairs++;
+          }
+        } catch (_) {
+          // Ignore malformed historical rows when checking deletion safety.
+        }
+      }
       final references = [
         linkedChecks.single['total'],
         linkedDocuments.single['total'],
         linkedJournal.single['total'],
-      ].fold<int>(0, (sum, value) => sum + (value as num).toInt());
+      ].fold<int>(linkedRepairs, (sum, value) => sum + (value as num).toInt());
 
-      final record = matches.single;
+
       final hasLegacySource =
           (record['source_category']?.toString().isNotEmpty ?? false) ||
           (record['source_id']?.toString().isNotEmpty ?? false);
       if (references > 0 || hasLegacySource) {
         throw StateError(
-          'این مخاطب سابقه فاکتور، چک، سند حسابداری یا پرونده قدیمی دارد؛ '
+          'این مخاطب سابقه فاکتور، چک، سند حسابداری یا پذیرش تعمیر دارد؛ '
           'برای حفظ سوابق امکان حذف مستقیم وجود ندارد.',
         );
       }
