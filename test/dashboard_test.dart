@@ -33,6 +33,7 @@ void main() {
       'پذیرش دستگاه',
       'صورت‌حساب اشخاص',
       'تماس / ارسال پیامک',
+      'مخاطبین',
       'عملیات‌های دیگر',
     ]) {
       expect(find.text(title), findsOneWidget, reason: 'Missing home card: $title');
@@ -123,6 +124,7 @@ void main() {
       'پذیرش دستگاه': 'تعمیرات',
       'صورت‌حساب اشخاص': 'دفتر گردش اشخاص',
       'تماس / ارسال پیامک': 'مشتریان',
+      'مخاطبین': 'دفتر مخاطبین',
     };
 
     for (final entry in destinations.entries) {
