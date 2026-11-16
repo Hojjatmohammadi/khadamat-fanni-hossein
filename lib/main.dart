@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'backup_service.dart';
@@ -3378,36 +3379,57 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Future<bool> _confirmLogoRequirements() async {
+    Timer? autoOpenTimer;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('راهنمای انتخاب لوگو'),
-          content: const SingleChildScrollView(
-            child: Text(
-              'محل ذخیره‌سازی: فقط روی همین گوشی ذخیره می‌شود و به گوشی‌های دیگر منتقل نمی‌شود.\n\n'
-              'محل نمایش: در سربرگ برنامه و کنار نام فروشگاه.\n\n'
-              'فرمت مجاز: JPG، JPEG و PNG\n\n'
-              'ابعاد پیشنهادی: ۵۱۲ × ۵۱۲ پیکسل (مربع)\n\n'
-              'حداکثر حجم فایل: ۱ مگابایت\n\n'
-              'پیشنهاد: لوگو با پس‌زمینه شفاف در قالب PNG یا با پس‌زمینه سفید در قالب JPG.\n\n'
-              'نکته: تصویر بهتر است وسط‌چین، واضح و بدون نوشته‌های ریز باشد.',
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        autoOpenTimer = Timer(const Duration(seconds: 3), () {
+          if (dialogContext.mounted && Navigator.of(dialogContext).canPop()) {
+            Navigator.of(dialogContext).pop(true);
+          }
+        });
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Row(
+              children: [
+                const Expanded(child: Text('راهنمای انتخاب لوگو')),
+                IconButton(
+                  tooltip: 'بستن راهنما',
+                  onPressed: () {
+                    autoOpenTimer?.cancel();
+                    Navigator.pop(dialogContext, false);
+                  },
+                  icon: const Icon(Icons.close),
+                ),
+              ],
             ),
+            content: const SingleChildScrollView(
+              child: Text(
+                'لوگو فقط روی همین گوشی ذخیره می‌شود و در سربرگ برنامه و کنار نام فروشگاه نمایش داده می‌شود.\\n\\n'
+                'فرمت مجاز: JPG، JPEG و PNG\\n'
+                'ابعاد پیشنهادی: ۵۱۲ × ۵۱۲ پیکسل (مربع)\\n'
+                'حداکثر حجم فایل: ۱ مگابایت\\n'
+                'پیشنهاد: PNG با پس‌زمینه شفاف یا JPG با پس‌زمینه سفید. تصویر واضح و بدون نوشته‌های ریز انتخاب کنید.\\n\\n'
+                'برای باز شدن گالری، «برو به گالری» را بزنید؛ در غیر این صورت تا سه ثانیه دیگر گالری خودکار باز می‌شود.',
+              ),
+            ),
+            actions: [
+              FilledButton.icon(
+                onPressed: () {
+                  autoOpenTimer?.cancel();
+                  Navigator.pop(dialogContext, true);
+                },
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('برو به گالری'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('انصراف'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('متوجه شدم، ادامه'),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
+    autoOpenTimer?.cancel();
     return confirmed == true;
   }
 
@@ -3556,17 +3578,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                               label: const Text('حذف لوگوی اختصاصی'),
                             ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'محل ذخیره‌سازی: فقط روی همین گوشی ذخیره می‌شود و به گوشی‌های دیگر منتقل نمی‌شود.\\n'
-                        'محل نمایش: در سربرگ برنامه و کنار نام فروشگاه.\\n'
-                        'فرمت مجاز: JPG، JPEG و PNG\\n'
-                        'ابعاد پیشنهادی: ۵۱۲ × ۵۱۲ پیکسل (مربع)\\n'
-                        'حداکثر حجم فایل: ۱ مگابایت\\n'
-                        'پیشنهاد: لوگو با پس‌زمینه شفاف در قالب PNG یا با پس‌زمینه سفید در قالب JPG.\\n'
-                        'نکته: تصویر بهتر است وسط‌چین، واضح و بدون نوشته‌های ریز باشد.',
-                        textAlign: TextAlign.right,
                       ),
                       const Divider(height: 28),
                       Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium),
