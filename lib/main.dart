@@ -2473,6 +2473,40 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
     _discountController.text = (_subtotal * _defaultDiscountPercent / 100).round().toString();
   }
 
+  Future<void> _selectPhoneParty(PhoneContactSelection contact) async {
+    final displayName = contact.name.trim();
+    if (displayName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مخاطب انتخاب‌شده نام معتبری ندارد.')),
+      );
+      return;
+    }
+    try {
+      final id = await DemoStore.parties.ensureParty(
+        PartyDraft(
+          partyType: _isPurchase ? 'supplier' : 'customer',
+          displayName: displayName,
+          phone: contact.phone,
+        ),
+      );
+      await _loadParties();
+      if (!mounted) return;
+      setState(() {
+        _selectedPartyId = id;
+        _partyController.text = displayName;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('مخاطب گوشی به دفتر اشخاص متصل و در فاکتور انتخاب شد.')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ثبت مخاطب انتخاب‌شده ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _addPartyInline() async {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
@@ -3310,8 +3344,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             ),
           ),
           const SizedBox(height: 4),
+          PhoneContactPickerButton(
+            label: 'انتخاب مشتری یا فروشنده از مخاطبین گوشی',
+            onSelected: _selectPhoneParty,
+          ),
+          const SizedBox(height: 4),
           TextField(
-                        textInputAction: TextInputAction.next,
+            textInputAction: TextInputAction.next,
             controller: _partyController,
             decoration: InputDecoration(labelText: _partyLabel),
             onChanged: (value) {
