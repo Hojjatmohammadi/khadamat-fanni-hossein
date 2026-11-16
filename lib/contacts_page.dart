@@ -285,6 +285,49 @@ class _ContactsPageState extends State<ContactsPage> {
     }
   }
 
+  Future<void> _showContactActions(Map<String, Object?> contact) async {
+    final name = contact['display_name']?.toString() ?? 'مخاطب';
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(name),
+          content: const Text('برای این مخاطب چه کاری انجام می‌دهید؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+              child: const Text('بستن'),
+            ),
+            TextButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, 'ledger'),
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              label: const Text('پرونده و گردش حساب'),
+            ),
+            TextButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, 'edit'),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('ویرایش'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, 'delete'),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null || action == 'cancel') return;
+    if (action == 'edit') {
+      await _editContact(contact: contact);
+    } else if (action == 'delete') {
+      await _deleteContact(contact);
+    } else if (action == 'ledger') {
+      _openLedger(contact);
+    }
+  }
+
   void _openLedger(Map<String, Object?> contact) {
     final id = contact['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -426,6 +469,7 @@ class _ContactsPageState extends State<ContactsPage> {
                                 child: Column(
                                   children: [
                                     ListTile(
+                                      onTap: () => _showContactActions(contact),
                                       contentPadding: EdgeInsets.zero,
                                       title: Text(
                                         contact['display_name']?.toString() ?? 'بدون نام',
