@@ -44,6 +44,23 @@ void main() {
     expect(await parties.getPartyRoles(id), isEmpty);
   });
 
+  test('a contact linked to a repair intake cannot be deleted', () async {
+    const id = 'party-protected-repair';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری دارای پذیرش تعمیر',
+      preferredId: id,
+    ));
+    await store.insert('repairs', {
+      'نام مشتری': 'مشتری دارای پذیرش تعمیر',
+      'شناسه طرف حساب': id,
+      'نوع دستگاه': 'جاروبرقی',
+    });
+
+    await expectLater(parties.deleteParty(id), throwsA(isA<StateError>()));
+    expect((await parties.getParties()).single['id'], id);
+  });
+
   test('a contact with invoice history cannot be deleted', () async {
     final id = await parties.ensureParty(const PartyDraft(
       partyType: 'customer',
