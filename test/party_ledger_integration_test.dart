@@ -31,27 +31,48 @@ void main() {
   });
 
 
-  test('rejects reusing a customer id as a supplier id', () async {
-    const sharedId = 'party-id-type-conflict';
-    await parties.ensureParty(const PartyDraft(
+  test('one contact can be both a customer and a supplier', () async {
+    const sharedId = 'party-id-multiple-roles';
+    final customerId = await parties.ensureParty(const PartyDraft(
       partyType: 'customer',
-      displayName: 'مشتری شناسه‌دار',
+      displayName: 'مشتری و فروشنده',
+      phone: '۰۹۱۲۱۲۳۴۵۶۷',
       preferredId: sharedId,
     ));
 
-    await expectLater(
-      parties.ensureParty(const PartyDraft(
-        partyType: 'supplier',
-        displayName: 'فروشنده با شناسه تکراری',
-        preferredId: sharedId,
-      )),
-      throwsA(isA<StateError>()),
-    );
+    final supplierId = await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'مشتری و فروشنده',
+      phone: '09121234567',
+      preferredId: sharedId,
+    ));
 
-    final saved = await parties.getParties();
-    expect(saved, hasLength(1));
-    expect(saved.single['party_type'], 'customer');
-    expect(saved.single['display_name'], 'مشتری شناسه‌دار');
+    expect(customerId, sharedId);
+    expect(supplierId, customerId);
+    expect(await parties.getPartyRoles(sharedId), containsAll(['customer', 'supplier']));
+    expect((await parties.getParties(partyType: 'customer')).single['id'], sharedId);
+    expect((await parties.getParties(partyType: 'supplier')).single['id'], sharedId);
+
+    final statement = await parties.getPartyStatementPage(sharedId);
+    expect(statement['roles'], containsAll(['customer', 'supplier']));
+    expect(statement['closing_label'], 'تسویه');
+  });
+
+  test('same person with equivalent phone formatting is not duplicated across roles', () async {
+    final customerId = await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'علی رضایی',
+      phone: '09120001122',
+    ));
+    final supplierId = await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'علی رضایی',
+      phone: '+98 912 000 1122',
+    ));
+
+    expect(supplierId, customerId);
+    expect((await parties.getParties()).where((party) => party['id'] == customerId), hasLength(1));
+    expect(await parties.getPartyRoles(customerId), containsAll(['customer', 'supplier']));
   });
 
   test('linked customer receipts and returns inherit the invoice party in the ledger', () async {
