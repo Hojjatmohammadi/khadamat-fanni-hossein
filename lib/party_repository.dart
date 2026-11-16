@@ -38,7 +38,7 @@ class PartyRepository {
       .replaceAll('ي', 'ی')
       .replaceAll('ك', 'ک')
       .toLowerCase()
-      .replaceAll(RegExp(r'\\s+'), ' ');
+      .replaceAll(RegExp(r'\s+'), ' ');
 
   static String _normalizePhone(String value) {
     var digits = value
