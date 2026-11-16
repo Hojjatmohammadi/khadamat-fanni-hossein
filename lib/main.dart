@@ -335,6 +335,7 @@ class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<_ProductPageState> _productPageKey = GlobalKey<_ProductPageState>();
   final GlobalKey<_SimpleListPageState> _customerPageKey = GlobalKey<_SimpleListPageState>();
+  final GlobalKey<_RepairPageState> _repairPageKey = GlobalKey<_RepairPageState>();
   int tab = 0;
   final List<int> _tabHistory = [];
   final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی'];
@@ -451,7 +452,7 @@ class _HomePageState extends State<HomePage> {
       ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
       PurchasePage(onChanged: () => setState(() {})),
       CustomerPage(listKey: _customerPageKey, onChanged: () => setState(() {})),
-      RepairPage(onChanged: () => setState(() {})),
+      RepairPage(key: _repairPageKey, onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
       PartyLedgerPage(repository: DemoStore.parties),
       CheckPage(
@@ -530,6 +531,12 @@ class _HomePageState extends State<HomePage> {
                 IconButton(
                   tooltip: 'ثبت مشتری',
                   onPressed: () => _customerPageKey.currentState?.addItem(),
+                  icon: const Icon(Icons.add_circle_outline),
+                )
+              else if (tab == 4)
+                IconButton(
+                  tooltip: 'ثبت پذیرش تعمیر',
+                  onPressed: () => _repairPageKey.currentState?.addRepair(),
                   icon: const Icon(Icons.add_circle_outline),
                 )
               else
@@ -1857,6 +1864,13 @@ class RepairPage extends StatefulWidget {
 }
 
 class _RepairPageState extends State<RepairPage> {
+  final GlobalKey<_SimpleListPageState> _listKey =
+      GlobalKey<_SimpleListPageState>();
+
+  Future<void> addRepair() async {
+    await _listKey.currentState?.addItem();
+  }
+
   Future<void> _recordPartConsumption() async {
     final repairOptions = DemoStore.repairs
         .where((item) => int.tryParse(item['__database_id'] ?? '') != null)
@@ -2125,6 +2139,7 @@ class _RepairPageState extends State<RepairPage> {
         children: [
           Expanded(
             child: SimpleListPage(
+              key: _listKey,
               title: 'پذیرش تعمیر',
               data: DemoStore.repairs,
               fields: const ['نام مشتری', 'نوع دستگاه', 'شرح عیب', 'اجرت', 'وضعیت تعمیر'],

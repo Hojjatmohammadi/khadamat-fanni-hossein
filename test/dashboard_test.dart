@@ -179,4 +179,48 @@ void main() {
     expect(result.single['نام مشتری'], 'احمد');
     expect(filterCategoryRecords(records, 'ناموجود'), isEmpty);
   });
+
+  testWidgets('inventory, contacts, and repair cards each expose one direct add action',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+
+    await tester.tap(find.text('انبار'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byTooltip('ثبت کالا'), findsOneWidget);
+    await tester.tap(find.byTooltip('ثبت کالا'));
+    await tester.pumpAndSettle();
+    expect(find.text('ثبت کالا'), findsOneWidget);
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('تماس / ارسال پیامک'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byTooltip('ثبت مشتری'), findsOneWidget);
+    await tester.tap(find.byTooltip('ثبت مشتری'));
+    await tester.pumpAndSettle();
+    expect(find.text('ثبت مشتری جدید'), findsOneWidget);
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
+
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('پذیرش دستگاه'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byTooltip('ثبت پذیرش تعمیر'), findsOneWidget);
+    expect(find.byTooltip('افزودن مورد جدید'), findsNothing);
+    await tester.tap(find.byTooltip('ثبت پذیرش تعمیر'));
+    await tester.pumpAndSettle();
+    expect(find.text('ثبت پذیرش تعمیر جدید'), findsOneWidget);
+    expect(find.text('ثبت مصرف قطعه در تعمیر'), findsOneWidget);
+    expect(find.text('ثبت درآمد اجرت تعمیر'), findsOneWidget);
+    expect(find.text('دریافت مانده اجرت تعمیر'), findsOneWidget);
+  });
+
 }
