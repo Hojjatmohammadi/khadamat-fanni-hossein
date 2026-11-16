@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'party_ledger_page.dart';
+import 'phone_contact_picker.dart';
 import 'party_repository.dart';
 
 class ContactsPage extends StatefulWidget {
@@ -124,6 +125,13 @@ class _ContactsPageState extends State<ContactsPage> {
                         validator: (value) => value == null || value.trim().isEmpty
                             ? 'نام مخاطب را وارد کنید'
                             : null,
+                      ),
+                      const SizedBox(height: 10),
+                      PhoneContactPickerButton(
+                        onSelected: (selected) {
+                          name.text = selected.name;
+                          phone.text = selected.phone;
+                        },
                       ),
                       const SizedBox(height: 10),
                       TextFormField(

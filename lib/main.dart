@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'backup_service.dart';
+import 'phone_contact_picker.dart';
 import 'backup_page.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -825,6 +826,18 @@ class _SimpleListPageState extends State<SimpleListPage> {
                         : null,
                   ),
                   const SizedBox(height: 8),
+                  PhoneContactPickerButton(
+                    onSelected: (contact) {
+                      nameController.text = contact.name;
+                      phoneController.text = contact.phone;
+                      if (contact.name.isNotEmpty) {
+                        nameController.selection = TextSelection.collapsed(
+                          offset: nameController.text.length,
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
@@ -899,6 +912,17 @@ class _SimpleListPageState extends State<SimpleListPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (widget.title == 'مشتری')
+                    PhoneContactPickerButton(
+                      onSelected: (contact) {
+                        if (controllers.isNotEmpty) {
+                          controllers[0].text = contact.name;
+                        }
+                        if (controllers.length > 1) {
+                          controllers[1].text = contact.phone;
+                        }
+                      },
+                    ),
                   if (widget.title == 'پذیرش تعمیر') ...[
                     if (repairCustomerOptions.isNotEmpty)
                       DropdownButtonFormField<String>(
@@ -2474,6 +2498,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                     validator: (value) => value == null || value.trim().isEmpty
                         ? 'نام مخاطب را وارد کنید'
                         : null,
+                  ),
+                  const SizedBox(height: 10),
+                  PhoneContactPickerButton(
+                    onSelected: (contact) {
+                      nameController.text = contact.name;
+                      phoneController.text = contact.phone;
+                    },
                   ),
                   const SizedBox(height: 10),
                   TextField(

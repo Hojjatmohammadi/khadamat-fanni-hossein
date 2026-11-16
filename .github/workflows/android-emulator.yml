@@ -34,6 +34,23 @@ jobs:
             flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
 
+      - name: Declare read-only contact picker permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          if not manifest.exists():
+              raise SystemExit("AndroidManifest.xml was not generated")
+          content = manifest.read_text(encoding="utf-8")
+          permission = '    <uses-permission android:name="android.permission.READ_CONTACTS" />'
+          if "android.permission.READ_CONTACTS" not in content:
+              if "<application" not in content:
+                  raise SystemExit("Could not locate the application element in AndroidManifest.xml")
+              content = content.replace("<application", permission + "\n\n    <application", 1)
+          manifest.write_text(content, encoding="utf-8")
+          PY
+
       - name: Remove untracked Flutter scaffolding
         run: |
           for generated_file in test/widget_test.dart analysis_options.yaml; do
