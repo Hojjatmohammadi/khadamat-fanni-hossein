@@ -183,10 +183,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('open-navigation-drawer')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('drawer-settings-button')));
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
+    expect(find.text('تنظیمات برنامه'), findsOneWidget);
     expect(find.textContaining('محل ذخیره‌سازی:'), findsNothing);
-    await tester.tap(find.text('انتخاب لوگو از گالری'));
+    final chooseLogoButton = find.ancestor(
+      of: find.byIcon(Icons.photo_library_outlined),
+      matching: find.byType(OutlinedButton),
+    );
+    expect(chooseLogoButton, findsOneWidget);
+    await tester.tap(chooseLogoButton);
     await tester.pumpAndSettle();
     expect(find.text('راهنمای انتخاب لوگو'), findsOneWidget);
     expect(find.text('برو به گالری'), findsOneWidget);
