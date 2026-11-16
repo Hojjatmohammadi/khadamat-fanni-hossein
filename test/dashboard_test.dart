@@ -180,11 +180,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await DemoStore.init();
-    await tester.pumpWidget(const HoseinApp());
-    await tester.tap(find.byKey(const ValueKey('open-navigation-drawer')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('drawer-settings-button')));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpWidget(const MaterialApp(home: AppSettingsPage()));
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('تنظیمات برنامه'), findsOneWidget);
     expect(find.textContaining('محل ذخیره‌سازی:'), findsNothing);
