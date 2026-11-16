@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
+import 'package:khadamat_fanni_hosein/contacts_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -174,6 +175,46 @@ void main() {
     }
   });
 
+
+  testWidgets('central contacts page creates a multi-role contact and opens its profile',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await DemoStore.init();
+    await tester.pumpWidget(
+      MaterialApp(home: ContactsPage(repository: DemoStore.parties)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('افزودن مخاطب'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'آزمون دفتر مرکزی مخاطبین',
+    );
+    await tester.enterText(
+      find.byType(TextFormField).last,
+      '09123334455',
+    );
+    await tester.tap(find.text('فروشنده'));
+    await tester.pump();
+    await tester.tap(find.text('ذخیره مخاطب'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
+    final roles = await DemoStore.parties.getPartyRoles(
+      (await DemoStore.parties.getParties())
+          .singleWhere((party) => party['display_name'] == 'آزمون دفتر مرکزی مخاطبین')['id'] as String,
+    );
+    expect(roles, containsAll(['customer', 'supplier']));
+
+    await tester.tap(find.byTooltip('پرونده و گردش حساب'));
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
+  });
 
   testWidgets('logo help can be dismissed and gallery opens only on request',
       (tester) async {
