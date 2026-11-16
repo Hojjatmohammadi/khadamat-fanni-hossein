@@ -334,6 +334,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<_ProductPageState> _productPageKey = GlobalKey<_ProductPageState>();
+  final GlobalKey<_SimpleListPageState> _customerPageKey = GlobalKey<_SimpleListPageState>();
   int tab = 0;
   final List<int> _tabHistory = [];
   final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی'];
@@ -449,7 +450,7 @@ class _HomePageState extends State<HomePage> {
       Dashboard(onSelect: _selectTab),
       ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
       PurchasePage(onChanged: () => setState(() {})),
-      CustomerPage(onChanged: () => setState(() {})),
+      CustomerPage(key: _customerPageKey, onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
       PartyLedgerPage(repository: DemoStore.parties),
@@ -523,6 +524,12 @@ class _HomePageState extends State<HomePage> {
                 IconButton(
                   tooltip: 'ثبت کالا',
                   onPressed: () => _productPageKey.currentState?.addProduct(),
+                  icon: const Icon(Icons.add_circle_outline),
+                )
+              else if (tab == 3)
+                IconButton(
+                  tooltip: 'ثبت مشتری',
+                  onPressed: () => _customerPageKey.currentState?.addItem(),
                   icon: const Icon(Icons.add_circle_outline),
                 )
               else
@@ -892,13 +899,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
-        floatingActionButton: FloatingActionButton(
-          heroTag: 'add-${widget.title}',
-          backgroundColor: yellow,
-          foregroundColor: black,
-          onPressed: addItem,
-          child: const Icon(Icons.add),
-        ),
         body: Column(
           children: [
             Padding(
@@ -919,17 +919,6 @@ class _SimpleListPageState extends State<SimpleListPage> {
                           },
                           icon: const Icon(Icons.close),
                         ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  onPressed: addItem,
-                  icon: const Icon(Icons.add),
-                  label: const Text('ثبت مورد جدید'),
                 ),
               ),
             ),
