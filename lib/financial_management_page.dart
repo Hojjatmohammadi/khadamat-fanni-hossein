@@ -2,11 +2,17 @@ import 'package:material_ui/material_ui.dart';
 
 import 'accounting_repository.dart';
 import 'jalali_date_field.dart';
+import 'party_repository.dart';
 
 class FinancialManagementPage extends StatefulWidget {
-  const FinancialManagementPage({super.key, required this.repository});
+  const FinancialManagementPage({
+    super.key,
+    required this.repository,
+    required this.parties,
+  });
 
   final AccountingRepository repository;
+  final PartyRepository parties;
 
   @override
   State<FinancialManagementPage> createState() => _FinancialManagementPageState();
@@ -26,6 +32,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
   String _cashAccount = '1000';
   String? _ledgerAccount;
   List<Map<String, Object?>> _accounts = [];
+  List<Map<String, Object?>> _partyOptions = [];
+  String? _selectedExpensePartyId;
   List<Map<String, Object?>> _journal = [];
   List<Map<String, Object?>> _trialBalance = [];
   Map<String, Object?>? _ledger;
@@ -52,6 +60,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     setState(() => _loading = true);
     try {
       final accounts = await widget.repository.getAccounts();
+      final partyOptions = await widget.parties.getParties();
       final fromDate = _isoDate(_reportFrom);
       final toDate = _isoDate(_reportTo);
       final journal = await widget.repository.getJournalEntries(fromDate: fromDate, toDate: toDate);
@@ -71,6 +80,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
       if (!mounted) return;
       setState(() {
         _accounts = accounts;
+        _partyOptions = partyOptions;
         _journal = journal;
         _trialBalance = trial;
         _expenseAccount = selectedExpense;
@@ -101,6 +111,87 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     }
   }
 
+  Future<void> _addExpenseParty() async {
+    final name = TextEditingController();
+    final phone = TextEditingController();
+    final address = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('افزودن طرف هزینه به دفتر مخاطبین'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'نام شخص یا فروشنده'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'نام مخاطب را وارد کنید'
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'شماره همراه'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'نشانی'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
+              child: const Text('ذخیره و انتخاب'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      try {
+        final id = await widget.parties.ensureParty(
+          PartyDraft(
+            partyType: 'supplier',
+            displayName: name.text.trim(),
+            phone: phone.text.trim(),
+            address: address.text.trim(),
+          ),
+        );
+        final options = await widget.parties.getParties();
+        if (!mounted) return;
+        setState(() {
+          _partyOptions = options;
+          _selectedExpensePartyId = id;
+        });
+        _message('مخاطب به پرونده هزینه متصل شد.');
+      } catch (error) {
+        _message('افزودن مخاطب ناموفق بود: $error');
+      }
+    }
+    name.dispose();
+    phone.dispose();
+    address.dispose();
+  }
+
   Future<void> _saveExpense() async {
     final amount = _parseAmount(_amount.text);
     if (_description.text.trim().isEmpty || amount == null || amount <= 0) {
@@ -116,6 +207,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
         expenseAccountCode: _expenseAccount,
         cashAccountCode: _cashAccount,
         idempotencyKey: 'expense-${DateTime.now().microsecondsSinceEpoch}',
+        partyId: _selectedExpensePartyId,
       );
       _description.clear();
       _amount.clear();
@@ -268,6 +360,42 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
                     ),
                     const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedExpensePartyId),
+                      initialValue: _selectedExpensePartyId ?? '',
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'مخاطب یا فروشنده (اختیاری)',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('بدون اتصال به مخاطب'),
+                        ),
+                        for (final party in _partyOptions)
+                          DropdownMenuItem(
+                            value: party['id'] as String,
+                            child: Text(
+                              '${party['display_name'] ?? ''} • ${party['phone'] ?? ''}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _selectedExpensePartyId =
+                            value == null || value.isEmpty ? null : value,
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _saving ? null : _addExpenseParty,
+                        icon: const Icon(Icons.person_add_alt_1),
+                        label: const Text('افزودن مخاطب جدید'),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     DropdownButtonFormField<String>(
                       key: ValueKey(_expenseAccount),
                       initialValue: _expenseAccount,
