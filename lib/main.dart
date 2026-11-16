@@ -546,6 +546,15 @@ class _HomePageState extends State<HomePage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: ValueListenableBuilder<String?>(
+                              valueListenable: DemoStore.appLogo,
+                              builder: (context, logo, _) => logo?.isNotEmpty == true
+                                  ? Image.memory(base64Decode(logo!), width: 52, height: 52, fit: BoxFit.cover)
+                                  : Image.asset('assets/logo.jpg', width: 52, height: 52, fit: BoxFit.cover),
+                            ),
+                          ),
                           IconButton(
                             key: const ValueKey('drawer-settings-button'),
                             tooltip: 'تنظیمات برنامه',
@@ -559,15 +568,6 @@ class _HomePageState extends State<HomePage> {
                               Icons.settings_outlined,
                               color: yellow,
                               size: 30,
-                            ),
-                          ),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: ValueListenableBuilder<String?>(
-                              valueListenable: DemoStore.appLogo,
-                              builder: (context, logo, _) => logo?.isNotEmpty == true
-                                  ? Image.memory(base64Decode(logo!), width: 52, height: 52, fit: BoxFit.cover)
-                                  : Image.asset('assets/logo.jpg', width: 52, height: 52, fit: BoxFit.cover),
                             ),
                           ),
                         ],
