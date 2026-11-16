@@ -9,6 +9,8 @@ import 'app_database.dart';
 import 'trade_repository.dart';
 import 'accounting_repository.dart';
 import 'financial_management_page.dart';
+import 'loan_repository.dart';
+import 'loan_management_page.dart';
 import 'party_repository.dart';
 import 'check_repository.dart';
 import 'party_ledger_page.dart';
@@ -211,6 +213,7 @@ class DemoStore {
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
   static final AccountingRepository accounting = AccountingRepository(_database);
+  static final LoanRepository loans = LoanRepository(_database);
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
   static final BackupService backups = BackupService(_database);
@@ -338,7 +341,7 @@ class _HomePageState extends State<HomePage> {
   final GlobalKey<_RepairPageState> _repairPageKey = GlobalKey<_RepairPageState>();
   int tab = 0;
   final List<int> _tabHistory = [];
-  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی'];
+  final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی', 'قرض‌ها و اقساط'];
 
   void _selectTab(int nextTab) {
     if (nextTab < 0 || nextTab >= titles.length || nextTab == tab) return;
@@ -467,6 +470,7 @@ class _HomePageState extends State<HomePage> {
         service: DemoStore.backups,
         initialMessage: DemoStore.backupStartupNotice,
       ),
+      LoanManagementPage(repository: DemoStore.loans),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -603,7 +607,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
-                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book, Icons.backup][i]),
+                    leading: Icon([Icons.dashboard, Icons.inventory_2, Icons.shopping_bag, Icons.people, Icons.build, Icons.receipt_long, Icons.account_balance, Icons.request_quote, Icons.bar_chart, Icons.menu_book, Icons.backup, Icons.payments][i]),
                     title: Text(titles[i]),
                     selected: tab == i,
                     onTap: () {
