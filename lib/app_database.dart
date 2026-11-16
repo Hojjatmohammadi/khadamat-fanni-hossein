@@ -121,10 +121,17 @@ class AppDatabase {
         }
         if (oldVersion < 14) {
           await _createPartyRolesSchema(db);
-          await db.execute('''
-            INSERT OR IGNORE INTO party_roles (party_id, role, created_at)
-            SELECT id, party_type, created_at FROM parties
-          ''');
+          // Some lightweight/legacy installations may not have the parties
+          // table yet. Only backfill roles when the source table is present.
+          final partyTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'parties'",
+          );
+          if (partyTables.isNotEmpty) {
+            await db.execute('''
+              INSERT OR IGNORE INTO party_roles (party_id, role, created_at)
+              SELECT id, party_type, created_at FROM parties
+            ''');
+          }
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
