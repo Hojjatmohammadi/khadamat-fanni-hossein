@@ -333,6 +333,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<_ProductPageState> _productPageKey = GlobalKey<_ProductPageState>();
   int tab = 0;
   final List<int> _tabHistory = [];
   final titles = const ['داشبورد', 'انبار کالا', 'خرید و برگشت', 'مشتریان', 'تعمیرات', 'فروش و فاکتور', 'دفتر گردش اشخاص', 'مدیریت چک‌ها', 'گزارش‌ها', 'دفتر روزنامه و هزینه‌ها', 'پشتیبان‌گیری و بازیابی'];
@@ -446,7 +447,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final pages = [
       Dashboard(onSelect: _selectTab),
-      ProductPage(onChanged: () => setState(() {})),
+      ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
       PurchasePage(onChanged: () => setState(() {})),
       CustomerPage(onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
@@ -518,18 +519,25 @@ class _HomePageState extends State<HomePage> {
                 onPressed: _showGlobalSearch,
                 icon: const Icon(Icons.search),
               ),
-              PopupMenuButton<int>(
-                tooltip: 'افزودن مورد جدید',
-                icon: const Icon(Icons.add_circle_outline),
-                onSelected: _selectTab,
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 1, child: Text('ثبت کالا')),
-                  PopupMenuItem(value: 2, child: Text('ثبت خرید')),
-                  PopupMenuItem(value: 3, child: Text('ثبت مشتری')),
-                  PopupMenuItem(value: 4, child: Text('پذیرش تعمیر')),
-                  PopupMenuItem(value: 5, child: Text('صدور فاکتور فروش')),
-                ],
-              ),
+              if (tab == 1)
+                IconButton(
+                  tooltip: 'ثبت کالا',
+                  onPressed: () => _productPageKey.currentState?.addProduct(),
+                  icon: const Icon(Icons.add_circle_outline),
+                )
+              else
+                PopupMenuButton<int>(
+                  tooltip: 'افزودن مورد جدید',
+                  icon: const Icon(Icons.add_circle_outline),
+                  onSelected: _selectTab,
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 1, child: Text('ثبت کالا')),
+                    PopupMenuItem(value: 2, child: Text('ثبت خرید')),
+                    PopupMenuItem(value: 3, child: Text('ثبت مشتری')),
+                    PopupMenuItem(value: 4, child: Text('پذیرش تعمیر')),
+                    PopupMenuItem(value: 5, child: Text('صدور فاکتور فروش')),
+                  ],
+                ),
             ],
           ),
           body: pages[tab],
@@ -1708,13 +1716,6 @@ class _ProductPageState extends State<ProductPage> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'add-product',
-        backgroundColor: yellow,
-        foregroundColor: black,
-        onPressed: addProduct,
-        child: const Icon(Icons.add),
-      ),
       body: Column(
         children: [
           Padding(
@@ -1744,12 +1745,6 @@ class _ProductPageState extends State<ProductPage> {
             child: Row(
               children: [
                 Text('کالاها: ${filteredProducts.length}'),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: addProduct,
-                  icon: const Icon(Icons.add),
-                  label: const Text('ثبت کالا'),
-                ),
               ],
             ),
           ),
