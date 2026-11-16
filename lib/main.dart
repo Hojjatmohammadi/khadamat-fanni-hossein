@@ -795,7 +795,98 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> addItem() async {
     final controllers = widget.fields.map((_) => TextEditingController()).toList();
     String? selectedRepairCustomerPartyId;
+    final repairCustomerOptions = widget.title == 'پذیرش تعمیر'
+        ? await DemoStore.parties.getParties(partyType: 'customer')
+        : <Map<String, Object?>>[];
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
+
+    Future<void> addRepairCustomer() async {
+      final nameController = TextEditingController();
+      final phoneController = TextEditingController();
+      final addressController = TextEditingController();
+      final formKey = GlobalKey<FormState>();
+      final savedCustomer = await showDialog<bool>(
+        context: context,
+        builder: (nestedContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('افزودن مشتری به دفتر مخاطبین'),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'نام مشتری'),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'نام مشتری را وارد کنید'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'شماره همراه'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'نشانی'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(nestedContext, false),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    Navigator.pop(nestedContext, true);
+                  }
+                },
+                child: const Text('ذخیره و انتخاب'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (savedCustomer == true && mounted) {
+        try {
+          final id = await DemoStore.parties.ensureParty(
+            PartyDraft(
+              partyType: 'customer',
+              displayName: nameController.text.trim(),
+              phone: phoneController.text.trim(),
+              address: addressController.text.trim(),
+            ),
+          );
+          repairCustomerOptions
+            ..removeWhere((party) => party['id'] == id)
+            ..add({
+              'id': id,
+              'display_name': nameController.text.trim(),
+              'phone': phoneController.text.trim(),
+            });
+          selectedRepairCustomerPartyId = id;
+          controllers[0].text = nameController.text.trim();
+          if (mounted) setState(() {});
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('افزودن مشتری ناموفق بود: $error')),
+            );
+          }
+        }
+      }
+      nameController.dispose();
+      phoneController.dispose();
+      addressController.dispose();
+    }
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => Directionality(
@@ -808,35 +899,44 @@ class _SimpleListPageState extends State<SimpleListPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (widget.title == 'پذیرش تعمیر' && DemoStore.customers.isNotEmpty) ...[
-                    DropdownButtonFormField<String>(
-                      key: const ValueKey('repair-existing-customer-selector'),
-                      decoration: const InputDecoration(
-                        labelText: 'انتخاب مشتری ثبت‌شده',
-                      ),
-                      items: [
-                        for (final customer in DemoStore.customers)
-                          if ((customer['نام مشتری'] ?? '').trim().isNotEmpty &&
-                              (customer['__database_id'] ?? '').isNotEmpty)
+                  if (widget.title == 'پذیرش تعمیر') ...[
+                    if (repairCustomerOptions.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        key: const ValueKey('repair-existing-customer-selector'),
+                        decoration: const InputDecoration(
+                          labelText: 'انتخاب مشتری ثبت‌شده',
+                        ),
+                        isExpanded: true,
+                        items: [
+                          for (final customer in repairCustomerOptions)
                             DropdownMenuItem<String>(
-                              value: 'customer:${customer['__database_id']}',
+                              value: customer['id'] as String,
                               child: Text(
-                                '${customer['نام مشتری']} • ${customer['شماره تماس'] ?? 'بدون شماره'}',
+                                '${customer['display_name'] ?? ''} • ${customer['phone'] ?? 'بدون شماره'}',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                      ],
-                      onChanged: (partyId) {
-                        if (partyId == null) return;
-                        selectedRepairCustomerPartyId = partyId;
-                        final customerId = partyId.substring('customer:'.length);
-                        final customer = DemoStore.customers.firstWhere(
-                          (item) => item['__database_id'] == customerId,
-                        );
-                        controllers[0].text = customer['نام مشتری'] ?? '';
-                      },
+                        ],
+                        onChanged: (partyId) {
+                          if (partyId == null) return;
+                          selectedRepairCustomerPartyId = partyId;
+                          final customer = repairCustomerOptions.firstWhere(
+                            (item) => item['id'] == partyId,
+                          );
+                          controllers[0].text =
+                              customer['display_name']?.toString() ?? '';
+                        },
+                      ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        key: const ValueKey('repair-inline-add-customer'),
+                        onPressed: addRepairCustomer,
+                        icon: const Icon(Icons.person_add_alt_1),
+                        label: const Text('افزودن مشتری جدید'),
+                      ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                   ],
                   for (int i = 0; i < widget.fields.length; i++)
                     Padding(
@@ -851,11 +951,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
                             ? (value) {
                                 final selectedId = selectedRepairCustomerPartyId;
                                 if (selectedId != null) {
-                                  final customerId = selectedId.substring('customer:'.length);
-                                  final selected = DemoStore.customers.firstWhere(
-                                    (item) => item['__database_id'] == customerId,
+                                  final selected = repairCustomerOptions.firstWhere(
+                                    (item) => item['id'] == selectedId,
+                                    orElse: () => const <String, Object?>{},
                                   );
-                                  if (value.trim() != (selected['نام مشتری'] ?? '').trim()) {
+                                  if (value.trim() !=
+                                      (selected['display_name']?.toString() ?? '').trim()) {
                                     selectedRepairCustomerPartyId = null;
                                   }
                                 }
@@ -887,7 +988,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
                   if (category == 'repairs' && selectedRepairCustomerPartyId != null) {
                     item['شناسه طرف حساب'] = selectedRepairCustomerPartyId!;
-                    item['شناسه مشتری'] = selectedRepairCustomerPartyId!.substring('customer:'.length);
+                    item['شناسه مشتری'] = selectedRepairCustomerPartyId!.startsWith('customer:')
+                        ? selectedRepairCustomerPartyId!.substring('customer:'.length)
+                        : selectedRepairCustomerPartyId!;
                   }
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
