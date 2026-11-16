@@ -558,7 +558,14 @@ class _HomePageState extends State<HomePage> {
                 ),
             ],
           ),
-          body: pages[tab],
+          body: Padding(
+            key: const ValueKey('app-page-bottom-gap'),
+            padding: const EdgeInsets.only(bottom: 16),
+            child: SafeArea(
+              top: false,
+              child: pages[tab],
+            ),
+          ),
           drawer: Drawer(
             child: ListView(
               children: [
@@ -3513,7 +3520,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               : Form(
                   key: _formKey,
                   child: ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      16,
+                      16,
+                      MediaQuery.viewPaddingOf(context).bottom + 24,
+                    ),
                     children: [
                       Text('لوگوی فروشگاه', style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 10),
