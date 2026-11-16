@@ -25,6 +25,7 @@ class _ContactsPageState extends State<ContactsPage> {
   List<Map<String, Object?>> _contacts = [];
   String _roleFilter = 'all';
   bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -39,7 +40,10 @@ class _ContactsPageState extends State<ContactsPage> {
   }
 
   Future<void> _loadContacts() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final parties = await widget.repository.getParties();
       final contacts = await Future.wait(parties.map((party) async {
@@ -53,13 +57,14 @@ class _ContactsPageState extends State<ContactsPage> {
       setState(() {
         _contacts = contacts;
         _loading = false;
+        _loadError = null;
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('بارگذاری مخاطبین ناموفق بود: $error')),
-      );
+      setState(() {
+        _loading = false;
+        _loadError = error.toString();
+      });
     }
   }
 
@@ -360,15 +365,49 @@ class _ContactsPageState extends State<ContactsPage> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : contacts.isEmpty
+                : _loadError != null
                     ? Center(
-                        child: Text(
-                          _contacts.isEmpty
-                              ? 'هنوز مخاطبی ثبت نشده است.'
-                              : 'مخاطبی با این جست‌وجو یا نقش پیدا نشد.',
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.cloud_off_outlined,
+                                size: 48,
+                                color: Colors.redAccent,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'بارگذاری دفتر مخاطبین ناموفق بود',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              SelectableText(
+                                _loadError!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              const SizedBox(height: 14),
+                              FilledButton.icon(
+                                onPressed: _loadContacts,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('تلاش دوباره'),
+                              ),
+                            ],
+                          ),
                         ),
                       )
-                    : RefreshIndicator(
+                    : contacts.isEmpty
+                        ? Center(
+                            child: Text(
+                              _contacts.isEmpty
+                                  ? 'هنوز مخاطبی ثبت نشده است.'
+                                  : 'مخاطبی با این جست‌وجو یا نقش پیدا نشد.',
+                            ),
+                          )
+                        : RefreshIndicator(
                         onRefresh: _loadContacts,
                         child: ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 6, 12, 28),
