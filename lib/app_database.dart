@@ -111,7 +111,12 @@ class AppDatabase {
         }
         if (oldVersion < 13) {
           await _createLoanSchema(db);
-          await _seedAccounts(db);
+          final accountTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'accounts'",
+          );
+          if (accountTables.isNotEmpty) {
+            await _seedAccounts(db);
+          }
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
