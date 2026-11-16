@@ -467,7 +467,7 @@ class _HomePageState extends State<HomePage> {
         onChanged: () => setState(() {}),
       ),
       const ReportsPage(),
-      FinancialManagementPage(repository: DemoStore.accounting),
+      FinancialManagementPage(repository: DemoStore.accounting, parties: DemoStore.parties),
       BackupPage(
         service: DemoStore.backups,
         initialMessage: DemoStore.backupStartupNotice,
