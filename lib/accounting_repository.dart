@@ -701,6 +701,7 @@ class AccountingRepository {
     required String expenseAccountCode,
     required String cashAccountCode,
     required String idempotencyKey,
+    String? partyId,
   }) async {
     if (DateTime.tryParse(expenseDate) == null ||
         description.trim().isEmpty ||
@@ -709,6 +710,16 @@ class AccountingRepository {
       throw ArgumentError('تاریخ، شرح، مبلغ و شناسه یکتای هزینه الزامی است');
     }
     final db = await _database.database;
+    if (partyId != null && partyId.trim().isNotEmpty) {
+      final party = await db.query(
+        'parties',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (party.isEmpty) throw ArgumentError('مخاطب انتخاب‌شده پیدا نشد');
+    }
     final accounts = await db.query('accounts',
       columns: ['code', 'account_type'],
       where: 'code IN (?, ?)',
@@ -726,8 +737,18 @@ class AccountingRepository {
       referenceType: 'expense',
       referenceId: idempotencyKey,
       lines: [
-        JournalLineDraft(accountCode: expenseAccountCode, debit: amount, memo: description.trim()),
-        JournalLineDraft(accountCode: cashAccountCode, credit: amount, memo: description.trim()),
+        JournalLineDraft(
+          accountCode: expenseAccountCode,
+          debit: amount,
+          partyId: partyId,
+          memo: description.trim(),
+        ),
+        JournalLineDraft(
+          accountCode: cashAccountCode,
+          credit: amount,
+          partyId: partyId,
+          memo: description.trim(),
+        ),
       ],
     ));
   }
