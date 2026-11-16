@@ -171,6 +171,31 @@ void main() {
     }
   });
 
+
+  testWidgets('logo help is temporary and can be dismissed without opening gallery',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.byKey(const ValueKey('open-navigation-drawer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('drawer-settings-button')));
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.textContaining('محل ذخیره‌سازی:'), findsNothing);
+    await tester.tap(find.text('انتخاب لوگو از گالری'));
+    await tester.pumpAndSettle();
+    expect(find.text('راهنمای انتخاب لوگو'), findsOneWidget);
+    expect(find.text('برو به گالری'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('بستن راهنما'));
+    await tester.pumpAndSettle();
+    expect(find.text('راهنمای انتخاب لوگو'), findsNothing);
+  });
+
   test('simple category search filters only matching records', () {
     final records = [
       {'نام مشتری': 'احمد', 'شماره تماس': '09120000000'},
