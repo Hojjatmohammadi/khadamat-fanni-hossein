@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 12;
+  static const int schemaVersion = 13;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -28,6 +28,7 @@ class AppDatabase {
     {'code': '1200', 'name': 'موجودی کالا', 'type': 'asset', 'side': 'debit'},
     {'code': '2000', 'name': 'پرداختنی به فروشندگان', 'type': 'liability', 'side': 'credit'},
     {'code': '2020', 'name': 'چک‌های پرداختنی', 'type': 'liability', 'side': 'credit'},
+    {'code': '2030', 'name': 'وام و قرض پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '2100', 'name': 'مالیات ارزش افزوده پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '3000', 'name': 'سرمایه و مانده افتتاحیه', 'type': 'equity', 'side': 'credit'},
     {'code': '4000', 'name': 'درآمد فروش کالا', 'type': 'income', 'side': 'credit'},
@@ -68,6 +69,7 @@ class AppDatabase {
         await _createBankReconciliationSchema(db);
         await _createInvoiceArchiveSchema(db);
         await _createInvoiceSettingsSchema(db);
+        await _createLoanSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -106,6 +108,10 @@ class AppDatabase {
         }
         if (oldVersion < 12) {
           await _createInvoiceSettingsSchema(db);
+        }
+        if (oldVersion < 13) {
+          await _createLoanSchema(db);
+          await _seedAccounts(db);
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -482,6 +488,77 @@ class AppDatabase {
   }
 
 
+
+  static Future<void> _createLoanSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direction TEXT NOT NULL CHECK (direction IN ('received', 'given')),
+        party_name TEXT NOT NULL,
+        principal_amount INTEGER NOT NULL CHECK (principal_amount > 0),
+        loan_date TEXT NOT NULL,
+        due_date TEXT,
+        note TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        journal_entry_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_installments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loan_id INTEGER NOT NULL,
+        installment_number INTEGER NOT NULL CHECK (installment_number > 0),
+        due_date TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0 AND paid_amount <= amount),
+        created_at TEXT NOT NULL,
+        UNIQUE (loan_id, installment_number),
+        FOREIGN KEY (loan_id) REFERENCES loan_records(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loan_id INTEGER NOT NULL,
+        transaction_type TEXT NOT NULL CHECK (transaction_type IN ('repayment', 'disbursement')),
+        transaction_date TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        installment_id INTEGER,
+        journal_entry_id INTEGER NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (loan_id) REFERENCES loan_records(id) ON DELETE RESTRICT,
+        FOREIGN KEY (installment_id) REFERENCES loan_installments(id) ON DELETE RESTRICT,
+        FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_records_due ON loan_records(due_date, direction)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_installments_due ON loan_installments(due_date, loan_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_transactions_loan ON loan_transactions(loan_id, transaction_date)');
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_records_update
+      BEFORE UPDATE ON loan_records
+      BEGIN SELECT RAISE(ABORT, 'loan records are immutable'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_records_delete
+      BEFORE DELETE ON loan_records
+      BEGIN SELECT RAISE(ABORT, 'loan records cannot be deleted'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_transactions_update
+      BEFORE UPDATE ON loan_transactions
+      BEGIN SELECT RAISE(ABORT, 'loan transactions are immutable'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_transactions_delete
+      BEFORE DELETE ON loan_transactions
+      BEGIN SELECT RAISE(ABORT, 'loan transactions cannot be deleted'); END
+    """);
+  }
 
   static Future<void> _createInvoiceArchiveSchema(DatabaseExecutor db) async {
     await db.execute('''
