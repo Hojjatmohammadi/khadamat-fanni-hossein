@@ -67,6 +67,45 @@ void main() {
   });
 
 
+  test('expenses linked to a contact are traceable without changing its closing balance', () async {
+    final parties = PartyRepository(database);
+    final supplierId = await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'فروشنده هزینه کارگاه',
+    ));
+
+    await accounting.recordExpense(
+      expenseDate: '2026-11-16',
+      description: 'خرید خدمات از فروشنده',
+      amount: 75000,
+      expenseAccountCode: '6100',
+      cashAccountCode: '1000',
+      idempotencyKey: 'expense-with-supplier',
+      partyId: supplierId,
+    );
+
+    final statement = await parties.getPartyStatement(supplierId);
+    expect(statement['total_debit'], 75000);
+    expect(statement['total_credit'], 75000);
+    expect(statement['closing_balance'], 0);
+    expect(statement['lines'], hasLength(2));
+  });
+
+  test('expense rejects a missing contact reference', () async {
+    await expectLater(
+      accounting.recordExpense(
+        expenseDate: '2026-11-16',
+        description: 'هزینه با مخاطب نامعتبر',
+        amount: 100,
+        expenseAccountCode: '6100',
+        cashAccountCode: '1000',
+        idempotencyKey: 'expense-bad-party',
+        partyId: 'missing-party',
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('repair service charges and receipts keep the customer ledger balance correct', () async {
     final parties = PartyRepository(database);
     final customerId = await parties.ensureParty(
