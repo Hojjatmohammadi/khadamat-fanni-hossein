@@ -56,7 +56,9 @@ void main() {
     expect(find.text('دفتر روزنامه و هزینه‌ها'), findsOneWidget);
 
     await tester.tap(find.text('گزارش‌ها'));
-    await tester.pumpAndSettle();
+    // Some destination pages contain repeating animations; advance the route
+    // transition without waiting for every ticker to become idle.
+    await tester.pump(const Duration(seconds: 2));
     expect(find.text('گزارش‌ها'), findsOneWidget);
   });
 
@@ -110,14 +112,16 @@ void main() {
 
     for (final entry in destinations.entries) {
       await tester.tap(find.text(entry.key));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      // Destination pages may keep periodic animations alive indefinitely.
+      // A bounded pump completes the navigation transition deterministically.
+      await tester.pump(const Duration(seconds: 2));
       expect(find.text(entry.value), findsWidgets,
           reason: 'Home card "${entry.key}" must open "${entry.value}"');
 
       // Exercise the app's own back-navigation history instead of relying
       // on a drawer animation in a widget test.
       await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('خدمات فنی حسین'), findsWidgets);
     }
   });
@@ -142,14 +146,14 @@ void main() {
       await tester.tap(find.text('عملیات‌های دیگر'));
       await tester.pumpAndSettle();
       await tester.tap(find.text(entry.key));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 2));
       expect(find.text(entry.value), findsWidgets,
           reason: 'Other operation "${entry.key}" did not open');
 
       // Exercise the app's own back-navigation history instead of relying
       // on a drawer animation in a widget test.
       await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 500));
     }
   });
 
