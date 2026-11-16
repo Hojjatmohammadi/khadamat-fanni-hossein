@@ -560,7 +560,7 @@ class _HomePageState extends State<HomePage> {
           ),
           body: Padding(
             key: const ValueKey('app-page-bottom-gap'),
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 24),
             child: SafeArea(
               top: false,
               child: pages[tab],
