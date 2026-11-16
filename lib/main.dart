@@ -3345,7 +3345,9 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
           ),
           const SizedBox(height: 4),
           PhoneContactPickerButton(
-            label: 'انتخاب مشتری یا فروشنده از مخاطبین گوشی',
+            label: _isPurchase
+                ? 'انتخاب فروشنده از مخاطبین گوشی'
+                : 'انتخاب مشتری از مخاطبین گوشی',
             onSelected: _selectPhoneParty,
           ),
           const SizedBox(height: 4),
