@@ -450,7 +450,7 @@ class _HomePageState extends State<HomePage> {
       Dashboard(onSelect: _selectTab),
       ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
       PurchasePage(onChanged: () => setState(() {})),
-      CustomerPage(key: _customerPageKey, onChanged: () => setState(() {})),
+      CustomerPage(listKey: _customerPageKey, onChanged: () => setState(() {})),
       RepairPage(onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
       PartyLedgerPage(repository: DemoStore.parties),
@@ -1834,10 +1834,12 @@ class _ProductPageState extends State<ProductPage> {
 
 class CustomerPage extends StatelessWidget {
   final VoidCallback onChanged;
-  const CustomerPage({super.key, required this.onChanged});
+  final GlobalKey<_SimpleListPageState> listKey;
+  const CustomerPage({super.key, required this.onChanged, required this.listKey});
 
   @override
   Widget build(BuildContext context) => SimpleListPage(
+        key: listKey,
         title: 'مشتری',
         data: DemoStore.customers,
         fields: const ['نام مشتری', 'شماره تماس', 'آدرس', 'توضیحات'],
