@@ -123,6 +123,67 @@ void main() {
     await migrated.close();
   });
 
+  test('version 13 migration creates multi-role links for existing contacts', () async {
+    final legacyPath = '${tempDir.path}/legacy-v13.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 13,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE parties (
+              id TEXT PRIMARY KEY,
+              party_type TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              normalized_name TEXT NOT NULL,
+              phone TEXT,
+              address TEXT,
+              notes TEXT,
+              source_category TEXT,
+              source_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+          await db.insert('parties', {
+            'id': 'legacy-customer-1',
+            'party_type': 'customer',
+            'display_name': 'مشتری قدیمی',
+            'normalized_name': 'مشتری قدیمی',
+            'created_at': '2026-01-01T00:00:00.000',
+            'updated_at': '2026-01-01T00:00:00.000',
+          });
+          await db.insert('parties', {
+            'id': 'legacy-supplier-1',
+            'party_type': 'supplier',
+            'display_name': 'فروشنده قدیمی',
+            'normalized_name': 'فروشنده قدیمی',
+            'created_at': '2026-01-02T00:00:00.000',
+            'updated_at': '2026-01-02T00:00:00.000',
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final migrated = AppDatabase(databasePath: legacyPath);
+    final db = await migrated.database;
+    final roles = await db.query(
+      'party_roles',
+      orderBy: 'party_id ASC',
+    );
+
+    expect(roles, hasLength(2));
+    expect(
+      roles.map((row) => '${row['party_id']}:${row['role']}'),
+      containsAll([
+        'legacy-customer-1:customer',
+        'legacy-supplier-1:supplier',
+      ]),
+    );
+    await migrated.close();
+  });
+
   test('version 4 migration normalizes whitespace in migrated party names', () async {
     final legacyPath = '${tempDir.path}/legacy-v4.db';
     final legacyDb = await databaseFactory.openDatabase(
