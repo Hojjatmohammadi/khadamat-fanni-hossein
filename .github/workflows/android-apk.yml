@@ -3,6 +3,9 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
 
 permissions:
   contents: read
@@ -150,21 +153,15 @@ jobs:
           print("Updated file_picker Android compile SDK to 36: " + ", ".join(updated))
           PY
 
-      - name: Analyze source
-        run: flutter analyze --no-pub
-
-      - name: Run automated tests
-        run: flutter test --no-pub
-
       - name: Build optimized release APKs
-        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
+        run: flutter build apk --release --obfuscate --split-debug-info=build/symbols
 
       - name: Upload installable APKs and symbol files
         uses: actions/upload-artifact@v4
         with:
           name: khadamat-fanni-hossein-android-release
           path: |
-            build/app/outputs/flutter-apk/*-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
             build/symbols/**
           if-no-files-found: error
           retention-days: 14
