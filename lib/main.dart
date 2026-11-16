@@ -547,6 +547,7 @@ class _HomePageState extends State<HomePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           ClipRRect(
+                            key: const ValueKey('drawer-logo'),
                             borderRadius: BorderRadius.circular(10),
                             child: ValueListenableBuilder<String?>(
                               valueListenable: DemoStore.appLogo,
