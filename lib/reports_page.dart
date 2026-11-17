@@ -266,24 +266,24 @@ class _ReportsPageState extends State<ReportsPage> {
   List<String> _reportExportLines(List<Map<String, Object?>> rows) {
     return rows.map((row) {
       if (_report == 'expenses' || _report == 'repair_income') {
-        return "\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان";
+        return "${row['entry_date']} | ${row['description']} | ${row['account_name']} | ${_money(row['amount'])} تومان";
       }
       if (_report == 'profit') {
-        return "\${row['account_code']} - \${row['account_name']} | \${_profitGroupName(row)}: \${_money(row['balance'])} تومان";
+        return "${row['account_code']} - ${row['account_name']} | ${_profitGroupName(row)}: ${_money(row['balance'])} تومان";
       }
       if (_report == 'item_sales') {
-        return "\${row['product_name']} | تعداد خالص: \${row['net_quantity']} | فروش خالص: \${_money(row['net_revenue'])} تومان";
+        return "${row['product_name']} | تعداد خالص: ${row['net_quantity']} | فروش خالص: ${_money(row['net_revenue'])} تومان";
       }
       if (_report == 'item_profit') {
-        return "\${row['product_name']} | فروش: \${_money(row['net_revenue'])} | بها: \${_money(row['net_cost'])} | سود: \${_money(row['gross_profit'])}";
+        return "${row['product_name']} | فروش: ${_money(row['net_revenue'])} | بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}";
       }
       if (_report == 'stock_prices') {
-        return "\${row['product_name']} | کد: \${row['product_code']} | موجودی: \${row['stock_quantity']} | خرید: \${_money(row['purchase_price'])} | فروش: \${_money(row['sale_price'])} تومان";
+        return "${row['product_name']} | کد: ${row['product_code']} | موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | فروش: ${_money(row['sale_price'])} تومان";
       }
       if (_report == 'stock') {
-        return "\${row['occurred_at']} | \${row['product_name']} | \${_typeName(row['movement_type'])} | تغییر: \${row['quantity_delta']} | مانده: \${row['balance_after']}\${row['adjustment_reason'] == null ? '' : " | علت: \${row['adjustment_reason']} | شمارش واقعی: \${row['counted_quantity']}"}";
+        return "${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | مانده: ${row['balance_after']}${row['adjustment_reason'] == null ? '' : " | علت: ${row['adjustment_reason']} | شمارش واقعی: ${row['counted_quantity']}"}";
       }
-      return "\${row['document_date']} | \${_typeName(row['document_type'])} | \${row['document_number']} | \${_money(row['total_amount'])} تومان";
+      return "${row['document_date']} | ${_typeName(row['document_type'])} | ${row['document_number']} | ${_money(row['total_amount'])} تومان";
     }).toList(growable: false);
   }
 
@@ -321,7 +321,7 @@ class _ReportsPageState extends State<ReportsPage> {
     y += drawText('خدمات فنی حسین', size: 42, bold: true) + 18;
     y += drawText(_reportTitle, size: 32, bold: true) + 12;
     y += drawText(
-      'از \${_from.toIso8601String().substring(0, 10)} تا \${_to.toIso8601String().substring(0, 10)}',
+      'از ${_from.toIso8601String().substring(0, 10)} تا ${_to.toIso8601String().substring(0, 10)}',
       size: 21,
     ) + 12;
     y += drawText('صفحه $pageNumber از $pageCount', size: 18) + 20;
@@ -333,7 +333,7 @@ class _ReportsPageState extends State<ReportsPage> {
     y += 22;
 
     for (var index = 0; index < lines.length; index++) {
-      y += drawText('\${(pageNumber - 1) * 18 + index + 1}. \${lines[index]}', size: 21) + 13;
+      y += drawText('${(pageNumber - 1) * 18 + index + 1}. ${lines[index]}', size: 21) + 13;
       canvas.drawLine(
         ui.Offset(margin, y),
         ui.Offset(width - margin, y),
@@ -364,7 +364,7 @@ class _ReportsPageState extends State<ReportsPage> {
       final document = pw.Document();
       for (var page = 0; page < pageCount; page++) {
         final start = page * pageSize;
-        final end = (start + pageSize).clamp(0, lines.length);
+        final end = (start + pageSize).clamp(0, lines.length).toInt();
         final png = await _renderReportPagePng(
           lines.sublist(start, end),
           pageNumber: page + 1,
@@ -379,7 +379,7 @@ class _ReportsPageState extends State<ReportsPage> {
       final bytes = await document.save();
       await Printing.sharePdf(
         bytes: bytes,
-        filename: 'report_\${DateTime.now().millisecondsSinceEpoch}.pdf',
+        filename: 'report_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
     } catch (error) {
       _message('ساخت یا اشتراک PDF ناموفق بود: $error');
@@ -408,7 +408,7 @@ class _ReportsPageState extends State<ReportsPage> {
           pageCount: pageCount,
         );
         final file = File(
-          '\${directory.path}/report_\${stamp}_\${(page + 1).toString().padLeft(2, '0')}.png',
+          '${directory.path}/report_${stamp}_${(page + 1).toString().padLeft(2, '0')}.png',
         );
         await file.writeAsBytes(png, flush: true);
         imageFiles.add(file);
