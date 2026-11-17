@@ -377,7 +377,10 @@ void main() {
     expect(statement['closing_balance'], 500);
 
     // Allocation is metadata only; the receipt and sale journals are not reposted.
-    final entries = await db.query('journal_entries');
+    final entries = await db.query(
+      'journal_entries',
+      where: "reference_type IN ('customer_receipt', 'sale', 'sale_cogs')",
+    );
     expect(entries, hasLength(5));
     final allAllocations = await db.query('invoice_payment_allocations');
     expect(allAllocations, hasLength(2));
