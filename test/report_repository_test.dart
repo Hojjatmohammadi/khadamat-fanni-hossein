@@ -326,8 +326,9 @@ void main() {
     );
 
     final journalIds = {acceptanceId as int, settlementId as int};
+    final db = await database.database;
     for (final journalId in journalIds) {
-      final totals = await database.rawQuery(
+      final totals = await db.rawQuery(
         'SELECT COALESCE(SUM(debit), 0) AS debit_total, '
         'COALESCE(SUM(credit), 0) AS credit_total '
         'FROM journal_lines WHERE journal_entry_id = ?',
