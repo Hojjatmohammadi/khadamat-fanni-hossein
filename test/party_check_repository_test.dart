@@ -85,6 +85,45 @@ void main() {
     );
   });
 
+  test('deleting an unreferenced legacy customer contact removes both records', () async {
+    final legacyCustomerId = await store.insert('customers', {
+      'نام مشتری': 'مخاطب قابل حذف',
+    });
+    final partyId = await parties.ensureParty(
+      PartyDraft(
+        partyType: 'customer',
+        displayName: 'مخاطب قابل حذف',
+        sourceCategory: 'customers',
+        sourceId: legacyCustomerId.toString(),
+      ),
+    );
+
+    await parties.deleteParty(partyId);
+
+    expect(await parties.getParties(), isEmpty);
+    expect(await store.getAll('customers'), isEmpty);
+  });
+
+  test('a contact linked to financial activity cannot be deleted', () async {
+    final legacyCustomerId = await store.insert('customers', {
+      'نام مشتری': 'مشتری دارای سابقه',
+    });
+    final partyId = await parties.ensureParty(
+      PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری دارای سابقه',
+        sourceCategory: 'customers',
+        sourceId: legacyCustomerId.toString(),
+      ),
+    );
+    final productId = await addProduct();
+    await recordSale(productId, partyId);
+
+    await expectLater(parties.deleteParty(partyId), throwsStateError);
+    expect(await parties.getParties(), hasLength(1));
+    expect(await store.getAll('customers'), hasLength(1));
+  });
+
   test('same-name customers can remain separate registered parties', () async {
     final first = await parties.ensureParty(
       const PartyDraft(
