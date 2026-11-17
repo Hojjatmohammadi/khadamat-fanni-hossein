@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:shamsi_date/shamsi_date.dart';
+import 'numeric_input.dart';
 
 const List<String> _jalaliMonthNames = [
   'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
@@ -105,6 +106,7 @@ class _JalaliDateFieldState extends State<JalaliDateField> {
   Widget build(BuildContext context) => TextField(
         controller: _controller,
         keyboardType: TextInputType.datetime,
+        inputFormatters: const [NumericDateInputFormatter(separator: '/')],
         textDirection: TextDirection.ltr,
         decoration: InputDecoration(
           labelText: widget.label,

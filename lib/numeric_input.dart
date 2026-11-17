@@ -44,6 +44,53 @@ class NumericInputFormatter extends TextInputFormatter {
   }
 }
 
+/// Restricts manually entered dates to digits and one date separator, including
+/// Persian and Arabic-Indic digits. The parser remains responsible for the date.
+class NumericDateInputFormatter extends TextInputFormatter {
+  const NumericDateInputFormatter({this.separator = '/'});
+
+  final String separator;
+
+  String _filter(String value) {
+    final output = StringBuffer();
+    var separatorCount = 0;
+    var length = 0;
+    for (final rune in value.runes) {
+      final digit = NumericInputFormatter._digit(rune);
+      if (digit != null) {
+        if (length >= 10) continue;
+        output.writeCharCode(rune);
+        length++;
+      } else if (String.fromCharCode(rune) == separator &&
+          separatorCount < 2 &&
+          length < 10) {
+        output.write(separator);
+        separatorCount++;
+        length++;
+      }
+    }
+    return output.toString();
+  }
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final filtered = _filter(newValue.text);
+    final rawOffset =
+        newValue.selection.extentOffset.clamp(0, newValue.text.length).toInt();
+    final offset = _filter(newValue.text.substring(0, rawOffset)).length;
+    return TextEditingValue(
+      text: filtered,
+      selection: TextSelection.collapsed(
+        offset: offset > filtered.length ? filtered.length : offset,
+      ),
+      composing: TextRange.empty,
+    );
+  }
+}
+
 String normalizeDigitGlyphs(String value) {
   const fa = '۰۱۲۳۴۵۶۷۸۹';
   const ar = '٠١٢٣٤٥٦٧٨٩';

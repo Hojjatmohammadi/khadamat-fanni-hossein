@@ -96,4 +96,33 @@ void main() {
     });
   });
 
+  group('numeric date input', () {
+    test('filters letters and limits Jalali/Gregorian date input', () {
+      const jalali = NumericDateInputFormatter(separator: '/');
+      const gregorian = NumericDateInputFormatter(separator: '-');
+
+      expect(
+        jalali.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '۱۴۰۵/۰۸/۲۳abc'),
+        ).text,
+        '۱۴۰۵/۰۸/۲۳',
+      );
+      expect(
+        gregorian.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '2026-11-17abc'),
+        ).text,
+        '2026-11-17',
+      );
+      expect(
+        jalali.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '١٤٠٥/٠٨/٢٣/٤'),
+        ).text,
+        '١٤٠٥/٠٨/٢٣',
+      );
+    });
+  });
+
 }
