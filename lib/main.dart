@@ -331,6 +331,17 @@ class DemoStore {
     await _database.updateRecord('products', productId, updated);
     await refreshProducts();
   }
+
+  static Future<void> deleteRecord(String category, int id) async {
+    await _database.deleteRecord(category, id);
+    final target = switch (category) {
+      'products' => products,
+      'customers' => customers,
+      'repairs' => repairs,
+      _ => throw ArgumentError('دسته اطلاعات قابل حذف نیست'),
+    };
+    target.removeWhere((item) => item['__database_id'] == id.toString());
+  }
 }
 
 class HomePage extends StatefulWidget {
@@ -1069,6 +1080,68 @@ class _SimpleListPageState extends State<SimpleListPage> {
     }
   }
 
+  Future<void> deleteItem(Map<String, String> item) async {
+    final id = int.tryParse(item['__database_id'] ?? '');
+    final category = switch (widget.title) {
+      'مشتری' => 'customers',
+      'پذیرش تعمیر' => 'repairs',
+      _ => null,
+    };
+    if (id == null || category == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('شناسه یا نوع رکورد برای حذف معتبر نیست')),
+      );
+      return;
+    }
+
+    final displayName = item[widget.primary]?.trim().isNotEmpty == true
+        ? item[widget.primary]!
+        : widget.title;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('حذف $displayName'),
+          content: const Text(
+            'در صورت نداشتن سابقهٔ وابسته، این رکورد حذف می‌شود. '
+            'سوابق فاکتور، انبار و حسابداری قابل حذف نیستند. ادامه می‌دهید؟',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await DemoStore.deleteRecord(category, id);
+      if (!mounted) return;
+      setState(() {});
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('رکورد حذف شد.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.toString().replaceFirst('Bad state: ', ''),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
@@ -1117,6 +1190,11 @@ class _SimpleListPageState extends State<SimpleListPage> {
                           title: Text(item[widget.primary]?.isNotEmpty == true ? item[widget.primary]! : 'بدون عنوان'),
                           subtitle: Text(
                             item.entries.where((e) => !e.key.startsWith('__') && e.value.isNotEmpty).map((e) => '${e.key}: ${e.value}').join(' • '),
+                          ),
+                          trailing: IconButton(
+                            tooltip: 'حذف رکورد',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => deleteItem(item),
                           ),
                         ),
                       );
@@ -1879,6 +1957,58 @@ class _ProductPageState extends State<ProductPage> {
   }
 
   @override
+  Future<void> _deleteProduct(Map<String, String> product) async {
+    final id = int.tryParse(product['__database_id'] ?? '');
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('شناسه کالا معتبر نیست')),
+      );
+      return;
+    }
+    final name = product['نام کالا']?.trim().isNotEmpty == true
+        ? product['نام کالا']!
+        : 'این کالا';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('حذف $name'),
+          content: const Text(
+            'فقط کالایی حذف می‌شود که هیچ سابقهٔ ورود و خروج انبار یا فاکتور نداشته باشد. ادامه می‌دهید؟',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('حذف کالا'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await DemoStore.deleteRecord('products', id);
+      if (!mounted) return;
+      setState(() {});
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('کالا حذف شد.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Bad state: ', '')),
+        ),
+      );
+    }
+  }
+
   Widget build(BuildContext context) {
     final query = ProductDuplicateChecker.normalize(_searchController.text);
     final filteredProducts = DemoStore.products.where((item) {
@@ -1981,6 +2111,9 @@ class _ProductPageState extends State<ProductPage> {
                                 case 'count':
                                   adjustProductStock(item);
                                   break;
+                                case 'delete':
+                                  _deleteProduct(item);
+                                  break;
                               }
                             },
                             itemBuilder: (context) => const [
@@ -2003,6 +2136,13 @@ class _ProductPageState extends State<ProductPage> {
                                 child: ListTile(
                                   leading: Icon(Icons.fact_check_outlined),
                                   title: Text('انبارگردانی و اصلاح موجودی'),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: ListTile(
+                                  leading: Icon(Icons.delete_outline),
+                                  title: Text('حذف کالا'),
                                 ),
                               ),
                             ],
