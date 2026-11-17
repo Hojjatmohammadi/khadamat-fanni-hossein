@@ -801,10 +801,17 @@ class TradeRepository {
         final lineBase = sourceLine['line_total'] as int;
         final lineTax = sourceLine['tax_amount'] as int;
         final isFinalReturn = (returnLine.quantity - remaining).abs() < 0.0000001;
-        final costAmount = (unitCost * returnLine.quantity).round();
+        // Allocate the exact source-line cost across partial returns.
+        // The final return takes the residual so rounded unit costs cannot
+        // remove more value from stock/payables than the original purchase.
+        final returnedBase =
+            (returnedRows.single['returned_base'] as num).toInt();
+        final costAmount = isFinalReturn
+            ? lineBase - returnedBase
+            : (lineBase * returnLine.quantity / originalQuantity).round();
         final baseAmount = isCustomerReturn
             ? (isFinalReturn
-                ? lineBase - (returnedRows.single['returned_base'] as num).toInt()
+                ? lineBase - returnedBase
                 : (lineBase * returnLine.quantity / originalQuantity).round())
             : costAmount;
         final taxAmount = isFinalReturn
@@ -961,6 +968,7 @@ class TradeRepository {
               movementType: 'supplier_return',
               quantityDelta: -quantity,
               unitCost: unitCost,
+              totalCost: costAmount,
               occurredAt: draft.documentDate,
               idempotencyKey: 'supplier-return-stock-${draft.idempotencyKey}-$i',
               referenceType: type,

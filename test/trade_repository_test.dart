@@ -502,6 +502,67 @@ void main() {
     expect(await store.getStockOnHand(productId), 8);
   });
 
+  test('partial supplier returns preserve the exact original discounted purchase cost', () async {
+    final productId = await addProduct();
+    final purchaseId = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده برگشت جزئی',
+        counterpartyId: 'supplier-partial-return',
+        idempotencyKey: 'supplier-partial-return-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+    final sourceLine = (await trades.getDocumentLines(purchaseId)).single;
+    expect(sourceLine['line_total'], 299);
+    expect(sourceLine['unit_cost'], 100);
+
+    for (var i = 0; i < 3; i++) {
+      await trades.recordSupplierReturn(
+        ReturnDocumentDraft(
+          documentDate: '2026-11-16',
+          sourceDocumentId: purchaseId,
+          counterpartyName: 'فروشنده برگشت جزئی',
+          counterpartyId: 'supplier-partial-return',
+          idempotencyKey: 'supplier-partial-return-$i',
+          lines: [
+            ReturnLineDraft(
+              sourceLineId: sourceLine['id'] as int,
+              quantity: 1,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final db = await store.database;
+    final movements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['supplier_return'],
+    );
+    final returnedStockValue = movements.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_cost'] as num).toInt(),
+    );
+    final returns = await trades.getDocuments(type: 'supplier_return');
+    final returnedInvoiceValue = returns.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_amount'] as num).toInt(),
+    );
+
+    expect(returns, hasLength(3));
+    expect(returnedStockValue, 299);
+    expect(returnedInvoiceValue, 299);
+    expect(await store.getStockOnHand(productId), 0);
+    expect((await accountTotals('1200'))['total_credit'], 299);
+    expect((await accountTotals('2000'))['total_debit'], 299);
+    expect(await trades.getOutstandingAmount(purchaseId), 0);
+  });
+
   test('customer receipt and supplier payment are posted to the correct party control accounts', () async {
     final receiptId = await trades.recordCustomerReceipt(
       PartyPaymentDraft(
