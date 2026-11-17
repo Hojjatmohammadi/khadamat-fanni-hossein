@@ -72,7 +72,7 @@ String _normalizedFieldLabel(String label) => label
     .replaceAll('\u200c', '')
     .replaceAll('\u200e', '')
     .replaceAll('\u200f', '')
-    .replaceAll(RegExp(r'\\s+'), '');
+    .replaceAll(RegExp(r'\s+'), '');
 
 bool isPhoneFieldLabel(String label) {
   final value = _normalizedFieldLabel(label);
