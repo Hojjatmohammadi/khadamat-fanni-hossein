@@ -48,6 +48,62 @@ void main() {
     return rows.singleWhere((row) => row['account_code'] == code);
   }
 
+  test('purchase discounts and partial sales preserve exact inventory value', () async {
+    final productId = await addProduct();
+
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده با تخفیف',
+        idempotencyKey: 'exact-cost-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+
+    final purchase = (await trades.getDocuments(type: 'purchase')).single;
+    expect(purchase['subtotal'], 300);
+    expect(purchase['discount_amount'], 1);
+    expect(purchase['total_amount'], 299);
+    final db = await store.database;
+    final incoming = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['purchase'],
+    );
+    expect(incoming.single['total_cost'], 299);
+    expect(await store.getStockOnHand(productId), 3);
+
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'مشتری فروش جزئی',
+        idempotencyKey: 'exact-cost-partial-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200),
+        ],
+      ),
+    );
+
+    final outgoing = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['sale'],
+    );
+    expect(outgoing.single['total_cost'], 199);
+    expect(await store.getStockOnHand(productId), 1);
+    expect((await accountTotals('5000'))['total_debit'], 199);
+    final valuation = await db.rawQuery(
+      'SELECT COALESCE(SUM(CASE WHEN quantity_delta > 0 THEN total_cost '
+      'ELSE -total_cost END), 0) AS value '
+      'FROM inventory_movements WHERE product_id = ?',
+      [productId],
+    );
+    expect(valuation.single['value'], 100);
+  });
+
   test('purchase invoice updates stock, inventory value, VAT and supplier payable once', () async {
     final productId = await addProduct();
     final draft = TradeDocumentDraft(
