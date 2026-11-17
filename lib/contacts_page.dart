@@ -348,195 +348,185 @@ class _ContactsPageState extends State<ContactsPage> {
   @override
   Widget build(BuildContext context) {
     final contacts = _visibleContacts;
+    final children = <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'جست‌وجوی نام یا شماره همراه',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'پاک کردن جست‌وجو',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              tooltip: 'افزودن مخاطب',
+              onPressed: () => _editContact(),
+              icon: const Icon(Icons.add),
+            ),
+          ],
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: DropdownButtonFormField<String>(
+          value: _roleFilter,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'فیلتر نقش مخاطب',
+            prefixIcon: Icon(Icons.filter_list),
+          ),
+          items: [
+            const DropdownMenuItem(value: 'all', child: Text('همه مخاطبین')),
+            for (final role in _roles)
+              DropdownMenuItem(
+                value: role,
+                child: Text(_roleLabels[role]!),
+              ),
+          ],
+          onChanged: (value) => setState(() => _roleFilter = value ?? 'all'),
+        ),
+      ),
+    ];
+
+    if (_loading) {
+      children.add(const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(child: CircularProgressIndicator()),
+      ));
+    } else if (_loadError != null) {
+      children.add(Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined,
+                size: 48, color: Colors.redAccent),
+            const SizedBox(height: 12),
+            const Text(
+              'بارگذاری دفتر مخاطبین ناموفق بود',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              _loadError!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _loadContacts,
+              icon: const Icon(Icons.refresh),
+              label: const Text('تلاش دوباره'),
+            ),
+          ],
+        ),
+      ));
+    } else if (contacts.isEmpty) {
+      children.add(Padding(
+        padding: const EdgeInsets.all(32),
+        child: Center(
+          child: Text(
+            _contacts.isEmpty
+                ? 'هنوز مخاطبی ثبت نشده است.'
+                : 'مخاطبی با این جست‌وجو یا نقش پیدا نشد.',
+          ),
+        ),
+      ));
+    } else {
+      for (final contact in contacts) {
+        final roles =
+            (contact['roles'] as List?)?.cast<String>() ?? const <String>[];
+        final phone = contact['phone']?.toString() ?? '';
+        final address = contact['address']?.toString() ?? '';
+        final details = [if (phone.isNotEmpty) phone, if (address.isNotEmpty) address]
+            .join(' • ');
+        children.add(
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    onTap: () => _showContactActions(contact),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      contact['display_name']?.toString() ?? 'بدون نام',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      details.isEmpty ? 'شماره و نشانی ثبت نشده است' : details,
+                    ),
+                    trailing: Wrap(
+                      spacing: 0,
+                      children: [
+                        IconButton(
+                          tooltip: 'پرونده و گردش حساب',
+                          onPressed: () => _openLedger(contact),
+                          icon: const Icon(Icons.account_balance_wallet_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'ویرایش مخاطب',
+                          onPressed: () => _editContact(contact: contact),
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'حذف مخاطب',
+                          onPressed: () => _deleteContact(contact),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        for (final role in roles)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(_roleLabels[role] ?? role),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Material(
-        child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: 'جست‌وجوی نام یا شماره همراه',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'پاک کردن جست‌وجو',
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() {});
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  tooltip: 'افزودن مخاطب',
-                  onPressed: () => _editContact(),
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
+        child: RefreshIndicator(
+          onRefresh: _loadContacts,
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 28),
+            children: children,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: DropdownButtonFormField<String>(
-              value: _roleFilter,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'فیلتر نقش مخاطب',
-                prefixIcon: Icon(Icons.filter_list),
-              ),
-              items: [
-                const DropdownMenuItem(value: 'all', child: Text('همه مخاطبین')),
-                for (final role in _roles)
-                  DropdownMenuItem(
-                    value: role,
-                    child: Text(_roleLabels[role]!),
-                  ),
-              ],
-              onChanged: (value) => setState(() => _roleFilter = value ?? 'all'),
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _loadError != null
-                    ? Center(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.cloud_off_outlined,
-                                size: 48,
-                                color: Colors.redAccent,
-                              ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'بارگذاری دفتر مخاطبین ناموفق بود',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              SelectableText(
-                                _loadError!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              const SizedBox(height: 14),
-                              FilledButton.icon(
-                                onPressed: _loadContacts,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('تلاش دوباره'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : contacts.isEmpty
-                        ? Center(
-                            child: Text(
-                              _contacts.isEmpty
-                                  ? 'هنوز مخاطبی ثبت نشده است.'
-                                  : 'مخاطبی با این جست‌وجو یا نقش پیدا نشد.',
-                            ),
-                          )
-                        : RefreshIndicator(
-                        onRefresh: _loadContacts,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(12, 6, 12, 28),
-                          itemCount: contacts.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 6),
-                          itemBuilder: (context, index) {
-                            final contact = contacts[index];
-                            final roles =
-                                (contact['roles'] as List?)?.cast<String>() ?? const [];
-                            return Card(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 6,
-                                ),
-                                child: Column(
-                                  children: [
-                                    ListTile(
-                                      onTap: () => _showContactActions(contact),
-                                      contentPadding: EdgeInsets.zero,
-                                      title: Text(
-                                        contact['display_name']?.toString() ?? 'بدون نام',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      subtitle: Text(
-                                        [
-                                          if ((contact['phone']?.toString() ?? '').isNotEmpty)
-                                            contact['phone'].toString(),
-                                          if ((contact['address']?.toString() ?? '').isNotEmpty)
-                                            contact['address'].toString(),
-                                        ].join(' • ').isEmpty
-                                            ? 'شماره و نشانی ثبت نشده است'
-                                            : [
-                                                if ((contact['phone']?.toString() ?? '').isNotEmpty)
-                                                  contact['phone'].toString(),
-                                                if ((contact['address']?.toString() ?? '').isNotEmpty)
-                                                  contact['address'].toString(),
-                                              ].join(' • '),
-                                      ),
-                                      trailing: Wrap(
-                                        spacing: 0,
-                                        children: [
-                                          IconButton(
-                                            tooltip: 'پرونده و گردش حساب',
-                                            onPressed: () => _openLedger(contact),
-                                            icon: const Icon(Icons.account_balance_wallet_outlined),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'ویرایش مخاطب',
-                                            onPressed: () => _editContact(contact: contact),
-                                            icon: const Icon(Icons.edit_outlined),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'حذف مخاطب',
-                                            onPressed: () => _deleteContact(contact),
-                                            icon: const Icon(Icons.delete_outline),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Wrap(
-                                        spacing: 6,
-                                        runSpacing: 4,
-                                        children: [
-                                          for (final role in roles)
-                                            Chip(
-                                              visualDensity: VisualDensity.compact,
-                                              label: Text(_roleLabels[role] ?? role),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-          ),
-          ],
         ),
       ),
     );
