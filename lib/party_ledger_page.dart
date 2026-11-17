@@ -413,15 +413,20 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     return dueDate.isBefore(todayOnly);
   }
 
-  String _documentTypeLabel(Object? type) => switch (type) {
-        'purchase' => 'فاکتور خرید',
-        'sale' => 'فاکتور فروش',
-        'supplier_return' => 'برگشت از خرید',
-        'customer_return' => 'برگشت از فروش',
-        'customer_receipt' => 'دریافت از مشتری',
-        'supplier_payment' => 'پرداخت به فروشنده',
-        _ => 'سند تجاری',
-      };
+  String _documentTypeLabel(Map<String, Object?> document) {
+    final type = document['document_type'];
+    final isAdvance = document['source_document_id'] == null;
+    return switch (type) {
+      'purchase' => 'فاکتور خرید',
+      'sale' => 'فاکتور فروش',
+      'supplier_return' => 'برگشت از خرید',
+      'customer_return' => 'برگشت از فروش',
+      'customer_receipt' => isAdvance ? 'بیعانه مشتری' : 'دریافت از مشتری',
+      'supplier_payment' =>
+        isAdvance ? 'پیش‌پرداخت فروشنده' : 'پرداخت به فروشنده',
+      _ => 'سند تجاری',
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -581,7 +586,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                     child: ListTile(
                       leading: const Icon(Icons.receipt_long_outlined),
                       title: Text(
-                        '${_documentTypeLabel(document['document_type'])} • ${document['document_number'] ?? ''}',
+                        '${_documentTypeLabel(document)} • ${document['document_number'] ?? ''}',
                       ),
                       subtitle: Text(_dateLabel(document['document_date'])),
                       trailing: Text('${_amount(document['total_amount'])} تومان'),
