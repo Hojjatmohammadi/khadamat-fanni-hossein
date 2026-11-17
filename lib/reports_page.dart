@@ -99,8 +99,26 @@ class _ReportsPageState extends State<ReportsPage> {
     _ => value?.toString() ?? '',
   };
 
+  List<Map<String, Object?>> get _visibleRows {
+    final query = _reportSearchController.text.trim().toLowerCase();
+    return _rows.where((row) =>
+      query.isEmpty ||
+      row.values.any((value) =>
+        value?.toString().toLowerCase().contains(query) ?? false,
+      ),
+    ).toList(growable: false);
+  }
+
+  String _profitGroupName(Map<String, Object?> row) =>
+      switch (row['report_group']) {
+        'sales_return' => 'برگشت از فروش',
+        'income' => 'درآمد',
+        _ => 'هزینه',
+      };
+
   Future<void> _exportExcel() async {
-    if (_rows.isEmpty) {
+    final exportRows = _visibleRows;
+    if (exportRows.isEmpty) {
       _message('داده‌ای برای خروجی وجود ندارد');
       return;
     }
@@ -114,7 +132,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('قیمت خرید واحد'), TextCellValue('قیمت فروش واحد'),
           TextCellValue('ارزش موجودی'),
         ]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['product_name']?.toString() ?? ''),
             TextCellValue(row['product_code']?.toString() ?? ''),
@@ -133,7 +151,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('موجودی پس از گردش'),
           TextCellValue('علت اصلاح'), TextCellValue('تعداد شمارش‌شده'),
         ]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['occurred_at']?.toString() ?? ''),
             TextCellValue(row['product_name']?.toString() ?? ''),
@@ -151,7 +169,7 @@ class _ReportsPageState extends State<ReportsPage> {
         }
       } else if (_report == 'profit') {
         sheet.appendRow([TextCellValue('کد حساب'), TextCellValue('نام حساب'), TextCellValue('نوع'), TextCellValue('بدهکار'), TextCellValue('بستانکار'), TextCellValue('مانده')]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['account_code']?.toString() ?? ''),
             TextCellValue(row['account_name']?.toString() ?? ''),
@@ -163,7 +181,7 @@ class _ReportsPageState extends State<ReportsPage> {
         }
       } else if (_report == 'expenses' || _report == 'repair_income') {
         sheet.appendRow([TextCellValue('تاریخ'), TextCellValue('شرح'), TextCellValue('کد حساب'), TextCellValue('نام حساب'), TextCellValue('مبلغ')]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['entry_date']?.toString() ?? ''),
             TextCellValue(row['description']?.toString() ?? ''),
@@ -178,7 +196,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('تعداد خالص فروش'),
           TextCellValue('مبلغ خالص فروش'),
         ]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['product_name']?.toString() ?? ''),
             DoubleCellValue((row['net_quantity'] as num).toDouble()),
@@ -187,7 +205,7 @@ class _ReportsPageState extends State<ReportsPage> {
         }
       } else if (_report == 'item_profit') {
         sheet.appendRow([TextCellValue('کالا'), TextCellValue('تعداد خالص'), TextCellValue('فروش خالص'), TextCellValue('بهای تمام‌شده'), TextCellValue('سود ناخالص')]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['product_name']?.toString() ?? ''),
             DoubleCellValue((row['net_quantity'] as num).toDouble()),
@@ -204,7 +222,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('مالیات'), TextCellValue('مبلغ نهایی'),
           TextCellValue('پرداخت اولیه'),
         ]);
-        for (final row in _rows) {
+        for (final row in exportRows) {
           sheet.appendRow([
             TextCellValue(row['document_date']?.toString() ?? ''),
             TextCellValue(row['document_number']?.toString() ?? ''),
@@ -234,7 +252,8 @@ class _ReportsPageState extends State<ReportsPage> {
 
 
   Future<void> _exportPdf() async {
-    if (_rows.isEmpty) {
+    final exportRows = _visibleRows;
+    if (exportRows.isEmpty) {
       _message('داده‌ای برای خروجی وجود ندارد');
       return;
     }
@@ -282,11 +301,11 @@ class _ReportsPageState extends State<ReportsPage> {
       y += 20;
 
       final lines = <String>[];
-      for (final row in _rows.take(27)) {
+      for (final row in exportRows.take(27)) {
         if (_report == 'expenses' || _report == 'repair_income') {
           lines.add("\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان");
         } else if (_report == 'profit') {
-          lines.add("${row['account_code']} - ${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: ${_money(row['balance'])} تومان");
+          lines.add("${row['account_code']} - ${row['account_name']} | ${_profitGroupName(row)}: ${_money(row['balance'])} تومان");
         } else if (_report == 'item_sales') {
           lines.add("${row['product_name']} | تعداد خالص: ${row['net_quantity']} | فروش خالص: ${_money(row['net_revenue'])} تومان");
         } else if (_report == 'item_profit') {
@@ -306,7 +325,7 @@ class _ReportsPageState extends State<ReportsPage> {
         y += 8;
         if (y > height - 100) break;
       }
-      if (_rows.length > lines.length) {
+      if (exportRows.length > lines.length) {
         y += 8;
         drawText('برای کوتاه ماندن فایل، فقط ${lines.length} ردیف نخست نمایش داده شد.', size: 18);
       }
@@ -338,7 +357,8 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
   Future<void> _exportImage() async {
-    if (_rows.isEmpty) {
+    final exportRows = _visibleRows;
+    if (exportRows.isEmpty) {
       _message('داده‌ای برای خروجی وجود ندارد');
       return;
     }
@@ -347,7 +367,7 @@ class _ReportsPageState extends State<ReportsPage> {
       const width = 1240.0;
       const margin = 64.0;
       final lines = <String>[];
-      for (final row in _rows.take(30)) {
+      for (final row in exportRows.take(30)) {
         if (_report == 'stock_prices') {
           lines.add(
             "${row['product_name']} | کد: ${row['product_code']} | "
@@ -363,7 +383,7 @@ class _ReportsPageState extends State<ReportsPage> {
           );
         } else if (_report == 'profit') {
           lines.add(
-            "${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'} | "
+            "${row['account_name']} | ${_profitGroupName(row)} | "
             "${_money(row['balance'])} تومان",
           );
         } else if (_report == 'item_sales') {
@@ -454,7 +474,7 @@ class _ReportsPageState extends State<ReportsPage> {
         );
         y += 12;
       }
-      if (_rows.length > lines.length) {
+      if (exportRows.length > lines.length) {
         y += drawText(
           'برای خوانایی تصویر، فقط ${lines.length} ردیف نخست نمایش داده شد.',
           size: 18,
@@ -496,18 +516,17 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final query = _reportSearchController.text.trim().toLowerCase();
-    final visibleRows = _rows.where((row) => query.isEmpty || row.values.any((value) => value?.toString().toLowerCase().contains(query) ?? false)).toList();
+    final visibleRows = _visibleRows;
     final total = switch (_report) {
       'stock' => visibleRows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
-      'stock_prices' => _rows.fold<int>(
+      'stock_prices' => visibleRows.fold<int>(
           0, (sum, row) => sum + (row['stock_value'] as num).toInt()),
-      'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
-      'item_sales' => _rows.fold<int>(0, (sum, row) => sum + (row['net_revenue'] as num).toInt()),
-      'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
-      'expenses' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
-      'repair_income' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
-      _ => _rows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt()),
+      'profit' => visibleRows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
+      'item_sales' => visibleRows.fold<int>(0, (sum, row) => sum + (row['net_revenue'] as num).toInt()),
+      'item_profit' => visibleRows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
+      'expenses' => visibleRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
+      'repair_income' => visibleRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
+      _ => visibleRows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt()),
     };
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -603,7 +622,7 @@ class _ReportsPageState extends State<ReportsPage> {
         ),
         const SizedBox(height: 8),
         Card(child: ListTile(
-          title: Text('تعداد ردیف‌ها: ${_rows.length}'),
+          title: Text('تعداد ردیف‌ها: ${visibleRows.length}'),
           subtitle: Text(_report == 'stock'
               ? 'خالص تغییر موجودی در بازه: $total'
               : _report == 'stock_prices'
@@ -616,13 +635,15 @@ class _ReportsPageState extends State<ReportsPage> {
                       ? 'جمع هزینه‌ها: ${_money(total)} تومان'
                       : _report == 'repair_income'
                           ? 'جمع درآمد خدمات: ${_money(total)} تومان'
-                          : 'سود خالص/ناخالص گزارش: ${_money(total)} تومان'),
+                          : 'نتیجه خالص دوره (سود مثبت، زیان منفی): ${_money(total)} تومان'),
         )),
         if (_loading) const Center(child: Padding(
           padding: EdgeInsets.all(20), child: CircularProgressIndicator(),
         )),
         if (!_loading && _rows.isEmpty)
           const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('در این بازه اطلاعاتی ثبت نشده است'))),
+        if (!_loading && _rows.isNotEmpty && visibleRows.isEmpty)
+          const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('با این عبارت نتیجه‌ای پیدا نشد'))),
         if (_report == 'documents')
           for (final row in visibleRows)
             Card(child: ListTile(
@@ -631,14 +652,14 @@ class _ReportsPageState extends State<ReportsPage> {
               trailing: Text('${_money(row['total_amount'])} تومان'),
             )),
         if (_report == 'profit')
-          for (final row in _rows)
+          for (final row in visibleRows)
             Card(child: ListTile(
               title: Text('${row['account_code']} — ${row['account_name']}'),
-              subtitle: Text(row['account_type'] == 'income' ? 'درآمد' : 'هزینه'),
+              subtitle: Text(_profitGroupName(row)),
               trailing: Text('${_money(row['balance'])} تومان'),
             )),
         if (_report == 'expenses' || _report == 'repair_income')
-          for (final row in _rows)
+          for (final row in visibleRows)
             Card(child: ListTile(
               title: Text(row['description']?.toString() ?? ''),
               subtitle: Text('${row['entry_date']} • ${row['account_name']}'),
@@ -652,7 +673,7 @@ class _ReportsPageState extends State<ReportsPage> {
               trailing: Text('${_money(row['net_revenue'])} تومان'),
             )),
         if (_report == 'item_profit')
-          for (final row in _rows)
+          for (final row in visibleRows)
             Card(child: ListTile(
               title: Text('${row['product_name']}'),
               subtitle: Text('فروش خالص: ${_money(row['net_revenue'])} • بهای تمام‌شده: ${_money(row['net_cost'])}'),

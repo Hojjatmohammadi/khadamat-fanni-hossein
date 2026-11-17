@@ -295,4 +295,92 @@ void main() {
     expect(productRows[1]['movement_type'], 'sale');
     expect(productRows[1]['balance_after'], 7);
   });
+  test('profit reports classify sales returns and reconcile item, stock and ledger totals', () async {
+    final productId = await database.insert('products', {
+      'نام کالا': 'قطعه آزمون سود تلفیقی',
+      'موجودی': '3',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-16',
+      counterpartyName: 'مشتری گزارش تلفیقی',
+      idempotencyKey: 'integrated-report-sale',
+      lines: [
+        TradeLineDraft(productId: productId, quantity: 2, unitPrice: 500),
+      ],
+    ));
+    final sourceLine = (await trades.getDocumentLines(saleId)).single;
+    await trades.recordCustomerReturn(ReturnDocumentDraft(
+      documentDate: '2026-11-17',
+      sourceDocumentId: saleId,
+      counterpartyName: 'مشتری گزارش تلفیقی',
+      idempotencyKey: 'integrated-report-return',
+      lines: [
+        ReturnLineDraft(
+          sourceLineId: sourceLine['id'] as int,
+          quantity: 1,
+        ),
+      ],
+    ));
+
+    final accounting = AccountingRepository(database);
+    await accounting.recordExpense(
+      expenseDate: '2026-11-17',
+      description: 'هزینه آزمون گزارش تلفیقی',
+      amount: 100,
+      expenseAccountCode: '6600',
+      cashAccountCode: '1000',
+      idempotencyKey: 'integrated-report-expense',
+    );
+    await accounting.recordRepairServiceIncome(
+      serviceDate: '2026-11-17',
+      description: 'اجرت آزمون گزارش تلفیقی',
+      amount: 200,
+      paidAmount: 0,
+      cashAccountCode: '1000',
+      repairId: 'integrated-report-repair',
+      idempotencyKey: 'integrated-report-service',
+    );
+
+    final repository = ReportRepository(database);
+    final from = DateTime(2026, 11, 16);
+    final to = DateTime(2026, 11, 17);
+    final profitAndLoss = await repository.getProfitAndLoss(from: from, to: to);
+    final byCode = {
+      for (final row in profitAndLoss) row['account_code']: row,
+    };
+
+    expect(byCode['4000']?['balance'], 1000);
+    expect(byCode['4100']?['balance'], 200);
+    expect(byCode['4050']?['balance'], 500);
+    expect(byCode['4050']?['report_group'], 'sales_return');
+    expect(byCode['5000']?['total_debit'], 200);
+    expect(byCode['5000']?['total_credit'], 100);
+    expect(byCode['5000']?['balance'], 100);
+    expect(byCode['6600']?['balance'], 100);
+
+    final netResult = profitAndLoss.fold<int>(
+      0,
+      (sum, row) => sum +
+          (row['balance'] as num).toInt() *
+              (row['account_type'] == 'income' ? 1 : -1),
+    );
+    expect(netResult, 500);
+
+    final itemSales = await repository.getItemSales(from: from, to: to);
+    expect(itemSales.single['net_revenue'], 500);
+    expect(itemSales.single['net_quantity'], 1);
+
+    final itemProfit = await repository.getItemProfit(from: from, to: to);
+    expect(itemProfit.single['net_revenue'], 500);
+    expect(itemProfit.single['net_cost'], 100);
+    expect(itemProfit.single['gross_profit'], 400);
+
+    final stock = await repository.getStockPriceList();
+    final itemStock = stock.singleWhere((row) => row['product_id'] == productId);
+    expect(itemStock['stock_quantity'], 2);
+    expect(itemStock['stock_value'], 200);
+  });
+
 }

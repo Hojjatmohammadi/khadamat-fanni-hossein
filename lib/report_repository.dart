@@ -162,6 +162,8 @@ class ReportRepository {
     return db.rawQuery('''
       SELECT a.code AS account_code, a.name AS account_name,
         a.account_type AS account_type,
+        CASE WHEN a.code = '4050' THEN 'sales_return'
+          ELSE a.account_type END AS report_group,
         COALESCE(SUM(l.debit), 0) AS total_debit,
         COALESCE(SUM(l.credit), 0) AS total_credit,
         CASE WHEN a.account_type = 'income'
