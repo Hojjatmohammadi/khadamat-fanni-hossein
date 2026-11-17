@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -759,6 +760,48 @@ void main() {
       throwsStateError,
     );
     expect(await store.getStockOnHand(stockedProductId), 3);
+  });
+
+  test('protects repairs with stock consumption even when the part cost is zero', () async {
+    final repairWithoutHistory = await store.insert('repairs', {
+      'نام مشتری': 'مشتری بدون سابقه',
+      'نوع دستگاه': 'دریل',
+    });
+    await store.deleteRecord('repairs', repairWithoutHistory);
+
+    final repairWithHistory = await store.insert('repairs', {
+      'نام مشتری': 'مشتری دارای مصرف قطعه',
+      'نوع دستگاه': 'فرز',
+    });
+    final productId = await store.insert('products', {
+      'نام کالا': 'قطعه بدون بهای ثبت‌شده',
+      'موجودی': '3',
+      'بهای تمام‌شده هر واحد': '0',
+    });
+    final trades = TradeRepository(store);
+    await trades.recordRepairConsumption(
+      documentDate: '2026-11-17',
+      repairId: repairWithHistory.toString(),
+      customerName: 'مشتری دارای مصرف قطعه',
+      parts: [
+        TradeLineDraft(productId: productId, quantity: 1, unitPrice: 0),
+      ],
+      idempotencyKey: 'zero-cost-repair-consumption-$repairWithHistory',
+    );
+
+    expect(await store.getStockOnHand(productId), 2);
+    await expectLater(
+      store.deleteRecord('repairs', repairWithHistory),
+      throwsStateError,
+    );
+    expect(
+      await (await store.database).query(
+        'repairs',
+        where: 'id = ?',
+        whereArgs: [repairWithHistory],
+      ),
+      hasLength(1),
+    );
   });
 
   test('does not delete customer records still linked to the contacts ledger', () async {
