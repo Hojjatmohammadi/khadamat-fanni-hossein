@@ -80,6 +80,7 @@ void main() {
     expect(product['stock_quantity'], 5);
     expect(product['purchase_price'], 1250);
     expect(product['sale_price'], 2400);
+    expect(product['stock_value'], 6250);
   });
 
   test('expense and repair service reports do not double-count settlements', () async {

@@ -86,7 +86,12 @@ class ReportRepository {
     final db = await _database.database;
     final rows = await db.rawQuery('''
       SELECT p.id AS product_id, p.data_json,
-        COALESCE(SUM(m.quantity_delta), 0) AS stock_quantity
+        COALESCE(SUM(m.quantity_delta), 0) AS stock_quantity,
+        COALESCE(SUM(CASE
+          WHEN m.quantity_delta > 0 THEN m.total_cost
+          WHEN m.quantity_delta < 0 THEN -m.total_cost
+          ELSE 0
+        END), 0) AS stock_value
       FROM products p
       LEFT JOIN inventory_movements m ON m.product_id = p.id
       GROUP BY p.id, p.data_json
@@ -113,6 +118,8 @@ class ReportRepository {
         'product_code': (data['کد کالا'] ?? data['کد'] ?? '').toString(),
         'category': (data['گروه اصلی'] ?? data['دسته‌بندی'] ?? '').toString(),
         'stock_quantity': (row['stock_quantity'] as num).toDouble(),
+        // Value uses signed historical movement costs, not the mutable catalogue price.
+        'stock_value': (row['stock_value'] as num).round(),
         'purchase_price': amount(
           data['قیمت خرید هر واحد'] ?? data['بهای تمام‌شده هر واحد'],
         ),

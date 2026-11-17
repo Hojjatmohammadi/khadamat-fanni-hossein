@@ -112,6 +112,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('کالا'), TextCellValue('کد کالا'),
           TextCellValue('گروه'), TextCellValue('موجودی'),
           TextCellValue('قیمت خرید واحد'), TextCellValue('قیمت فروش واحد'),
+          TextCellValue('ارزش موجودی'),
         ]);
         for (final row in _rows) {
           sheet.appendRow([
@@ -121,6 +122,7 @@ class _ReportsPageState extends State<ReportsPage> {
             DoubleCellValue((row['stock_quantity'] as num).toDouble()),
             IntCellValue((row['purchase_price'] as num).toInt()),
             IntCellValue((row['sale_price'] as num).toInt()),
+            IntCellValue((row['stock_value'] as num).toInt()),
           ]);
         }
       } else if (_report == 'stock') {
@@ -491,7 +493,8 @@ class _ReportsPageState extends State<ReportsPage> {
     final visibleRows = _rows.where((row) => query.isEmpty || row.values.any((value) => value?.toString().toLowerCase().contains(query) ?? false)).toList();
     final total = switch (_report) {
       'stock' => visibleRows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
-      'stock_prices' => _rows.length,
+      'stock_prices' => _rows.fold<int>(
+          0, (sum, row) => sum + (row['stock_value'] as num).toInt()),
       'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
       'item_sales' => _rows.fold<int>(0, (sum, row) => sum + (row['net_revenue'] as num).toInt()),
       'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
@@ -597,7 +600,7 @@ class _ReportsPageState extends State<ReportsPage> {
           subtitle: Text(_report == 'stock'
               ? 'خالص تغییر موجودی در بازه: $total'
               : _report == 'stock_prices'
-                  ? 'تعداد کالاهای فهرست‌شده: $total'
+                  ? 'ارزش کل موجودی به بهای تمام‌شده: ${_money(total)} تومان'
                   : _report == 'documents'
                   ? 'جمع مبلغ اسناد: ${_money(total)} تومان'
                   : _report == 'item_sales'
@@ -654,7 +657,8 @@ class _ReportsPageState extends State<ReportsPage> {
               title: Text(row['product_name']?.toString() ?? ''),
               subtitle: Text(
                 'کد: ${row['product_code']} • گروه: ${row['category']} • موجودی: ${row['stock_quantity']}'
-                '\nخرید واحد: ${_money(row['purchase_price'])} • فروش واحد: ${_money(row['sale_price'])} تومان',
+                '\nخرید واحد: ${_money(row['purchase_price'])} • فروش واحد: ${_money(row['sale_price'])} تومان'
+                '\nارزش موجودی: ${_money(row['stock_value'])} تومان',
               ),
             )),
         if (_report == 'stock')
