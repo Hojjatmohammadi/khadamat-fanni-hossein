@@ -3,11 +3,17 @@ import 'package:flutter/material.dart';
 import 'party_ledger_page.dart';
 import 'phone_contact_picker.dart';
 import 'party_repository.dart';
+import 'trade_repository.dart';
 
 class ContactsPage extends StatefulWidget {
-  const ContactsPage({super.key, required this.repository});
+  const ContactsPage({
+    super.key,
+    required this.repository,
+    this.trades,
+  });
 
   final PartyRepository repository;
+  final TradeRepository? trades;
 
   @override
   State<ContactsPage> createState() => _ContactsPageState();
@@ -338,6 +344,7 @@ class _ContactsPageState extends State<ContactsPage> {
           appBar: AppBar(title: Text('پرونده $displayName')),
           body: PartyLedgerPage(
             repository: widget.repository,
+            trades: widget.trades,
             initialPartyId: id,
           ),
         ),
