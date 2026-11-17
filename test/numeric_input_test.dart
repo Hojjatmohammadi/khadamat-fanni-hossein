@@ -39,4 +39,61 @@ void main() {
       expect(normalizeNumericField('مبلغ', '۱۲۳۴۵'), '12345');
     });
   });
+  group('app-wide numeric field rules', () {
+    test('recognizes phone, postal and national-code labels with Persian spacing', () {
+      expect(isPhoneFieldLabel('شماره‌تلفن'), isTrue);
+      expect(isPhoneFieldLabel('شماره تماس'), isTrue);
+      expect(isPostalCodeFieldLabel('کد‌پستی'), isTrue);
+      expect(isNationalCodeFieldLabel('کد‌ملی'), isTrue);
+      expect(isNumericFieldLabel('شماره کارت'), isTrue);
+      expect(isNumericFieldLabel('شماره حساب'), isTrue);
+    });
+
+    test('field-specific formatters enforce exact phone and code lengths', () {
+      final phone = numericInputFormattersForField('شماره تلفن').single
+          as NumericInputFormatter;
+      final postal = numericInputFormattersForField('کد پستی').single
+          as NumericInputFormatter;
+      final national = numericInputFormattersForField('کد ملی').single
+          as NumericInputFormatter;
+
+      expect(
+        phone.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '۰۹۱۲۳۴۵۶۷۸۹۰'),
+        ).text,
+        '09123456789',
+      );
+      expect(
+        postal.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '۱۲۳۴۵۶۷۸۹۰۱'),
+        ).text,
+        '1234567890',
+      );
+      expect(
+        national.formatEditUpdate(
+          const TextEditingValue(),
+          const TextEditingValue(text: '۱۲۳۴۵۶۷۸۹۰۱'),
+        ).text,
+        '1234567890',
+      );
+    });
+
+    test('validates exact lengths and returns Persian messages', () {
+      expect(validateNumericField('شماره‌تلفن', '۰۹۱۲۳۴۵۶۷۸۹'), isNull);
+      expect(validateNumericField('کد‌پستی', '۱۲۳۴۵۶۷۸۹۰'), isNull);
+      expect(validateNumericField('کد‌ملی', '۱۲۳۴۵۶۷۸۹۰'), isNull);
+      expect(validateNumericField('کد ملی', '۱۲۳۴۵۶۷۸۹'), contains('۱۰ رقم'));
+      expect(validateNumericField('کد پستی', '۱۲۳۴۵۶۷۸۹۰۱'), contains('۱۰ رقم'));
+      expect(validateNumericField('شماره تلفن', '۰۹۱۲۳۴۵۶۷۸'), contains('۱۱ رقم'));
+    });
+
+    test('keeps installment counts integer-only while allowing decimal quantities', () {
+      expect(allowsDecimalForField('تعداد اقساط'), isFalse);
+      expect(allowsDecimalForField('تعداد مصرفی'), isTrue);
+      expect(allowsDecimalForField('قیمت خرید'), isTrue);
+    });
+  });
+
 }

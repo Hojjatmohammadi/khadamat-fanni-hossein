@@ -66,21 +66,58 @@ String normalizePhoneNumber(String value) {
   return digits;
 }
 
+String _normalizedFieldLabel(String label) => label
+    .replaceAll('ي', 'ی')
+    .replaceAll('ك', 'ک')
+    .replaceAll('\u200c', '')
+    .replaceAll('\u200e', '')
+    .replaceAll('\u200f', '')
+    .replaceAll(RegExp(r'\\s+'), '');
+
 bool isPhoneFieldLabel(String label) {
-  final value = label.replaceAll(' ', '');
-  return value.contains('شمارههمراه') || value.contains('شمارهتماس') ||
-      value.contains('موبایل') || value == 'تلفن' || value == 'تلفنهمراه';
+  final value = _normalizedFieldLabel(label);
+  return value.contains('شمارههمراه') ||
+      value.contains('شمارهتماس') ||
+      value.contains('شمارهتلفن') ||
+      value.contains('موبایل') ||
+      value.contains('موبايل') ||
+      value == 'تلفن' ||
+      value == 'تلفنهمراه';
 }
-bool isPostalCodeFieldLabel(String label) => label.replaceAll(' ', '').contains('کدپستی');
-bool isNationalCodeFieldLabel(String label) => label.replaceAll(' ', '').contains('کدملی');
+
+bool isPostalCodeFieldLabel(String label) =>
+    _normalizedFieldLabel(label).contains('کدپستی');
+
+bool isNationalCodeFieldLabel(String label) =>
+    _normalizedFieldLabel(label).contains('کدملی') ||
+    _normalizedFieldLabel(label).contains('شمارهملی');
 
 bool isNumericFieldLabel(String label) {
-  if (isPhoneFieldLabel(label) || isPostalCodeFieldLabel(label) || isNationalCodeFieldLabel(label)) return true;
-  const terms = ['مبلغ','قیمت','تعداد','موجودی','درصد','اجرت','شماره چک','مانده','هزینه','پرداخت','دریافت','اصل مبلغ','قسط'];
-  return terms.any(label.contains);
+  final value = _normalizedFieldLabel(label);
+  if (isPhoneFieldLabel(value) ||
+      isPostalCodeFieldLabel(value) ||
+      isNationalCodeFieldLabel(value)) {
+    return true;
+  }
+  const terms = [
+    'مبلغ', 'قیمت', 'تعداد', 'موجودی', 'درصد', 'اجرت', 'شمارهچک',
+    'مانده', 'هزینه', 'پرداخت', 'دریافت', 'اصلمبلغ', 'قسط',
+    'شمارهکارت', 'شمارهحساب', 'وزن', 'متراژ', 'طول', 'عرض',
+    'ارتفاع', 'بدهی', 'طلب', 'سود', 'زیان', 'مالیات',
+    'بیعانه', 'پیشپرداخت', 'سرمایه', 'کیلومتر', 'مسافت',
+    'مدت', 'دقیقه', 'ساعت',
+  ];
+  return terms.any(value.contains);
 }
-bool allowsDecimalForField(String label) =>
-    label.contains('تعداد') || label.contains('قیمت') || label.contains('درصد');
+
+bool allowsDecimalForField(String label) {
+  final value = _normalizedFieldLabel(label);
+  if (value.contains('اقساط') || value.contains('شماره')) return false;
+  return [
+    'تعداد', 'موجودی', 'قیمت', 'درصد', 'وزن', 'متراژ',
+    'طول', 'عرض', 'ارتفاع',
+  ].any(value.contains);
+}
 
 TextInputType? numericKeyboardTypeForField(String label) {
   if (isPhoneFieldLabel(label)) return TextInputType.phone;
@@ -123,7 +160,7 @@ String? validateNumericField(String label, String? value, {
   }
   if (!forceNumeric && !isNumericFieldLabel(label)) return null;
   final normalized = normalizeDigitGlyphs(raw).replaceAll('٫', '.')
-      .replaceAll('٬', '').replaceAll(',', '')
+      .replaceAll('٬', '').replaceAll(',', '').replaceAll('،', '')
       .replaceAll(RegExp(r'[\s\u00A0\u202F]'), '');
   final decimal = allowDecimal ?? allowsDecimalForField(label);
   final pattern = decimal ? RegExp(r'^\d+(?:\.\d+)?$') : RegExp(r'^\d+$');
@@ -134,5 +171,5 @@ String normalizeNumericField(String label, String value) {
   if (isPhoneFieldLabel(label)) return normalizePhoneNumber(value);
   if (!isNumericFieldLabel(label)) return value.trim();
   return normalizeDigitGlyphs(value).replaceAll('٫', '.').replaceAll('٬', '')
-      .replaceAll(',', '').replaceAll(RegExp(r'[\s\u00A0\u202F]'), '');
+      .replaceAll(',', '').replaceAll('،', '').replaceAll(RegExp(r'[\s\u00A0\u202F]'), '');
 }
