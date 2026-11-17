@@ -48,9 +48,11 @@ class HoseinApp extends StatelessWidget {
   const HoseinApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context) => ValueListenableBuilder<String>(
+        valueListenable: DemoStore.appName,
+        builder: (context, appName, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'خدمات فنی حسین',
+        title: appName,
         localizationsDelegates: flutter_localizations.GlobalMaterialLocalizations.delegates,
         supportedLocales: const [Locale('fa'), Locale('en')],
         theme: ThemeData(
@@ -211,11 +213,13 @@ class HoseinApp extends StatelessWidget {
           ),
         ),
         home: const HomePage(),
+        ),
       );
 }
 
 class DemoStore {
   static final ValueNotifier<String?> appLogo = ValueNotifier<String?>(null);
+  static final ValueNotifier<String> appName = ValueNotifier<String>('خدمات فنی حسین');
   static final AppDatabase _database = AppDatabase();
   static final TradeRepository trades = TradeRepository(_database);
   static final AccountingRepository accounting = AccountingRepository(_database);
@@ -233,7 +237,11 @@ class DemoStore {
 
   static Future<void> init() async {
     await _database.database;
-    appLogo.value = (await invoiceSettings.getSettings())['appLogoBase64'];
+    final settings = await invoiceSettings.getSettings();
+    appLogo.value = settings['appLogoBase64'];
+    appName.value = settings['appName']?.trim().isNotEmpty == true
+        ? settings['appName']!.trim()
+        : 'خدمات فنی حسین';
     await _loadCategory('products', products);
     await _loadCategory('customers', customers);
     await _loadCategory('repairs', repairs);
@@ -670,7 +678,13 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      const Text('خدمات فنی حسین', style: TextStyle(color: yellow, fontSize: 18, fontWeight: FontWeight.bold)),
+                      ValueListenableBuilder<String>(
+                        valueListenable: DemoStore.appName,
+                        builder: (context, appName, _) => Text(
+                          appName,
+                          style: const TextStyle(color: yellow, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
                       const Text('مدیریت فروشگاه و تعمیرات', style: TextStyle(color: Colors.white70, fontSize: 11)),
                     ],
                   ),
@@ -4007,7 +4021,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
   final _controllers = <String, TextEditingController>{
-    for (final key in ['shopName', 'ownerName', 'phone', 'postalCode', 'address', 'vatPercent', 'defaultDiscount', 'invoicePrefix'])
+    for (final key in ['appName', 'shopName', 'ownerName', 'phone', 'postalCode', 'address', 'vatPercent', 'defaultDiscount', 'invoicePrefix'])
       key: TextEditingController(),
   };
   String _currency = 'تومان';
@@ -4031,6 +4045,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       if (mounted) {
         setState(() {
           _currency = values['currency'] ?? 'تومان';
+          DemoStore.appName.value = values['appName'] ?? 'خدمات فنی حسین';
           _logoBase64 = values['appLogoBase64'] ?? '';
           DemoStore.appLogo.value = _logoBase64.isEmpty ? null : _logoBase64;
           _loading = false;
@@ -4151,6 +4166,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         'appLogoBase64': _logoBase64,
       });
       DemoStore.appLogo.value = _logoBase64.isEmpty ? null : _logoBase64;
+      DemoStore.appName.value =
+          _controllers['appName']!.text.trim().isEmpty
+              ? 'خدمات فنی حسین'
+              : _controllers['appName']!.text.trim();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تنظیمات و لوگوی فروشگاه ذخیره شد.')),
@@ -4248,8 +4267,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                         ],
                       ),
                       const Divider(height: 28),
-                      Text('اطلاعات فروشگاه و سربرگ فاکتور', style: Theme.of(context).textTheme.titleMedium),
+                      Text('اطلاعات برنامه و فروشگاه', style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 12),
+                      _field('appName', 'نام برنامه'),
                       _field('shopName', 'نام فروشگاه'),
                       _field('ownerName', 'نام مسئول'),
                       _field('phone', 'شماره تماس', type: TextInputType.phone),

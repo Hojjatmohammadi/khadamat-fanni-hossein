@@ -11,6 +11,7 @@ class InvoiceSettingsRepository {
   final AppDatabase _database;
 
   static const Map<String, String> defaults = {
+    'appName': 'خدمات فنی حسین',
     'shopName': 'خدمات فنی حسین',
     'ownerName': 'حجت محمدی',
     'phone': '',
@@ -49,8 +50,8 @@ class InvoiceSettingsRepository {
       for (final key in defaults.keys)
         key: (settings[key] ?? defaults[key]!).trim(),
     };
-    if (clean['shopName']!.isEmpty || clean['ownerName']!.isEmpty) {
-      throw ArgumentError('نام فروشگاه و نام مسئول فاکتور الزامی است');
+    if (clean['appName']!.isEmpty || clean['shopName']!.isEmpty || clean['ownerName']!.isEmpty) {
+      throw ArgumentError('نام برنامه، فروشگاه و نام مسئول فاکتور الزامی است');
     }
     // Keep each compressed image bounded to avoid oversized SQLite backups.
     for (final key in ['stampImageBase64', 'signatureImageBase64', 'appLogoBase64']) {

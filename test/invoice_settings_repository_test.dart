@@ -28,6 +28,7 @@ void main() {
 
   test('returns editable shop header defaults for a new installation', () async {
     final value = await settings.getSettings();
+    expect(value['appName'], 'خدمات فنی حسین');
     expect(value['shopName'], 'خدمات فنی حسین');
     expect(value['ownerName'], 'حجت محمدی');
     expect(value['stampImageBase64'], '');
@@ -41,6 +42,7 @@ void main() {
   test('persists shop details, stamp and signature locally', () async {
     final value = await settings.getSettings();
     value.addAll({
+      'appName': 'مدیریت فنی من',
       'shopName': 'خدمات فنی حسین شعبه اصلی',
       'ownerName': 'حجت محمدی',
       'phone': '09155637505',
