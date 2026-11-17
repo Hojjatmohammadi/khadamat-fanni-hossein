@@ -74,6 +74,7 @@ class StockMovementDraft {
     this.referenceId,
     this.journalEntry,
     this.allowNegativeStock = false,
+    this.totalCost,
   });
 
   final int productId;
@@ -86,6 +87,8 @@ class StockMovementDraft {
   final String? referenceId;
   final JournalEntryDraft? journalEntry;
   final bool allowNegativeStock;
+  /// Exact movement value when integer unit-cost rounding would lose a unit.
+  final int? totalCost;
 
   Map<String, Object?> toPayload() => {
         'productId': productId,
@@ -97,6 +100,7 @@ class StockMovementDraft {
         'referenceId': referenceId,
         'journalEntry': journalEntry?.toPayload(),
         'allowNegativeStock': allowNegativeStock,
+        if (totalCost != null) 'totalCost': totalCost,
       };
 }
 
@@ -348,6 +352,7 @@ class AccountingRepository {
         !draft.quantityDelta.isFinite ||
         draft.quantityDelta == 0 ||
         draft.unitCost < 0 ||
+        (draft.totalCost != null && draft.totalCost! < 0) ||
         draft.idempotencyKey.trim().isEmpty ||
         DateTime.tryParse(draft.occurredAt) == null) {
       throw ArgumentError('اطلاعات گردش انبار معتبر نیست');
@@ -414,7 +419,8 @@ class AccountingRepository {
       'movement_type': draft.movementType,
       'quantity_delta': draft.quantityDelta,
       'unit_cost': draft.unitCost,
-      'total_cost': (draft.quantityDelta.abs() * draft.unitCost).round(),
+      'total_cost': draft.totalCost ??
+          (draft.quantityDelta.abs() * draft.unitCost).round(),
       'occurred_at': draft.occurredAt,
       'reference_type': draft.referenceType,
       'reference_id': draft.referenceId,
