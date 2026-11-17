@@ -874,4 +874,74 @@ void main() {
     );
     expect(await checks.getCheckEvents(checkId), hasLength(2));
   });
+
+  test('cancelling a deposited incoming check restores receivable exactly once', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری چک لغوشده',
+      ),
+    );
+    final productId = await addProduct();
+    final saleId = await recordSale(productId, partyId);
+    final checkId = await checks.createCheck(
+      CheckDraft(
+        direction: 'incoming',
+        checkNumber: 'CANCEL-100',
+        bankName: 'بانک',
+        drawerName: 'صادرکننده',
+        partyName: 'مشتری چک لغوشده',
+        partyId: partyId,
+        amount: 700,
+        issueDate: '2026-11-14',
+        dueDate: '2026-11-15',
+        idempotencyKey: 'incoming-check-cancelled-after-deposit',
+        sourceDocumentId: saleId,
+      ),
+    );
+
+    expect(await trades.getOutstandingAmount(saleId), 1300);
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'deposited',
+      reason: 'تحویل بانک شد',
+      eventDate: '2026-11-14',
+    );
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'cancelled',
+      reason: 'درخواست لغو چک',
+      eventDate: '2026-11-15',
+    );
+
+    // A repeated terminal transition must not create another reversal.
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'cancelled',
+      reason: 'ثبت تکراری لغو',
+      eventDate: '2026-11-16',
+    );
+
+    expect(await trades.getOutstandingAmount(saleId), 2000);
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], 2000);
+    final check = await checks.getCheck(checkId);
+    expect(check['status'], 'cancelled');
+    expect(check['reversal_journal_id'], isNotNull);
+    expect(await checks.getCheckEvents(checkId), hasLength(3));
+    expect(
+      (await checks.getDueChecks(asOfDate: DateTime(2026, 11, 17)))
+          .any((row) => row['id'] == checkId),
+      isFalse,
+    );
+    await expectLater(
+      checks.updateCheckStatus(
+        checkId: checkId,
+        newStatus: 'cleared',
+        reason: 'تغییر وضعیت نامعتبر',
+        eventDate: '2026-11-17',
+      ),
+      throwsStateError,
+    );
+  });
 }
