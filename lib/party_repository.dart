@@ -511,7 +511,11 @@ class PartyRepository {
         ? creditTotal - debitTotal
         : debitTotal - creditTotal;
 
+    final advanceBalances =
+        await _getUnallocatedAdvanceBalances(db, partyId);
+
     return {
+      ...advanceBalances,
       'party': party,
       'lines': statement,
       'total_debit': debitTotal,
@@ -669,7 +673,11 @@ class PartyRepository {
     ''', args);
     final totalLines = (pageCount.single['line_count'] as num).toInt();
     final nextOffset = offset + rows.length;
+    final advanceBalances =
+        await _getUnallocatedAdvanceBalances(db, partyId);
+
     return {
+      ...advanceBalances,
       'party': party,
       'lines': lines,
       'total_debit': totalDebit,
@@ -686,6 +694,35 @@ class PartyRepository {
       'offset': offset,
       'next_offset': nextOffset,
       'has_more': nextOffset < totalLines,
+    };
+  }
+
+
+  Future<Map<String, int>> _getUnallocatedAdvanceBalances(
+    DatabaseExecutor db,
+    String partyId,
+  ) async {
+    Future<int> balanceFor(String type) async {
+      final rows = await db.rawQuery('''
+        SELECT COALESCE(SUM(
+          d.paid_amount - COALESCE(a.allocated_amount, 0)
+        ), 0) AS available
+        FROM business_documents d
+        LEFT JOIN (
+          SELECT payment_document_id, SUM(amount) AS allocated_amount
+          FROM invoice_payment_allocations
+          GROUP BY payment_document_id
+        ) a ON a.payment_document_id = d.id
+        WHERE d.counterparty_id = ?
+          AND d.document_type = ?
+          AND d.source_document_id IS NULL
+      ''', [partyId, type]);
+      return (rows.single['available'] as num).toInt();
+    }
+
+    return {
+      'available_customer_advance': await balanceFor('customer_receipt'),
+      'available_supplier_prepayment': await balanceFor('supplier_payment'),
     };
   }
 

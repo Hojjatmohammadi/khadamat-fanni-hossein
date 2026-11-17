@@ -318,6 +318,118 @@ void main() {
     expect(returnDocuments.single['counterparty_name'], 'فروشنده دفتر');
   });
 
+
+  test('customer advance is automatically allocated once to future sales', () async {
+    const customerId = 'customer-advance-auto-allocation';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری دارای بیعانه',
+      preferredId: customerId,
+    ));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای بیعانه مشتری',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '500',
+    });
+
+    await trades.recordCustomerReceipt(PartyPaymentDraft(
+      documentDate: '2026-11-10',
+      counterpartyName: 'مشتری دارای بیعانه',
+      counterpartyId: customerId,
+      amount: 3000,
+      idempotencyKey: 'customer-advance-before-sale',
+    ));
+
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-11',
+      counterpartyName: 'مشتری دارای بیعانه',
+      counterpartyId: customerId,
+      idempotencyKey: 'customer-advance-sale',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 2000)],
+    ));
+
+    expect(await trades.getOutstandingAmount(saleId), 0);
+    final db = await store.database;
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'invoice_document_id = ?',
+      whereArgs: [saleId],
+    );
+    expect(allocations, hasLength(1));
+    expect(allocations.single['amount'], 2000);
+
+    var statement = await parties.getPartyStatementPage(customerId);
+    expect(statement['available_customer_advance'], 1000);
+    expect(statement['closing_balance'], -1000);
+
+    final secondSaleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-12',
+      counterpartyName: 'مشتری دارای بیعانه',
+      counterpartyId: customerId,
+      idempotencyKey: 'customer-advance-second-sale',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1500)],
+    ));
+    expect(await trades.getOutstandingAmount(secondSaleId), 500);
+    statement = await parties.getPartyStatementPage(customerId);
+    expect(statement['available_customer_advance'], 0);
+    expect(statement['closing_balance'], 500);
+
+    // Allocation is metadata only; the receipt and sale journals are not reposted.
+    final entries = await db.query('journal_entries');
+    expect(entries, hasLength(4));
+    final allAllocations = await db.query('invoice_payment_allocations');
+    expect(allAllocations, hasLength(2));
+    expect(allAllocations.fold<int>(
+      0,
+      (sum, row) => sum + (row['amount'] as num).toInt(),
+    ), 3000);
+  });
+
+  test('supplier prepayment is automatically allocated and remaining amount is visible', () async {
+    const supplierId = 'supplier-advance-auto-allocation';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'فروشنده دارای پیش‌پرداخت',
+      preferredId: supplierId,
+    ));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای پیش‌پرداخت فروشنده',
+      'موجودی': '0',
+      'بهای تمام‌شده هر واحد': '0',
+    });
+
+    await trades.recordSupplierPayment(PartyPaymentDraft(
+      documentDate: '2026-11-10',
+      counterpartyName: 'فروشنده دارای پیش‌پرداخت',
+      counterpartyId: supplierId,
+      amount: 2500,
+      idempotencyKey: 'supplier-prepayment-before-purchase',
+    ));
+
+    final purchaseId = await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-11',
+      counterpartyName: 'فروشنده دارای پیش‌پرداخت',
+      counterpartyId: supplierId,
+      idempotencyKey: 'supplier-prepayment-purchase',
+      lines: [TradeLineDraft(productId: productId, quantity: 2, unitPrice: 1000)],
+    ));
+
+    expect(await trades.getOutstandingAmount(purchaseId), 0);
+    final statement = await parties.getPartyStatementPage(supplierId);
+    expect(statement['available_supplier_prepayment'], 500);
+    expect(statement['closing_balance'], -500);
+
+    final db = await store.database;
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'invoice_document_id = ?',
+      whereArgs: [purchaseId],
+    );
+    expect(allocations, hasLength(1));
+    expect(allocations.single['amount'], 2000);
+    expect(await db.query('journal_entries'), hasLength(2));
+  });
+
   test('party ledger pages preserve opening and closing balances', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه صفحه‌بندی دفتر',

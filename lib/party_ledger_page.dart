@@ -566,6 +566,18 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         '${_statement?['closing_label']}: ${closing.abs()} تومان',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      if (selectedRoles.contains('customer') &&
+                          (_statement?['available_customer_advance'] as num? ?? 0) > 0)
+                        Text(
+                          'بیعانه آزاد قابل تخصیص: ${_amount(_statement?['available_customer_advance'])} تومان',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
+                      if (selectedRoles.contains('supplier') &&
+                          (_statement?['available_supplier_prepayment'] as num? ?? 0) > 0)
+                        Text(
+                          'پیش‌پرداخت آزاد فروشنده: ${_amount(_statement?['available_supplier_prepayment'])} تومان',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
                     ],
                   ),
                 ),
