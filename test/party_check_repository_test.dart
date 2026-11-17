@@ -69,6 +69,19 @@ void main() {
     );
   }
 
+  test('rejects 10-digit mobile numbers without the leading zero', () async {
+    await expectLater(
+      parties.ensureParty(
+        const PartyDraft(
+          partyType: 'customer',
+          displayName: 'مخاطب با شماره ناقص',
+          phone: '9123456789',
+        ),
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('Jalali parsing supports Persian digits and rejects invalid dates', () {
     final parsed = parseJalaliDate('۱۴۰۵/۰۸/۲۳');
     expect(parsed, isNotNull);

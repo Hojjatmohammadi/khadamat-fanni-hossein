@@ -107,9 +107,6 @@ String normalizePhoneNumber(String value) {
     digits = '0${digits.substring(4)}';
   } else if (digits.startsWith('98') && digits.length == 12) {
     digits = '0${digits.substring(2)}';
-  } else if (digits.length == 10 && digits.startsWith('9')) {
-    digits = '0$digits';
-  }
   return digits;
 }
 
@@ -195,7 +192,15 @@ String? validateNumericField(String label, String? value, {
   final raw = value?.trim() ?? '';
   if (raw.isEmpty) return null;
   if (isPhoneFieldLabel(label)) {
-    return normalizePhoneNumber(raw).length == 11 ? null : 'شماره تماس باید دقیقاً ۱۱ رقم باشد.';
+    final rawDigits = normalizeDigitGlyphs(raw).replaceAll(RegExp(r'[^0-9]'), '');
+    final hasElevenLocalDigits = rawDigits.length == 11;
+    final hasIranianCountryPrefix =
+        (rawDigits.startsWith('98') && rawDigits.length == 12) ||
+        (rawDigits.startsWith('0098') && rawDigits.length == 14);
+    return (hasElevenLocalDigits || hasIranianCountryPrefix) &&
+            normalizePhoneNumber(raw).length == 11
+        ? null
+        : 'شماره تماس باید دقیقاً ۱۱ رقم باشد.';
   }
   if (isPostalCodeFieldLabel(label)) {
     return RegExp(r'^\d{10}$').hasMatch(normalizeDigitGlyphs(raw))

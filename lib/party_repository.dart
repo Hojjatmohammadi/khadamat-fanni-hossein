@@ -69,10 +69,7 @@ class PartyRepository {
       digits = '0${digits.substring(4)}';
     } else if (digits.startsWith('98') && digits.length == 12) {
       digits = '0${digits.substring(2)}';
-    } else if (digits.length == 10 && digits.startsWith('9')) {
-      digits = '0$digits';
-    }
-    return digits;
+      return digits;
   }
 
   Future<void> _addRoles(

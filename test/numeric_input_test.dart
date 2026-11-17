@@ -23,6 +23,7 @@ void main() {
       expect(validateNumericField('شماره تماس', '۰۹۱۲۳۴۵۶۷۸۹'), isNull);
       expect(validateNumericField('شماره همراه', '٠٩١٢٣٤٥٦٧٨٩'), isNull);
       expect(validateNumericField('شماره تماس', '0912345678'), contains('۱۱ رقم'));
+      expect(validateNumericField('شماره تماس', '9123456789'), contains('۱۱ رقم'));
       expect(validateNumericField('شماره تماس', '0912abc6789'), contains('۱۱ رقم'));
     });
     test('requires 10 postal code digits', () {
