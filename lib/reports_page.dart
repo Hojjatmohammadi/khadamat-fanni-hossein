@@ -63,6 +63,7 @@ class _ReportsPageState extends State<ReportsPage> {
         'item_profit' => await _repository.getItemProfit(from: _from, to: _to),
         'expenses' => await _repository.getExpenses(from: _from, to: _to),
         'repair_income' => await _repository.getRepairServiceRevenue(from: _from, to: _to),
+        'checks' => await _repository.getCheckMovements(from: _from, to: _to),
         _ => await _repository.getTradeDocuments(
               from: _from,
               to: _to,
@@ -116,6 +117,16 @@ class _ReportsPageState extends State<ReportsPage> {
         'income' => 'درآمد',
         _ => 'هزینه',
       };
+
+  String _checkStatusName(Object? value) => switch (value) {
+    'received' => 'دریافت شد',
+    'issued' => 'صادر شد',
+    'deposited' => 'تحویل بانک',
+    'cleared' => 'وصول / پاس شد',
+    'bounced' => 'برگشتی',
+    'cancelled' => 'لغو شد',
+    _ => value?.toString() ?? '—',
+  };
 
   Future<void> _exportExcel() async {
     final exportRows = _visibleRows;
@@ -216,6 +227,28 @@ class _ReportsPageState extends State<ReportsPage> {
             IntCellValue((row['gross_profit'] as num).toInt()),
           ]);
         }
+      } else if (_report == 'checks') {
+        sheet.appendRow([
+          TextCellValue('تاریخ رویداد'), TextCellValue('نوع چک'),
+          TextCellValue('شماره چک'), TextCellValue('طرف حساب'),
+          TextCellValue('بانک'), TextCellValue('مبلغ'),
+          TextCellValue('سررسید'), TextCellValue('وضعیت قبلی'),
+          TextCellValue('وضعیت جدید'), TextCellValue('شرح'),
+        ]);
+        for (final row in exportRows) {
+          sheet.appendRow([
+            TextCellValue(row['event_date']?.toString() ?? ''),
+            TextCellValue(row['direction'] == 'incoming' ? 'دریافتی' : 'پرداختی'),
+            TextCellValue(row['check_number']?.toString() ?? ''),
+            TextCellValue(row['party_name']?.toString() ?? ''),
+            TextCellValue(row['bank_name']?.toString() ?? ''),
+            IntCellValue((row['amount'] as num).toInt()),
+            TextCellValue(row['due_date']?.toString() ?? ''),
+            TextCellValue(_checkStatusName(row['old_status'])),
+            TextCellValue(_checkStatusName(row['new_status'])),
+            TextCellValue(row['description']?.toString() ?? ''),
+          ]);
+        }
       } else {
         sheet.appendRow([
           TextCellValue('تاریخ'), TextCellValue('شماره سند'),
@@ -270,11 +303,19 @@ class _ReportsPageState extends State<ReportsPage> {
     'item_profit' => 'گزارش سود هر کالا',
     'expenses' => 'گزارش هزینه‌های ثبت‌شده',
     'repair_income' => 'گزارش درآمد خدمات تعمیر',
+    'checks' => 'گزارش گردش و سوابق چک‌ها',
     _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
   };
 
   List<String> _reportExportLines(List<Map<String, Object?>> rows) {
     return rows.map((row) {
+      if (_report == 'checks') {
+        final direction = row['direction'] == 'incoming' ? 'دریافتی' : 'پرداختی';
+        final oldStatus = row['old_status'] == null
+            ? '—'
+            : _checkStatusName(row['old_status']);
+        return "${row['event_date']} | چک $direction شماره ${row['check_number']} | ${row['party_name']} | $oldStatus ← ${_checkStatusName(row['new_status'])} | ${_money(row['amount'])} تومان | ${row['description']}";
+      }
       if (_report == 'expenses' || _report == 'repair_income') {
         return "${row['entry_date']} | ${row['description']} | ${row['account_name']} | ${_money(row['amount'])} تومان";
       }
@@ -454,6 +495,7 @@ class _ReportsPageState extends State<ReportsPage> {
       'item_profit' => visibleRows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
       'expenses' => visibleRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
       'repair_income' => visibleRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
+      'checks' => visibleRows.length,
       _ => visibleRows.fold<int>(0, (sum, row) => sum + (row['total_amount'] as num).toInt()),
     };
     return ListView(
@@ -485,6 +527,7 @@ class _ReportsPageState extends State<ReportsPage> {
             DropdownMenuItem(value: 'item_profit', child: Text('سود هر کالا')),
             DropdownMenuItem(value: 'expenses', child: Text('هزینه‌های ثبت‌شده')),
             DropdownMenuItem(value: 'repair_income', child: Text('درآمد خدمات تعمیر')),
+            DropdownMenuItem(value: 'checks', child: Text('گردش و سوابق چک‌ها')),
           ],
           onChanged: (value) { if (value != null) setState(() { _report = value; }); _load(); },
         ),
@@ -551,7 +594,9 @@ class _ReportsPageState extends State<ReportsPage> {
         const SizedBox(height: 8),
         Card(child: ListTile(
           title: Text('تعداد ردیف‌ها: ${visibleRows.length}'),
-          subtitle: Text(_report == 'stock'
+          subtitle: Text(_report == 'checks'
+              ? 'تعداد رویدادهای گردش چک در بازه: $total'
+              : _report == 'stock'
               ? 'خالص تغییر موجودی در بازه: $total'
               : _report == 'stock_prices'
                   ? 'ارزش کل موجودی به بهای تمام‌شده: ${_money(total)} تومان'
@@ -580,6 +625,19 @@ class _ReportsPageState extends State<ReportsPage> {
               title: Text('${_typeName(row['document_type'])} — ${row['document_number']}'),
               subtitle: Text('${row['document_date']} • ${row['counterparty_name']}'),
               trailing: Text('${_money(row['total_amount'])} تومان'),
+            )),
+        if (_report == 'checks')
+          for (final row in visibleRows)
+            Card(child: ListTile(
+              title: Text(
+                'چک ${row['direction'] == 'incoming' ? 'دریافتی' : 'پرداختی'} شماره ${row['check_number']} — ${_checkStatusName(row['new_status'])}',
+              ),
+              subtitle: Text(
+                '${row['event_date']} • ${row['party_name']} • بانک: ${row['bank_name']}'
+                '\nسررسید: ${row['due_date']} • ${row['old_status'] == null ? 'ثبت اولیه' : _checkStatusName(row['old_status'])}'
+                '\nشرح: ${row['description']}',
+              ),
+              trailing: Text('${_money(row['amount'])} تومان'),
             )),
         if (_report == 'profit')
           for (final row in visibleRows)

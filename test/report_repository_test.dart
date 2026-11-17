@@ -7,6 +7,7 @@ import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
 import 'package:khadamat_fanni_hosein/report_repository.dart';
 import 'package:khadamat_fanni_hosein/trade_repository.dart';
+import 'package:khadamat_fanni_hosein/check_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -257,6 +258,66 @@ void main() {
     expect(item['net_cost'], 99);
     expect(item['gross_profit'], 101);
     expect(item['net_quantity'], 1);
+  });
+
+  test('cheque movement report returns immutable events within inclusive dates', () async {
+    final checks = CheckRepository(database);
+    final checkId = await checks.createCheck(
+      const CheckDraft(
+        direction: 'incoming',
+        checkNumber: 'RPT-1405-01',
+        bankName: 'بانک آزمایشی',
+        drawerName: 'صادرکننده',
+        partyName: 'مشتری گزارش چک',
+        amount: 750000,
+        issueDate: '2026-11-16',
+        dueDate: '2026-11-25',
+        idempotencyKey: 'report-check-movements',
+      ),
+    );
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'deposited',
+      reason: 'تحویل به بانک',
+      eventDate: '2026-11-17',
+    );
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'cleared',
+      reason: 'وصول شد',
+      eventDate: '2026-11-18',
+    );
+
+    final repository = ReportRepository(database);
+    final allEvents = await repository.getCheckMovements(
+      from: DateTime(2026, 11, 16),
+      to: DateTime(2026, 11, 18),
+    );
+    expect(allEvents, hasLength(3));
+    expect(allEvents.map((row) => row['new_status']).toList(), [
+      'received',
+      'deposited',
+      'cleared',
+    ]);
+    expect(allEvents.every((row) => row['check_id'] == checkId), isTrue);
+    expect(allEvents.every((row) => row['amount'] == 750000), isTrue);
+    expect(allEvents.first['old_status'], isNull);
+    expect(allEvents.last['current_status'], 'cleared');
+
+    final singleDay = await repository.getCheckMovements(
+      from: DateTime(2026, 11, 17),
+      to: DateTime(2026, 11, 17),
+    );
+    expect(singleDay, hasLength(1));
+    expect(singleDay.single['new_status'], 'deposited');
+
+    await expectLater(
+      repository.getCheckMovements(
+        from: DateTime(2026, 11, 18),
+        to: DateTime(2026, 11, 17),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('Kardex keeps opening movements before date range in running balance', () async {

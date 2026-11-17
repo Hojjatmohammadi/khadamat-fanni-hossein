@@ -322,6 +322,31 @@ class ReportRepository {
     ]);
   }
 
+  /// Immutable cheque status history for the inclusive report date range.
+  /// Each row represents one event, so changes of status are never collapsed
+  /// into the cheque's current state or counted as separate cheque amounts.
+  Future<List<Map<String, Object?>>> getCheckMovements({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT e.id AS event_id, e.check_id, e.event_date,
+        e.old_status, e.new_status, e.description,
+        c.direction, c.check_number, c.bank_name, c.drawer_name,
+        c.party_name, c.amount, c.issue_date, c.due_date,
+        c.status AS current_status
+      FROM check_events e
+      JOIN check_records c ON c.id = e.check_id
+      WHERE e.event_date >= ? AND e.event_date < ?
+      ORDER BY e.event_date ASC, e.id ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
   String _date(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 }
