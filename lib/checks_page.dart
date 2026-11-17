@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'check_repository.dart';
 import 'jalali_date_field.dart';
 import 'localized_number.dart';
+import 'numeric_input.dart';
 import 'party_repository.dart';
 import 'trade_repository.dart';
 
@@ -156,14 +157,18 @@ class _CheckPageState extends State<CheckPage> {
   Future<void> _saveCheck() async {
     if (_saving) return;
     final amount = LocalizedNumber.tryParseInt(_amount.text);
-    if (_number.text.trim().isEmpty ||
+    final checkNumberError = validateNumericField('شماره چک', _number.text, forceNumeric: true);
+    final amountError = validateNumericField('مبلغ', _amount.text, forceNumeric: true);
+    if (checkNumberError != null || amountError != null ||
+        _number.text.trim().isEmpty ||
         _bank.text.trim().isEmpty ||
         _drawer.text.trim().isEmpty ||
         _party.text.trim().isEmpty ||
         amount == null ||
         amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('شماره چک، بانک، صادرکننده، طرف حساب و مبلغ را کامل کنید')),
+        SnackBar(content: Text(checkNumberError ?? amountError ??
+            'شماره چک، بانک، صادرکننده، طرف حساب و مبلغ را کامل کنید')),
       );
       return;
     }
@@ -447,6 +452,8 @@ class _CheckPageState extends State<CheckPage> {
             const SizedBox(height: 8),
             TextField(
               controller: _number,
+              keyboardType: TextInputType.number,
+              inputFormatters: numericInputFormattersForField('شماره چک'),
               decoration: const InputDecoration(labelText: 'شماره چک'),
             ),
             const SizedBox(height: 8),
@@ -510,6 +517,7 @@ class _CheckPageState extends State<CheckPage> {
             TextField(
               controller: _amount,
               keyboardType: TextInputType.number,
+              inputFormatters: numericInputFormattersForField('مبلغ'),
               decoration: const InputDecoration(labelText: 'مبلغ چک (تومان)'),
             ),
             const SizedBox(height: 8),

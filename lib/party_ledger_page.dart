@@ -4,6 +4,7 @@ import 'check_repository.dart';
 import 'checks_page.dart';
 import 'jalali_date_field.dart';
 import 'localized_number.dart';
+import 'numeric_input.dart';
 import 'party_repository.dart';
 import 'trade_repository.dart';
 
@@ -211,6 +212,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   controller: amountController,
                   autofocus: true,
                   keyboardType: TextInputType.number,
+                  inputFormatters: numericInputFormattersForField('مبلغ'),
                   decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
                 ),
                 const SizedBox(height: 12),

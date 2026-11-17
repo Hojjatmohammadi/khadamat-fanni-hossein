@@ -1,5 +1,8 @@
 import 'package:material_ui/material_ui.dart';
+import 'numeric_input.dart';
 import 'loan_repository.dart';
+import 'localized_number.dart';
+import 'numeric_input.dart';
 
 class LoanManagementPage extends StatefulWidget {
   const LoanManagementPage({super.key, required this.repository});
@@ -12,7 +15,7 @@ class _LoanManagementPageState extends State<LoanManagementPage>{
   @override void initState(){super.initState();_load();}
   @override void dispose(){_party.dispose();_amount.dispose();_count.dispose();_date.dispose();_due.dispose();super.dispose();}
   Future<void> _load() async { try{final rows=await widget.repository.getLoans();if(!mounted)return;setState(()=>_loans=rows);}catch(e){if(mounted)_message('بارگذاری قرض‌ها ناموفق بود: $e');}finally{if(mounted)setState(()=>_loading=false);} }
-  int? _number(String value)=>int.tryParse(value.replaceAll(',','').replaceAll('٬','').trim());
+  int? _number(String value)=>LocalizedNumber.tryParseInt(value);
   void _message(String value)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(value)));
   Future<void> _addLoan() async {final amount=_number(_amount.text);final count=_number(_count.text)??0;if(_party.text.trim().isEmpty||amount==null||amount<=0||count<1||DateTime.tryParse(_date.text)==null||DateTime.tryParse(_due.text)==null){_message('نام قرض‌دهنده، مبلغ، تاریخ و تعداد اقساط را صحیح وارد کنید');return;}setState(()=>_saving=true);try{await widget.repository.createReceivedLoan(partyName:_party.text,amount:amount,loanDate:_date.text,dueDate:_due.text,installmentCount:count,idempotencyKey:'loan-${DateTime.now().microsecondsSinceEpoch}');_party.clear();_amount.clear();_count.text='1';await _load();_message('قرض ثبت شد؛ مبلغ به بدهی اضافه شد و درآمد محسوب نشد');}catch(e){_message('ثبت قرض ناموفق بود: $e');}finally{if(mounted)setState(()=>_saving=false);}}
   Future<void> _repay(Map<String,Object?> loan) async {final remaining=(loan['remaining_amount'] as num).toInt();final installments=await widget.repository.getInstallments((loan['id'] as num).toInt());Map<String,Object?>? next;for(final item in installments){if((item['amount'] as num)>(item['paid_amount'] as num)){next=item;break;}}if(next==null){_message('برای این قرض قسط پرداخت‌نشده‌ای باقی نمانده است');return;}final installmentRemaining=(next['amount'] as num).toInt()-(next['paid_amount'] as num).toInt();final payable=remaining<installmentRemaining?remaining:installmentRemaining;final controller=TextEditingController(text:payable.toString());final amount=await showDialog<int>(context:context,builder:(ctx)=>AlertDialog(title:Text('بازپرداخت به ${loan['party_name']}'),content:TextField(controller:controller,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'مبلغ پرداخت به تومان')),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('انصراف')),FilledButton(onPressed:()=>Navigator.pop(ctx,_number(controller.text)),child:const Text('ثبت پرداخت'))]));controller.dispose();if(amount==null)return;try{await widget.repository.recordRepayment(loanId:(loan['id'] as num).toInt(),amount:amount,paymentDate:DateTime.now().toIso8601String().substring(0,10),idempotencyKey:'loan-repay-${DateTime.now().microsecondsSinceEpoch}',installmentId:next['id'] as int);await _load();_message('بازپرداخت ثبت شد و مانده بدهی کاهش یافت');}catch(e){_message('ثبت بازپرداخت ناموفق بود: $e');}}

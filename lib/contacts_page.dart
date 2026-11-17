@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'numeric_input.dart';
 
 import 'check_repository.dart';
 import 'party_ledger_page.dart';
@@ -153,7 +154,9 @@ class _ContactsPageState extends State<ContactsPage> {
                       TextFormField(
                         controller: phone,
                         keyboardType: TextInputType.phone,
+                        inputFormatters: numericInputFormattersForField('شماره همراه'),
                         decoration: const InputDecoration(labelText: 'شماره همراه'),
+                        validator: (value) => validateNumericField('شماره همراه', value),
                       ),
                       const SizedBox(height: 10),
                       TextFormField(

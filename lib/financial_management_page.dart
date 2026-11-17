@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'numeric_input.dart';
 
 import 'accounting_repository.dart';
 import 'jalali_date_field.dart';
@@ -136,10 +137,12 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       : null,
                 ),
                 const SizedBox(height: 8),
-                TextField(
+                TextFormField(
                   controller: phone,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: numericInputFormattersForField('شماره همراه'),
                   decoration: const InputDecoration(labelText: 'شماره همراه'),
+                  validator: (value) => validateNumericField('شماره همراه', value),
                 ),
                 const SizedBox(height: 8),
                 TextField(

@@ -23,6 +23,7 @@ import 'jalali_date_field.dart';
 import 'check_reminder_service.dart';
 import 'product_duplicate_checker.dart';
 import 'localized_number.dart';
+import 'numeric_input.dart';
 import 'invoice_archive_repository.dart';
 import 'invoice_settings_repository.dart';
 import 'reports_page.dart';
@@ -911,10 +912,12 @@ class _SimpleListPageState extends State<SimpleListPage> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  TextField(
+                  TextFormField(
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
+                    inputFormatters: numericInputFormattersForField('شماره همراه'),
                     decoration: const InputDecoration(labelText: 'شماره همراه'),
+                    validator: (value) => validateNumericField('شماره همراه', value),
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -1041,6 +1044,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
                       child: TextField(
                         controller: controllers[i],
                         focusNode: focusNodes[i],
+                        keyboardType: numericKeyboardTypeForField(widget.fields[i]),
+                        inputFormatters: numericInputFormattersForField(widget.fields[i]),
                         textInputAction: i == widget.fields.length - 1
                             ? TextInputAction.done
                             : TextInputAction.next,
@@ -1079,7 +1084,14 @@ class _SimpleListPageState extends State<SimpleListPage> {
               onPressed: () {
                 final item = <String, String>{};
                 for (int i = 0; i < widget.fields.length; i++) {
-                  item[widget.fields[i]] = controllers[i].text.trim();
+                  final label = widget.fields[i];
+                  final raw = controllers[i].text.trim();
+                  final error = validateNumericField(label, raw);
+                  if (error != null) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error)));
+                    return;
+                  }
+                  item[label] = normalizeNumericField(label, raw);
                 }
                 final category = widget.title == 'مشتری'
                     ? 'customers'
@@ -1375,7 +1387,8 @@ class _ProductPageState extends State<ProductPage> {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: TextField(
                           controller: c[i],
-                          keyboardType: i >= 4 ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+                          keyboardType: i >= 4 ? const TextInputType.numberWithOptions(decimal: true) : numericKeyboardTypeForField(names[i]),
+                          inputFormatters: numericInputFormattersForField(names[i], forceNumeric: i >= 4, allowDecimal: true),
                           textInputAction: TextInputAction.next,
                           onChanged: (_) => refresh(() {}),
                           decoration: InputDecoration(labelText: names[i]),
@@ -1892,7 +1905,8 @@ class _ProductPageState extends State<ProductPage> {
                         controller: controllers[i],
                         keyboardType: i >= 4
                             ? const TextInputType.numberWithOptions(decimal: true)
-                            : TextInputType.text,
+                            : numericKeyboardTypeForField(fields[i]),
+                        inputFormatters: numericInputFormattersForField(fields[i], forceNumeric: i >= 4, allowDecimal: true),
                         textInputAction: i == fields.length - 1
                             ? TextInputAction.done
                             : TextInputAction.next,
@@ -3079,6 +3093,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                       TextField(
                         textInputAction: TextInputAction.next,
                         controller: controllers[entry.key],
+                        keyboardType: numericKeyboardTypeForField(entry.value),
+                        inputFormatters: numericInputFormattersForField(entry.value),
                         decoration: InputDecoration(labelText: entry.value),
                       ),
                       const SizedBox(height: 10),
@@ -3125,7 +3141,14 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               FilledButton(
                 onPressed: () {
                   for (final entry in controllers.entries) {
-                    values[entry.key] = entry.value.text.trim();
+                    final label = fields[entry.key]!;
+                    final raw = entry.value.text.trim();
+                    final error = validateNumericField(label, raw);
+                    if (error != null) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error)));
+                      return;
+                    }
+                    values[entry.key] = normalizeNumericField(label, raw);
                   }
                   Navigator.pop(dialogContext, true);
                 },
@@ -4199,10 +4222,20 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _controllers[key],
-        keyboardType: type,
+        keyboardType: type ?? numericKeyboardTypeForField(label),
+        inputFormatters: numericInputFormattersForField(
+          label,
+          forceNumeric: type == TextInputType.phone || type == TextInputType.number,
+        ),
         maxLines: lines,
         decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
         validator: (value) {
+          final numericError = validateNumericField(
+            label,
+            value,
+            forceNumeric: type == TextInputType.phone || type == TextInputType.number,
+          );
+          if (numericError != null) return numericError;
           if ((key == 'shopName' || key == 'ownerName') &&
               (value == null || value.trim().isEmpty)) {
             return 'این فیلد الزامی است';

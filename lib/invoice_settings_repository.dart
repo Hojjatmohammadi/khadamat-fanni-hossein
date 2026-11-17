@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
+import 'numeric_input.dart';
 
 /// Persists editable shop invoice header settings on this device.
 class InvoiceSettingsRepository {
@@ -53,6 +54,12 @@ class InvoiceSettingsRepository {
     if (clean['appName']!.isEmpty || clean['shopName']!.isEmpty || clean['ownerName']!.isEmpty) {
       throw ArgumentError('نام برنامه، فروشگاه و نام مسئول فاکتور الزامی است');
     }
+    final phoneError = validateNumericField('شماره تماس', clean['phone']);
+    if (phoneError != null) throw ArgumentError(phoneError);
+    final postalError = validateNumericField('کد پستی', clean['postalCode']);
+    if (postalError != null) throw ArgumentError(postalError);
+    clean['phone'] = normalizeNumericField('شماره تماس', clean['phone']!);
+    clean['postalCode'] = normalizeNumericField('کد پستی', clean['postalCode']!);
     // Keep each compressed image bounded to avoid oversized SQLite backups.
     for (final key in ['stampImageBase64', 'signatureImageBase64', 'appLogoBase64']) {
       if (clean[key]!.length > 1500000) {

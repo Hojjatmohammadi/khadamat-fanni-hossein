@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
+import 'numeric_input.dart';
 
 class PartyDraft {
   const PartyDraft({
@@ -99,6 +100,9 @@ class PartyRepository {
 
     final normalized = _normalizeName(name);
     final normalizedPhone = _normalizePhone(draft.phone ?? '');
+    if ((draft.phone?.trim().isNotEmpty ?? false) && normalizedPhone.length != 11) {
+      throw ArgumentError('شماره همراه باید دقیقاً ۱۱ رقم باشد.');
+    }
     final db = await _database.database;
 
     return db.transaction((txn) async {
@@ -213,6 +217,10 @@ class PartyRepository {
       throw ArgumentError('اطلاعات مخاطب یا نقش‌های انتخاب‌شده معتبر نیست');
     }
 
+    final normalizedPhone = _normalizePhone(draft.phone ?? '');
+    if ((draft.phone?.trim().isNotEmpty ?? false) && normalizedPhone.length != 11) {
+      throw ArgumentError('شماره همراه باید دقیقاً ۱۱ رقم باشد.');
+    }
     final db = await _database.database;
     await db.transaction((txn) async {
       final existing = await txn.query(
@@ -230,7 +238,7 @@ class PartyRepository {
           'party_type': roles.first,
           'display_name': name,
           'normalized_name': _normalizeName(name),
-          'phone': draft.phone?.trim(),
+          'phone': normalizedPhone.isEmpty ? null : normalizedPhone,
           'address': draft.address?.trim(),
           'notes': draft.notes?.trim(),
           'updated_at': DateTime.now().toIso8601String(),
