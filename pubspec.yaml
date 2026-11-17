@@ -10,6 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
 
+  flutter_localizations:
+    sdk: flutter
+
   material_ui: ^1.11.0
   flutter_contacts: ^2.6.0
   shamsi_date: ^1.1.1
