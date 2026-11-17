@@ -210,7 +210,9 @@ class TradeRepository {
         final landed = baseAmounts[i] - discountShares[i] + chargeShares[i];
         final unitCost = (landed / quantities[i]).round();
         landedUnitCosts.add(unitCost);
-        landedTotals.add((quantities[i] * unitCost).round());
+        // Keep the exact line value; the rounded unit cost is only a display/
+        // average-cost hint and must not change the invoice or stock valuation.
+        landedTotals.add(landed);
       }
       final inventoryValue =
           landedTotals.fold<int>(0, (sum, amount) => sum + amount);
@@ -294,6 +296,7 @@ class TradeRepository {
             movementType: 'purchase',
             quantityDelta: line.quantity,
             unitCost: landedUnitCosts[i],
+            totalCost: landedTotals[i],
             occurredAt: draft.documentDate,
             idempotencyKey: 'purchase-stock-${draft.idempotencyKey}-$i',
             referenceType: 'purchase',
@@ -456,7 +459,11 @@ class TradeRepository {
         final unitCost = valuation.quantity <= 0
             ? 0
             : (valuation.value / valuation.quantity).round();
-        final costAmount = (line.quantity * unitCost).round();
+        // Allocate the exact remaining stock value proportionally. Rounding
+        // the average unit cost first can over/understate COGS on partial sales.
+        final costAmount = valuation.quantity <= 0
+            ? 0
+            : (valuation.value * line.quantity / valuation.quantity).round();
         final productName = await _productName(txn, line.productId);
 
         await _insertDocumentLine(
@@ -492,6 +499,7 @@ class TradeRepository {
             movementType: 'sale',
             quantityDelta: -line.quantity,
             unitCost: unitCost,
+            totalCost: costAmount,
             occurredAt: draft.documentDate,
             idempotencyKey: 'sale-stock-${draft.idempotencyKey}-$i',
             referenceType: 'sale',
