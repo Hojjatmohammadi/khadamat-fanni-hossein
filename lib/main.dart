@@ -1956,7 +1956,6 @@ class _ProductPageState extends State<ProductPage> {
     }
   }
 
-  @override
   Future<void> _deleteProduct(Map<String, String> product) async {
     final id = int.tryParse(product['__database_id'] ?? '');
     if (id == null) {
@@ -2009,6 +2008,7 @@ class _ProductPageState extends State<ProductPage> {
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     final query = ProductDuplicateChecker.normalize(_searchController.text);
     final filteredProducts = DemoStore.products.where((item) {
