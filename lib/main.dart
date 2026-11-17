@@ -909,6 +909,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
   Future<void> addItem() async {
     final controllers = widget.fields.map((_) => TextEditingController()).toList();
     String? selectedRepairCustomerPartyId;
+    StateSetter? refreshRepairDialog;
     final repairCustomerOptions = widget.title == 'پذیرش تعمیر'
         ? await DemoStore.parties.getParties(partyType: 'customer')
         : <Map<String, Object?>>[];
@@ -1002,6 +1003,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
             });
           selectedRepairCustomerPartyId = id;
           controllers[0].text = nameController.text.trim();
+          refreshRepairDialog?.call(() {});
           if (mounted) setState(() {});
         } catch (error) {
           if (mounted) {
@@ -1017,10 +1019,13 @@ class _SimpleListPageState extends State<SimpleListPage> {
     }
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: Text('ثبت ${widget.title} جدید'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refreshDialog) {
+          refreshRepairDialog = refreshDialog;
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: Text('ثبت ${widget.title} جدید'),
           content: SizedBox(
             width: 360,
             child: SingleChildScrollView(
@@ -1175,8 +1180,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
               },
               child: const Text('ذخیره'),
             ),
-          ],
-        ),
+            ],
+          ),
+        );
+        },
       ),
     );
     for (final controller in controllers) {
