@@ -38,11 +38,15 @@ class _BackupPageState extends State<BackupPage> {
       final files = await widget.service.listBackups();
       final folder = await widget.service.getBackupLocation();
       final externalFiles = await widget.service.listExternalBackups();
+      final warning = widget.service.lastBackupWarning;
       if (mounted) {
         setState(() {
           _backups = files;
           _backupFolder = folder;
           _externalBackups = externalFiles;
+          if (warning != null && (_message == null || _message!.isEmpty)) {
+            _message = warning;
+          }
         });
       }
     } catch (error) {

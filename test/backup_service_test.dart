@@ -224,6 +224,51 @@ void main() {
     expect(service.lastBackupWarning, contains('مجوز پوشهٔ بیرونی لغو شده'));
   });
 
+  test('lists and deletes backups from the selected external folder', () async {
+    await service.chooseBackupLocation();
+    const external = ExternalBackupFile(
+      uri: 'content://backup-folder/khadamat-backup-2026-11-14.db',
+      folderUri: 'content://backup-folder',
+      name: 'khadamat-backup-2026-11-14.db',
+      length: 2048,
+      lastModified: 1794648600000,
+    );
+    folderAccess.externalBackups.add(external);
+
+    final listed = await service.listExternalBackups();
+    expect(listed, hasLength(1));
+    expect(listed.single.name, external.name);
+
+    await service.deleteExternalBackup(external);
+    expect(folderAccess.deletedUris, [external.uri]);
+    expect(await service.listExternalBackups(), isEmpty);
+  });
+
+  test('restores a validated backup selected from the external folder', () async {
+    final selectedFolder = await service.chooseBackupLocation();
+    await database.insert('customers', {'نام مشتری': 'مشتری داخل نسخه بیرونی'});
+    final backup = await service.createBackup();
+    const externalUri =
+        'content://backup-folder/khadamat-backup-external-restore.db';
+    final external = ExternalBackupFile(
+      uri: externalUri,
+      folderUri: selectedFolder!.uri,
+      name: 'khadamat-backup-external-restore.db',
+      length: await backup.length(),
+      lastModified: clock.millisecondsSinceEpoch,
+    );
+    folderAccess.externalSources[externalUri] = backup.path;
+
+    await database.insert('customers', {'نام مشتری': 'اطلاعات جدید برای جایگزینی'});
+    expect(await database.getAll('customers'), hasLength(2));
+
+    await service.restoreFromExternalBackup(external);
+
+    final restored = await database.getAll('customers');
+    expect(restored, hasLength(1));
+    expect(restored.single['نام مشتری'], 'مشتری داخل نسخه بیرونی');
+  });
+
   test('prevents deleting files outside the app backup folder', () async {
     final outside = File('${root.path}/keep.db');
     await outside.writeAsString('keep');
@@ -242,6 +287,9 @@ class _FakeBackupFolderAccess implements BackupFolderAccess {
   bool probeVerified = false;
   Object? copyFailure;
   final List<String> copiedFiles = <String>[];
+  final List<ExternalBackupFile> externalBackups = <ExternalBackupFile>[];
+  final Map<String, String> externalSources = <String, String>{};
+  final List<String> deletedUris = <String>[];
 
   @override
   Future<BackupFolder?> pickDirectory({String? initialUri}) async =>
@@ -266,12 +314,23 @@ class _FakeBackupFolderAccess implements BackupFolderAccess {
 
   @override
   Future<List<ExternalBackupFile>> listBackups(String folderUri) async =>
-      <ExternalBackupFile>[];
+      externalBackups
+          .where((file) => file.folderUri == folderUri)
+          .toList(growable: false);
 
   @override
-  Future<void> copyToLocalFile(String sourceUri, String destinationPath) async =>
-      throw UnimplementedError();
+  Future<void> copyToLocalFile(String sourceUri, String destinationPath) async {
+    final sourcePath = externalSources[sourceUri];
+    if (sourcePath == null) {
+      throw StateError('external test file not registered');
+    }
+    await File(sourcePath).copy(destinationPath);
+  }
 
   @override
-  Future<void> deleteFile(String uri) async => throw UnimplementedError();
+  Future<void> deleteFile(String uri) async {
+    deletedUris.add(uri);
+    externalBackups.removeWhere((file) => file.uri == uri);
+    externalSources.remove(uri);
+  }
 }
