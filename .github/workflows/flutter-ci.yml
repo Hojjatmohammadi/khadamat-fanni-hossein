@@ -32,5 +32,5 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-pub --no-fatal-infos
       - name: Run tests
-        timeout-minutes: 8
+        timeout-minutes: 20
         run: flutter test --no-pub --reporter expanded

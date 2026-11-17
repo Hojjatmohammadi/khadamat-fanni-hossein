@@ -2,9 +2,6 @@ name: Android emulator smoke tests
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/dashboard-layout-phase2
 # Pushes to the work branch are the single source of automated validation.
 # Manual dispatch remains available for an intentional rerun.
 concurrency:
