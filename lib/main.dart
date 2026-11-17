@@ -1321,7 +1321,7 @@ class _ProductPageState extends State<ProductPage> {
                 onPressed: () {
                   final productName = c[0].text.trim();
                   final stockText = c[4].text.trim();
-                  final stockValue = LocalizedNumber.parseDoubleOrNull(stockText);
+                  final stockValue = LocalizedNumber.tryParseDouble(stockText);
                   if (productName.isEmpty || stockText.isEmpty ||
                       stockValue == null || !stockValue.isFinite ||
                       stockValue < 0) {
