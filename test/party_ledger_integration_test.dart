@@ -498,6 +498,77 @@ void main() {
     expect((second['lines'] as List<Map<String, Object?>>).single['running_balance'], 3500);
   });
 
+
+  test('linked customer receipt cannot exceed the remaining sale balance', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای کنترل اضافه‌دریافت',
+      'موجودی': '5',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+    const customerId = 'customer-no-overpayment';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری کنترل اضافه‌دریافت',
+      preferredId: customerId,
+    ));
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-17',
+      counterpartyName: 'مشتری کنترل اضافه‌دریافت',
+      counterpartyId: customerId,
+      idempotencyKey: 'customer-overpayment-sale',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1000)],
+    ));
+
+    await expectLater(
+      trades.recordCustomerReceipt(PartyPaymentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'مشتری کنترل اضافه‌دریافت',
+        counterpartyId: customerId,
+        amount: 1001,
+        referenceId: saleId.toString(),
+        idempotencyKey: 'customer-overpayment-receipt',
+      )),
+      throwsStateError,
+    );
+    expect(await trades.getOutstandingAmount(saleId), 1000);
+    expect((await trades.getDocuments(type: 'customer_receipt')), isEmpty);
+  });
+
+  test('linked supplier payment cannot exceed the remaining purchase balance', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای کنترل اضافه‌پرداخت',
+      'موجودی': '0',
+      'بهای تمام‌شده هر واحد': '0',
+    });
+    const supplierId = 'supplier-no-overpayment';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'فروشنده کنترل اضافه‌پرداخت',
+      preferredId: supplierId,
+    ));
+    final purchaseId = await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-17',
+      counterpartyName: 'فروشنده کنترل اضافه‌پرداخت',
+      counterpartyId: supplierId,
+      idempotencyKey: 'supplier-overpayment-purchase',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1000)],
+    ));
+
+    await expectLater(
+      trades.recordSupplierPayment(PartyPaymentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده کنترل اضافه‌پرداخت',
+        counterpartyId: supplierId,
+        amount: 1001,
+        referenceId: purchaseId.toString(),
+        idempotencyKey: 'supplier-overpayment-payment',
+      )),
+      throwsStateError,
+    );
+    expect(await trades.getOutstandingAmount(purchaseId), 1000);
+    expect((await trades.getDocuments(type: 'supplier_payment')), isEmpty);
+  });
+
   test('a linked settlement cannot be posted to a different party', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه کنترل طرف حساب',
