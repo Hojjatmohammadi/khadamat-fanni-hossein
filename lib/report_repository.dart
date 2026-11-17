@@ -39,15 +39,26 @@ class ReportRepository {
   }) async {
     if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
     final db = await _database.database;
-    final movements = await db.query(
-      'inventory_movements',
-      where: 'occurred_at >= ? AND occurred_at < ?',
-      whereArgs: [
-        _date(from),
-        _date(to.add(const Duration(days: 1))),
-      ],
-      orderBy: 'occurred_at ASC, id ASC',
-    );
+    // Calculate the running balance over the complete ledger first, then
+    // apply the requested date range. This keeps the opening balance before
+    // the report period and makes every Kardex row's balance accurate.
+    final movements = await db.rawQuery('''
+      WITH ledger AS (
+        SELECT m.*,
+          SUM(m.quantity_delta) OVER (
+            PARTITION BY m.product_id
+            ORDER BY m.occurred_at ASC, m.id ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS balance_after
+        FROM inventory_movements m
+      )
+      SELECT * FROM ledger
+      WHERE occurred_at >= ? AND occurred_at < ?
+      ORDER BY occurred_at ASC, id ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
     final productRows = await db.query('products');
     final names = <int, String>{};
     for (final row in productRows) {

@@ -230,18 +230,40 @@ void main() {
     expect(item['net_quantity'], 1);
   });
 
-  test('stock report returns ledger movements with product names', () async {
+  test('Kardex keeps opening movements before date range in running balance', () async {
     final productId = await database.insert('products', {
-      'نام کالا': 'خازن گزارش',
-      'موجودی': '4',
-      'بهای تمام‌شده هر واحد': '200',
+      'نام کالا': 'کاردکس مانده‌دار',
+      'موجودی': '0',
+      'بهای تمام‌شده هر واحد': '0',
     });
+    await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-10',
+      counterpartyName: 'فروشنده',
+      idempotencyKey: 'kardex-before-range',
+      lines: [TradeLineDraft(productId: productId, quantity: 5, unitPrice: 100)],
+    ));
+    await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-15',
+      counterpartyName: 'فروشنده',
+      idempotencyKey: 'kardex-inside-range',
+      lines: [TradeLineDraft(productId: productId, quantity: 4, unitPrice: 120)],
+    ));
+    await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-16',
+      counterpartyName: 'مشتری',
+      idempotencyKey: 'kardex-sale-inside-range',
+      lines: [TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200)],
+    ));
+
     final rows = await ReportRepository(database).getInventoryMovements(
-      from: DateTime(2026, 11, 1),
-      to: DateTime(2026, 11, 30),
+      from: DateTime(2026, 11, 15),
+      to: DateTime(2026, 11, 16),
     );
-    expect(rows, isNotEmpty);
-    expect(rows.any((row) => row['product_name'] == 'خازن گزارش'), isTrue);
-    expect(rows.any((row) => row['product_id'] == productId), isTrue);
+    final productRows = rows.where((row) => row['product_id'] == productId).toList();
+    expect(productRows, hasLength(2));
+    expect(productRows[0]['movement_type'], 'purchase');
+    expect(productRows[0]['balance_after'], 9);
+    expect(productRows[1]['movement_type'], 'sale');
+    expect(productRows[1]['balance_after'], 7);
   });
 }

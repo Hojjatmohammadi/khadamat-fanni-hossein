@@ -128,6 +128,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('تاریخ'), TextCellValue('کالا'),
           TextCellValue('نوع گردش'), TextCellValue('تغییر تعداد'),
           TextCellValue('بهای واحد'), TextCellValue('ارزش گردش'),
+          TextCellValue('موجودی پس از گردش'),
         ]);
         for (final row in _rows) {
           sheet.appendRow([
@@ -137,6 +138,7 @@ class _ReportsPageState extends State<ReportsPage> {
             DoubleCellValue((row['quantity_delta'] as num).toDouble()),
             IntCellValue((row['unit_cost'] as num).toInt()),
             IntCellValue((row['total_cost'] as num).toInt()),
+            DoubleCellValue((row['balance_after'] as num).toDouble()),
           ]);
         }
       } else if (_report == 'profit') {
@@ -284,7 +286,7 @@ class _ReportsPageState extends State<ReportsPage> {
         } else if (_report == 'stock_prices') {
           lines.add("${row['product_name']} | موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | فروش: ${_money(row['sale_price'])} تومان");
         } else if (_report == 'stock') {
-          lines.add("${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تعداد: ${row['quantity_delta']}");
+          lines.add("${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | مانده: ${row['balance_after']}");
         } else {
           lines.add("${row['document_date']} | ${_typeName(row['document_type'])} | ${row['document_number']} | ${_money(row['total_amount'])} تومان");
         }
@@ -347,7 +349,8 @@ class _ReportsPageState extends State<ReportsPage> {
         } else if (_report == 'stock') {
           lines.add(
             "${row['occurred_at']} | ${row['product_name']} | "
-            "${_typeName(row['movement_type'])} | تعداد: ${row['quantity_delta']}",
+            "${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | "
+            "مانده پس از گردش: ${row['balance_after']}",
           );
         } else if (_report == 'profit') {
           lines.add(
@@ -655,11 +658,14 @@ class _ReportsPageState extends State<ReportsPage> {
               ),
             )),
         if (_report == 'stock')
-          for (final row in _rows)
+          for (final row in visibleRows)
             Card(child: ListTile(
               title: Text('${row['product_name']}'),
-              subtitle: Text('${row['occurred_at']} • ${_typeName(row['movement_type'])}'),
-              trailing: Text('${(row['quantity_delta'] as num).toString()}'),
+              subtitle: Text(
+                '${row['occurred_at']} • ${_typeName(row['movement_type'])}'
+                '\\nتغییر: ${row['quantity_delta']} • موجودی پس از گردش: ${row['balance_after']}',
+              ),
+              trailing: Text('${(row['quantity_delta'] as num) > 0 ? '+' : ''}${(row['quantity_delta'] as num).toString()}'),
             )),
         const SizedBox(height: 12),
         const Text(
