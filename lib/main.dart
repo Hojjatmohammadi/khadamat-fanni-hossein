@@ -249,6 +249,8 @@ class DemoStore {
   }
 
   static Future<void> refreshProducts() => _loadCategory('products', products);
+  static Future<void> refreshCustomers() => _loadCategory('customers', customers);
+  static Future<void> refreshRepairs() => _loadCategory('repairs', repairs);
 
   static Future<void> refreshSales() async {
     final storedSales = await _database.getAll('sales');
@@ -496,7 +498,13 @@ class _HomePageState extends State<HomePage> {
         repository: DemoStore.parties,
         trades: DemoStore.trades,
         checks: DemoStore.checks,
-        onChanged: () => setState(() {}),
+        onChanged: () async {
+          await Future.wait([
+            DemoStore.refreshCustomers(),
+            DemoStore.refreshRepairs(),
+          ]);
+          if (mounted) setState(() {});
+        },
       ),
     ];
     return Directionality(
