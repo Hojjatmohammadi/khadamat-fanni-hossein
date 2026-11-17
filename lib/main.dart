@@ -3505,7 +3505,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               ),
               FilledButton(
                 onPressed: () {
-                  final quantity = double.tryParse(quantityController.text.trim());
+                  final quantity = LocalizedNumber.tryParseDouble(quantityController.text);
                   if (selectedLineId == null || quantity == null || quantity <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('ردیف و تعداد مرجوعی را بررسی کنید')),
@@ -3815,7 +3815,10 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                   trailing: IconButton(
                     tooltip: 'حذف ردیف',
                     icon: const Icon(Icons.delete_outline),
-                    onPressed: () => setState(() => _lines.removeAt(i)),
+                    onPressed: () => setState(() {
+                      _lines.removeAt(i);
+                      _applyDefaultDiscount();
+                    }),
                   ),
                 ),
               ),

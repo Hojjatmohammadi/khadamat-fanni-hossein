@@ -177,24 +177,50 @@ class ReportRepository {
     if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
     final db = await _database.database;
     return db.rawQuery('''
-      SELECT l.product_id,
-        l.product_name,
-        SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.line_total ELSE -l.line_total END) AS net_revenue,
-        SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.quantity * l.unit_cost
-          ELSE -l.quantity * l.unit_cost END) AS net_cost,
-        SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.line_total - (l.quantity * l.unit_cost)
-          ELSE -(l.line_total - (l.quantity * l.unit_cost)) END) AS gross_profit,
-        SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.quantity ELSE -l.quantity END) AS net_quantity
-      FROM business_document_lines l
-      JOIN business_documents d ON d.id = l.document_id
-      WHERE d.document_type IN ('sale', 'customer_return')
-        AND d.document_date >= ? AND d.document_date < ?
-      GROUP BY l.product_id, l.product_name
-      ORDER BY gross_profit DESC, l.product_name COLLATE NOCASE
+      WITH line_totals AS (
+        SELECT l.document_id, d.document_type, l.product_id, l.product_name,
+          SUM(l.line_total) AS line_total,
+          SUM(l.quantity) AS quantity,
+          SUM(l.quantity * l.unit_cost) AS fallback_cost
+        FROM business_document_lines l
+        JOIN business_documents d ON d.id = l.document_id
+        WHERE d.document_type IN ('sale', 'customer_return')
+          AND d.document_date >= ? AND d.document_date < ?
+        GROUP BY l.document_id, d.document_type, l.product_id, l.product_name
+      ),
+      movement_totals AS (
+        SELECT reference_id, product_id, movement_type,
+          SUM(total_cost) AS exact_cost
+        FROM inventory_movements
+        WHERE movement_type IN ('sale', 'customer_return')
+        GROUP BY reference_id, product_id, movement_type
+      ),
+      item_totals AS (
+        SELECT lt.product_id, lt.product_name,
+          SUM(CASE WHEN lt.document_type = 'sale'
+            THEN lt.line_total ELSE -lt.line_total END) AS net_revenue,
+          SUM(CASE
+            WHEN lt.document_type = 'sale'
+              THEN COALESCE(sale_movement.exact_cost, lt.fallback_cost)
+            ELSE -COALESCE(return_movement.exact_cost, lt.fallback_cost)
+          END) AS net_cost,
+          SUM(CASE WHEN lt.document_type = 'sale'
+            THEN lt.quantity ELSE -lt.quantity END) AS net_quantity
+        FROM line_totals lt
+        LEFT JOIN movement_totals sale_movement
+          ON sale_movement.reference_id = CAST(lt.document_id AS TEXT)
+          AND sale_movement.product_id = lt.product_id
+          AND sale_movement.movement_type = 'sale'
+        LEFT JOIN movement_totals return_movement
+          ON return_movement.reference_id = CAST(lt.document_id AS TEXT)
+          AND return_movement.product_id = lt.product_id
+          AND return_movement.movement_type = 'customer_return'
+        GROUP BY lt.product_id, lt.product_name
+      )
+      SELECT product_id, product_name, net_revenue, net_cost,
+        net_revenue - net_cost AS gross_profit, net_quantity
+      FROM item_totals
+      ORDER BY gross_profit DESC, product_name COLLATE NOCASE
     ''', [
       _date(from),
       _date(to.add(const Duration(days: 1))),

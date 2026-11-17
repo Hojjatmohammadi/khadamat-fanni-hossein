@@ -182,6 +182,54 @@ void main() {
     expect(item['net_revenue'], 1000);
   });
 
+  test('item profit uses exact stock movement cost after partial customer return', () async {
+    final productId = await database.insert('products', {
+      'نام کالا': 'قطعه با بهای دقیق',
+      'موجودی': '0',
+      'بهای تمام‌شده هر واحد': '0',
+    });
+    await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-16',
+      counterpartyName: 'فروشنده',
+      idempotencyKey: 'profit-exact-purchase',
+      lines: [
+        TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+      ],
+      discountAmount: 1,
+    ));
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-16',
+      counterpartyName: 'مشتری',
+      idempotencyKey: 'profit-exact-sale',
+      lines: [
+        TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200),
+      ],
+    ));
+    final saleLine = (await trades.getDocumentLines(saleId)).single;
+    await trades.recordCustomerReturn(ReturnDocumentDraft(
+      documentDate: '2026-11-17',
+      sourceDocumentId: saleId,
+      counterpartyName: 'مشتری',
+      idempotencyKey: 'profit-exact-return',
+      lines: [
+        ReturnLineDraft(
+          sourceLineId: saleLine['id'] as int,
+          quantity: 1,
+        ),
+      ],
+    ));
+
+    final rows = await ReportRepository(database).getItemProfit(
+      from: DateTime(2026, 11, 16),
+      to: DateTime(2026, 11, 17),
+    );
+    final item = rows.singleWhere((row) => row['product_id'] == productId);
+    expect(item['net_revenue'], 200);
+    expect(item['net_cost'], 99);
+    expect(item['gross_profit'], 101);
+    expect(item['net_quantity'], 1);
+  });
+
   test('stock report returns ledger movements with product names', () async {
     final productId = await database.insert('products', {
       'نام کالا': 'خازن گزارش',
