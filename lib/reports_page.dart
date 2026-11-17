@@ -119,6 +119,7 @@ class _ReportsPageState extends State<ReportsPage> {
 
   Future<void> _exportExcel() async {
     final exportRows = _visibleRows;
+    File? excelFile;
     if (exportRows.isEmpty) {
       _message('داده‌ای برای خروجی وجود ندارد');
       return;
@@ -174,7 +175,7 @@ class _ReportsPageState extends State<ReportsPage> {
           sheet.appendRow([
             TextCellValue(row['account_code']?.toString() ?? ''),
             TextCellValue(row['account_name']?.toString() ?? ''),
-            TextCellValue(row['account_type'] == 'income' ? 'درآمد' : 'هزینه'),
+            TextCellValue(_profitGroupName(row)),
             IntCellValue((row['total_debit'] as num).toInt()),
             IntCellValue((row['total_credit'] as num).toInt()),
             IntCellValue((row['balance'] as num).toInt()),
@@ -241,6 +242,7 @@ class _ReportsPageState extends State<ReportsPage> {
       if (bytes == null) throw StateError('ساخت فایل Excel ناموفق بود');
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/report_${DateTime.now().millisecondsSinceEpoch}.xlsx');
+      excelFile = file;
       await file.writeAsBytes(bytes, flush: true);
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
@@ -248,6 +250,14 @@ class _ReportsPageState extends State<ReportsPage> {
       );
     } catch (error) {
       _message('ساخت یا اشتراک فایل Excel ناموفق بود: $error');
+    } finally {
+      try {
+        if (excelFile != null && await excelFile.exists()) {
+          await excelFile.delete();
+        }
+      } catch (_) {
+        // Keep the cached file if the sharing extension still has it open.
+      }
     }
   }
 
