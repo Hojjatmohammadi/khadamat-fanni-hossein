@@ -3244,7 +3244,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                     Text('کد پستی: ${snapshot['postalCode'] ?? ''}'),
                     Text('نشانی: ${snapshot['address'] ?? ''}'),
                     const Divider(),
-                    Text('مشتری: ${snapshot['counterpartyName'] ?? ''}'),
+                    Text('${snapshot['documentType'] == 'purchase' ? 'فروشنده' : 'مشتری'}: ${snapshot['counterpartyName'] ?? ''}'),
                     Text('تاریخ: ${snapshot['documentDate'] ?? ''}'),
                     const SizedBox(height: 8),
                     for (final item in items)
@@ -3260,6 +3260,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                     const Divider(),
                     Text('جمع: ${snapshot['subtotal']} تومان'),
                     Text('تخفیف: ${snapshot['discountAmount']} تومان'),
+                    Text('هزینه‌های جانبی: ${snapshot['chargesAmount']} تومان'),
                     Text('ارزش افزوده: ${snapshot['vatAmount']} تومان'),
                     Text('مبلغ نهایی: ${snapshot['totalAmount']} تومان'),
                     Text('پرداخت‌شده: ${snapshot['paidAmount']} تومان'),
