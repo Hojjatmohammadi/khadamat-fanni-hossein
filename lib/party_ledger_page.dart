@@ -63,13 +63,16 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     setState(() => _loading = true);
     try {
       final storedParties = await widget.repository.getParties();
-      final parties = await Future.wait(storedParties.map((party) async {
+      final rolesByParty = await widget.repository.getPartyRolesForParties(
+        storedParties.map((party) => party['id'] as String),
+      );
+      final parties = storedParties.map((party) {
         final id = party['id'] as String;
         return <String, Object?>{
           ...party,
-          'roles': await widget.repository.getPartyRoles(id),
+          'roles': rolesByParty[id] ?? const <String>[],
         };
-      }));
+      }).toList();
       final preferredId = _selectedPartyId ?? widget.initialPartyId;
       final selected = parties.any((p) => p['id'] == preferredId)
           ? preferredId

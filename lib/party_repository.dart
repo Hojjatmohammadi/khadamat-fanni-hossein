@@ -359,6 +359,38 @@ class PartyRepository {
     return rows.map((row) => row['role'] as String).toList();
   }
 
+  /// Loads roles for a group of contacts in one query instead of issuing
+  /// one database round-trip per contact.
+  Future<Map<String, List<String>>> getPartyRolesForParties(
+    Iterable<String> partyIds,
+  ) async {
+    final ids = partyIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return {};
+
+    final db = await _database.database;
+    final rolesByParty = <String, List<String>>{};
+    // Stay below SQLite's common bind-parameter limit for large contact books.
+    for (var offset = 0; offset < ids.length; offset += 900) {
+      final chunk = ids.skip(offset).take(900).toList();
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.rawQuery(
+        'SELECT party_id, role FROM party_roles '
+        'WHERE party_id IN ($placeholders) ORDER BY party_id, role',
+        chunk,
+      );
+      for (final row in rows) {
+        final partyId = row['party_id'] as String;
+        (rolesByParty[partyId] ??= <String>[])
+            .add(row['role'] as String);
+      }
+    }
+    return rolesByParty;
+  }
+
   Future<List<Map<String, Object?>>> getParties({String? partyType}) async {
     final db = await _database.database;
     if (partyType == null) {

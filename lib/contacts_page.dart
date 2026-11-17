@@ -61,13 +61,16 @@ class _ContactsPageState extends State<ContactsPage> {
     });
     try {
       final parties = await widget.repository.getParties();
-      final contacts = await Future.wait(parties.map((party) async {
+      final rolesByParty = await widget.repository.getPartyRolesForParties(
+        parties.map((party) => party['id'] as String),
+      );
+      final contacts = parties.map((party) {
         final id = party['id'] as String;
         return <String, Object?>{
           ...party,
-          'roles': await widget.repository.getPartyRoles(id),
+          'roles': rolesByParty[id] ?? const <String>[],
         };
-      }));
+      }).toList();
       if (!mounted) return;
       setState(() {
         _contacts = contacts;
