@@ -563,7 +563,9 @@ class _ReportsPageState extends State<ReportsPage> {
                       ? 'جمع هزینه‌ها: ${_money(total)} تومان'
                       : _report == 'repair_income'
                           ? 'جمع درآمد خدمات: ${_money(total)} تومان'
-                          : 'نتیجه خالص دوره (سود مثبت، زیان منفی): ${_money(total)} تومان'),
+                          : _report == 'item_profit'
+                              ? 'جمع سود ناخالص کالاها: ${_money(total)} تومان'
+                              : 'نتیجه خالص دوره (سود مثبت، زیان منفی): ${_money(total)} تومان'),
         )),
         if (_loading) const Center(child: Padding(
           padding: EdgeInsets.all(20), child: CircularProgressIndicator(),
