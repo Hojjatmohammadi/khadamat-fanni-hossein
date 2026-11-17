@@ -2313,7 +2313,7 @@ class _RepairPageState extends State<RepairPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
-                      key: ValueKey(selectedUiSize),
+                      key: const ValueKey('repair-parts-ui-size'),
                       initialValue: selectedUiSize,
                       isExpanded: true,
                       decoration: InputDecoration(
