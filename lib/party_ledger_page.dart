@@ -164,6 +164,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  key: const ValueKey('party-ledger-advance-amount'),
                   controller: amountController,
                   autofocus: true,
                   keyboardType: TextInputType.number,
@@ -171,6 +172,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  key: const ValueKey('party-ledger-advance-method'),
                   initialValue: paymentMethod,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'روش دریافت / پرداخت'),
@@ -425,12 +427,14 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   children: [
                     if (selectedRoles.contains('customer'))
                       FilledButton.icon(
+                        key: const ValueKey('record-customer-advance'),
                         onPressed: () => _recordPartyPayment(isCustomerReceipt: true),
                         icon: const Icon(Icons.savings_outlined),
                         label: const Text('ثبت بیعانه / دریافت'),
                       ),
                     if (selectedRoles.contains('supplier'))
                       OutlinedButton.icon(
+                        key: const ValueKey('record-supplier-prepayment'),
                         onPressed: () => _recordPartyPayment(isCustomerReceipt: false),
                         icon: const Icon(Icons.payments_outlined),
                         label: const Text('ثبت پیش‌پرداخت به فروشنده'),
