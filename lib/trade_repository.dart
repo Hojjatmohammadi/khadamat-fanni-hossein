@@ -1411,7 +1411,53 @@ class TradeRepository {
     required String payload,
     int? sourceDocumentId,
   }) async {
-    final cleanedPrefix = prefix.trim().replaceFirst(RegExp(r'-+
+    final cleanedPrefix = prefix.trim().replaceFirst(RegExp(r'-+$'), '');
+    final effectivePrefix = cleanedPrefix.isEmpty
+        ? (type == 'sale' ? 'SAL' : 'PUR')
+        : cleanedPrefix;
+    final numberPrefix = '$effectivePrefix-';
+
+    // A custom prefix is shared by sale and purchase documents on this device.
+    final countRows = await txn.rawQuery(
+      'SELECT COUNT(*) AS total FROM business_documents '
+      'WHERE substr(document_number, 1, ?) = ?',
+      [numberPrefix.length, numberPrefix],
+    );
+    var sequence = (countRows.single['total'] as num).toInt() + 1;
+    late String documentNumber;
+    while (true) {
+      documentNumber = '$numberPrefix\${sequence.toString().padLeft(6, '0')}';
+      final existing = await txn.query(
+        'business_documents',
+        columns: ['id'],
+        where: 'document_number = ?',
+        whereArgs: [documentNumber],
+        limit: 1,
+      );
+      if (existing.isEmpty) break;
+      sequence++;
+    }
+
+    final now = DateTime.now().toIso8601String();
+    return txn.insert('business_documents', {
+      'document_type': type,
+      'document_date': date,
+      'document_number': documentNumber,
+      'counterparty_id': counterpartyId,
+      'counterparty_name': counterpartyName.trim(),
+      'subtotal': subtotal,
+      'discount_amount': discount,
+      'charges_amount': charges,
+      'vat_amount': vat,
+      'total_amount': total,
+      'paid_amount': paid,
+      'source_document_id': sourceDocumentId,
+      'journal_entry_id': journalEntryId,
+      'idempotency_key': idempotencyKey,
+      'payload_json': payload,
+      'created_at': now,
+    });
+  }
 
   Future<void> _insertDocumentLine(
     DatabaseExecutor txn, {
