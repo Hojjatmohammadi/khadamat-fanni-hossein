@@ -410,6 +410,7 @@ class _ReportsPageState extends State<ReportsPage> {
       final title = switch (_report) {
         'stock' => 'گزارش کاردکس و گردش انبار',
         'stock_prices' => 'فهرست قیمت و موجودی کالاها',
+        'item_sales' => 'گزارش فروش خالص هر کالا',
         'profit' => 'گزارش سود و زیان',
         'item_profit' => 'گزارش سود هر کالا',
         'expenses' => 'گزارش هزینه‌های ثبت‌شده',
