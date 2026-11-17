@@ -1,16 +1,20 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'jalali_date_field.dart';
+import 'localized_number.dart';
 import 'party_repository.dart';
+import 'trade_repository.dart';
 
 class PartyLedgerPage extends StatefulWidget {
   const PartyLedgerPage({
     super.key,
     required this.repository,
+    this.trades,
     this.initialPartyId,
   });
 
   final PartyRepository repository;
+  final TradeRepository? trades;
   final String? initialPartyId;
 
   @override
@@ -129,6 +133,116 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     }
   }
 
+  Future<void> _recordPartyPayment({required bool isCustomerReceipt}) async {
+    final trades = widget.trades;
+    final partyId = _selectedPartyId;
+    final party = _statement?['party'] as Map<String, Object?>?;
+    if (trades == null || partyId == null || party == null) return;
+
+    final roles = (_statement?['roles'] as List?)?.cast<String>() ?? const [];
+    if (isCustomerReceipt && !roles.contains('customer')) return;
+    if (!isCustomerReceipt && !roles.contains('supplier')) return;
+
+    final amountController = TextEditingController();
+    var paymentMethod = 'cash';
+    final amount = await showDialog<int?>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: Text(
+              isCustomerReceipt ? 'ثبت بیعانه / دریافت از مشتری' : 'ثبت پیش‌پرداخت به فروشنده',
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isCustomerReceipt
+                      ? 'مبلغ به‌عنوان بستانکاری این مشتری در گردش حساب ثبت می‌شود و به فاکتور خاصی متصل نیست.'
+                      : 'مبلغ به‌عنوان پرداخت به این فروشنده در گردش حساب ثبت می‌شود و به فاکتور خاصی متصل نیست.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: paymentMethod,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'روش دریافت / پرداخت'),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('نقدی')),
+                    DropdownMenuItem(value: 'bank_transfer', child: Text('انتقال بانکی')),
+                    DropdownMenuItem(value: 'card_to_card', child: Text('کارت‌به‌کارت')),
+                  ],
+                  onChanged: (value) => refresh(() => paymentMethod = value ?? 'cash'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final parsed = LocalizedNumber.tryParseInt(amountController.text);
+                  if (parsed == null || parsed <= 0) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(content: Text('مبلغ باید عدد معتبر و بیشتر از صفر باشد')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, parsed);
+                },
+                child: const Text('ثبت در گردش حساب'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    amountController.dispose();
+    if (amount == null || !mounted) return;
+
+    try {
+      final cashAccountCode = paymentMethod == 'cash' ? '1000' : '1010';
+      final draft = PartyPaymentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        counterpartyName: party['display_name']?.toString() ?? 'طرف حساب',
+        counterpartyId: partyId,
+        amount: amount,
+        idempotencyKey:
+            'party-advance-$partyId-${DateTime.now().microsecondsSinceEpoch}',
+        cashAccountCode: cashAccountCode,
+        paymentMethod: paymentMethod,
+      );
+      if (isCustomerReceipt) {
+        await trades.recordCustomerReceipt(draft);
+      } else {
+        await trades.recordSupplierPayment(draft);
+      }
+      await _selectParty(partyId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isCustomerReceipt ? 'بیعانه مشتری در گردش حساب ثبت شد' : 'پیش‌پرداخت فروشنده ثبت شد',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ثبت دریافت / پرداخت ناموفق بود: $error')),
+      );
+    }
+  }
+
   Future<void> _loadMore() async {
     final partyId = _selectedPartyId;
     if (partyId == null || _loadingMore || !_hasMore) return;
@@ -198,6 +312,8 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     final party = _statement?['party'] as Map<String, Object?>?;
     final lines = (_statement?['lines'] as List<Map<String, Object?>>?) ?? [];
     final closing = (_statement?['closing_balance'] as num?)?.toInt() ?? 0;
+    final selectedRoles =
+        (_statement?['roles'] as List?)?.cast<String>() ?? const <String>[];
     final partyQuery = _partySearchController.text.trim().toLowerCase();
     final visibleParties = _parties.where((item) {
       final searchable = [
@@ -300,6 +416,28 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   ),
                 ),
               ),
+              if (widget.trades != null &&
+                  (selectedRoles.contains('customer') || selectedRoles.contains('supplier'))) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (selectedRoles.contains('customer'))
+                      FilledButton.icon(
+                        onPressed: () => _recordPartyPayment(isCustomerReceipt: true),
+                        icon: const Icon(Icons.savings_outlined),
+                        label: const Text('ثبت بیعانه / دریافت'),
+                      ),
+                    if (selectedRoles.contains('supplier'))
+                      OutlinedButton.icon(
+                        onPressed: () => _recordPartyPayment(isCustomerReceipt: false),
+                        icon: const Icon(Icons.payments_outlined),
+                        label: const Text('ثبت پیش‌پرداخت به فروشنده'),
+                      ),
+                  ],
+                ),
+              ],
               if (_activityDocuments.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
