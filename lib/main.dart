@@ -560,13 +560,41 @@ class _HomePageState extends State<HomePage> {
                 onPressed: _showGlobalSearch,
                 icon: const Icon(Icons.search),
               ),
-              if (tab == 1)
+              if (tab == 1) ...[
                 IconButton(
                   tooltip: 'ثبت کالا',
                   onPressed: () => _productPageKey.currentState?.addProduct(),
                   icon: const Icon(Icons.add_circle_outline),
-                )
-              else if (tab == 3)
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'تنظیم نمایش عکس کالا',
+                  onSelected: (option) =>
+                      _productPageKey.currentState?.setProductImageDisplay(option),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'hide',
+                      child: ListTile(
+                        leading: Icon(Icons.hide_image_outlined),
+                        title: Text('عدم نمایش عکس کالا'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'default',
+                      child: ListTile(
+                        leading: Icon(Icons.photo_outlined),
+                        title: Text('پیش‌فرض عکس کالا'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'small',
+                      child: ListTile(
+                        leading: Icon(Icons.photo_size_select_small_outlined),
+                        title: Text('کوچک کردن عکس کالا'),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (tab == 3)
                 IconButton(
                   tooltip: 'ثبت مشتری',
                   onPressed: () => _customerPageKey.currentState?.addItem(),
@@ -1236,6 +1264,27 @@ class ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<ProductPage> {
   final TextEditingController _searchController = TextEditingController();
+  bool _hideProductImages = false;
+  bool _smallProductImages = false;
+
+  void setProductImageDisplay(String option) {
+    setState(() {
+      switch (option) {
+        case 'hide':
+          _hideProductImages = true;
+          _smallProductImages = false;
+          break;
+        case 'small':
+          _hideProductImages = false;
+          _smallProductImages = true;
+          break;
+        case 'default':
+          _hideProductImages = false;
+          _smallProductImages = false;
+          break;
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -2089,23 +2138,32 @@ class _ProductPageState extends State<ProductPage> {
                       final image = item['تصویر کالا'] ?? '';
                       return Card(
                         child: ListTile(
-                          leading: image.isNotEmpty
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.memory(
-                                    base64Decode(image),
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        const CircleAvatar(
-                                      child: Icon(Icons.broken_image_outlined),
+                          leading: _hideProductImages
+                              ? null
+                              : image.isNotEmpty
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        base64Decode(image),
+                                        width: _smallProductImages ? 26 : 48,
+                                        height: _smallProductImages ? 26 : 48,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => CircleAvatar(
+                                          radius: _smallProductImages ? 13 : 24,
+                                          child: Icon(
+                                            Icons.broken_image_outlined,
+                                            size: _smallProductImages ? 16 : 24,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : CircleAvatar(
+                                      radius: _smallProductImages ? 13 : 24,
+                                      child: Icon(
+                                        Icons.inventory_2,
+                                        size: _smallProductImages ? 16 : 24,
+                                      ),
                                     ),
-                                  ),
-                                )
-                              : const CircleAvatar(
-                                  child: Icon(Icons.inventory_2),
-                                ),
                           title: Text(item['نام کالا'] ?? 'بدون نام'),
                           subtitle: Text(
                             'گروه: ${item['گروه اصلی'] ?? '—'}'
