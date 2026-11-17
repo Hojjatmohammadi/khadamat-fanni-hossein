@@ -518,6 +518,7 @@ class TradeRepository {
         final snapshot = <String, Object?>{
           ...invoiceHeaderSnapshot,
           'documentId': documentId,
+          'documentType': 'sale',
           'documentNumber': document['document_number'],
           'documentDate': document['document_date'],
           'counterpartyName': document['counterparty_name'],
