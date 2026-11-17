@@ -114,10 +114,10 @@ class BackupService {
 
   Future<void> _copyToSelectedFolder(File backup) async {
     lastBackupWarning = null;
-    final folder = await _locationStore.read();
-    final access = _folderAccess;
-    if (folder == null || access == null) return;
     try {
+      final folder = await _locationStore.read();
+      final access = _folderAccess;
+      if (folder == null || access == null) return;
       if (!await access.hasPersistedWritePermission(folder.uri)) {
         lastBackupWarning =
             'مجوز پوشهٔ بیرونی لغو شده است؛ نسخه در حافظهٔ داخلی ذخیره شد. پوشه را دوباره انتخاب کنید.';
@@ -125,6 +125,7 @@ class BackupService {
       }
       await access.copyLocalFile(backup, folder.uri);
     } catch (error) {
+      // An unavailable location preference must never invalidate the local snapshot.
       lastBackupWarning =
           'ذخیره در پوشهٔ بیرونی انجام نشد؛ نسخهٔ داخلی محفوظ است. ($error)';
     }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -57,7 +58,7 @@ class SafBackupFolderAccess implements BackupFolderAccess {
   Future<void> verifyWritable(String uri) async {
     final name = '.khadamat-backup-check-${DateTime.now().microsecondsSinceEpoch}.tmp';
     final probe = await _saf.writeFileBytes(
-      uri, name, 'text/plain', utf8.encode('backup access check'),
+      uri, name, 'text/plain', Uint8List.fromList(utf8.encode('backup access check')),
     );
     await _saf.delete(probe.uri);
   }
