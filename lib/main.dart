@@ -1007,8 +1007,30 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 for (int i = 0; i < widget.fields.length; i++) {
                   item[widget.fields[i]] = controllers[i].text.trim();
                 }
+                final category = widget.title == 'مشتری'
+                    ? 'customers'
+                    : widget.title == 'پذیرش تعمیر'
+                        ? 'repairs'
+                        : 'sales';
+                final requiredFields = category == 'customers'
+                    ? const ['نام مشتری']
+                    : category == 'repairs'
+                        ? const ['نام مشتری', 'نوع دستگاه']
+                        : const <String>[];
+                final missingRequired = requiredFields.where(
+                  (field) => (item[field] ?? '').trim().isEmpty,
+                );
+                if (missingRequired.isNotEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'لطفاً ${missingRequired.join(' و ')} را وارد کنید.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
                 if (item.values.any((value) => value.isNotEmpty)) {
-                  final category = widget.title == 'مشتری' ? 'customers' : widget.title == 'پذیرش تعمیر' ? 'repairs' : 'sales';
                   if (category == 'repairs' && selectedRepairCustomerPartyId != null) {
                     item['شناسه طرف حساب'] = selectedRepairCustomerPartyId!;
                     item['شناسه مشتری'] = selectedRepairCustomerPartyId!.startsWith('customer:')
@@ -1297,7 +1319,21 @@ class _ProductPageState extends State<ProductPage> {
               TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('انصراف')),
               FilledButton(
                 onPressed: () {
-                  if (c[0].text.trim().isEmpty) return;
+                  final productName = c[0].text.trim();
+                  final stockText = c[4].text.trim();
+                  final stockValue = LocalizedNumber.parseDoubleOrNull(stockText);
+                  if (productName.isEmpty || stockText.isEmpty ||
+                      stockValue == null || !stockValue.isFinite ||
+                      stockValue < 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'نام کالا و موجودی معتبر و غیرمنفی را وارد کنید.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
                   final qty = number(c[4]);
                   final total = totalCost();
                   final item = <String, String>{};
