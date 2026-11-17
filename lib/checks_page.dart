@@ -13,12 +13,16 @@ class CheckPage extends StatefulWidget {
     required this.parties,
     required this.trades,
     required this.onChanged,
+    this.initialPartyId,
+    this.initialDirection = 'incoming',
   });
 
   final CheckRepository checks;
   final PartyRepository parties;
   final TradeRepository trades;
   final VoidCallback onChanged;
+  final String? initialPartyId;
+  final String initialDirection;
 
   @override
   State<CheckPage> createState() => _CheckPageState();
@@ -47,6 +51,8 @@ class _CheckPageState extends State<CheckPage> {
   @override
   void initState() {
     super.initState();
+    _direction = widget.initialDirection;
+    _selectedPartyId = widget.initialPartyId;
     _load();
   }
 
@@ -110,11 +116,25 @@ class _CheckPageState extends State<CheckPage> {
         }
       }
       if (!mounted) return;
+      final preferredPartyId = _selectedPartyId ?? widget.initialPartyId;
+      final preferredParty = partyOptions.where(
+        (party) => party['id'] == preferredPartyId,
+      );
       setState(() {
         _checks = checks;
         _dueChecks = due;
         _documents = outstandingDocs;
         _partyOptions = partyOptions;
+        if (preferredParty.isNotEmpty) {
+          final selected = preferredParty.first;
+          _selectedPartyId = selected['id'] as String;
+          if (_party.text.trim().isEmpty ||
+              widget.initialPartyId == _selectedPartyId) {
+            _party.text = selected['display_name']?.toString() ?? '';
+          }
+        } else if (preferredPartyId != null) {
+          _selectedPartyId = null;
+        }
       });
     } catch (error) {
       if (!mounted) return;
