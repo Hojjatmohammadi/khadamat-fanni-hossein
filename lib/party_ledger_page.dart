@@ -149,9 +149,23 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     if (isCustomerReceipt && !roles.contains('customer')) return;
     if (!isCustomerReceipt && !roles.contains('supplier')) return;
 
+    final invoiceType = isCustomerReceipt ? 'sale' : 'purchase';
+    final invoices = await trades.getDocuments(
+      type: invoiceType,
+      counterpartyId: partyId,
+    );
+    final openInvoices = <Map<String, Object?>>[];
+    for (final invoice in invoices) {
+      final balance = await trades.getOutstandingAmount(invoice['id'] as int);
+      if (balance > 0) {
+        openInvoices.add({...invoice, 'remaining_amount': balance});
+      }
+    }
+
     final amountController = TextEditingController();
     var paymentMethod = 'cash';
-    final amount = await showDialog<int?>(
+    int? selectedInvoiceId;
+    final payment = await showDialog<Map<String, Object?>?>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, refresh) => Directionality(
@@ -165,8 +179,31 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               children: [
                 Text(
                   isCustomerReceipt
-                      ? 'مبلغ به‌عنوان بستانکاری این مشتری در گردش حساب ثبت می‌شود و به فاکتور خاصی متصل نیست.'
-                      : 'مبلغ به‌عنوان پرداخت به این فروشنده در گردش حساب ثبت می‌شود و به فاکتور خاصی متصل نیست.',
+                      ? 'دریافت را می‌توانید به یک فاکتور باز متصل کنید یا به‌عنوان بیعانه آزاد ثبت کنید.'
+                      : 'پرداخت را می‌توانید به یک فاکتور باز متصل کنید یا به‌عنوان پیش‌پرداخت آزاد ثبت کنید.',
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  key: const ValueKey('party-ledger-invoice-link'),
+                  initialValue: selectedInvoiceId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'اتصال به فاکتور (اختیاری)'),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('بیعانه / پیش‌پرداخت آزاد'),
+                    ),
+                    ...openInvoices.map((invoice) {
+                      final id = invoice['id'] as int;
+                      final number = invoice['document_number']?.toString() ?? id.toString();
+                      final remaining = (invoice['remaining_amount'] as num).toInt();
+                      return DropdownMenuItem<int?>(
+                        value: id,
+                        child: Text('$number • مانده: $remaining'),
+                      );
+                    }),
+                  ],
+                  onChanged: (value) => refresh(() => selectedInvoiceId = value),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -205,7 +242,10 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                     );
                     return;
                   }
-                  Navigator.pop(dialogContext, parsed);
+                  Navigator.pop(dialogContext, {
+                    'amount': parsed,
+                    'referenceId': selectedInvoiceId?.toString(),
+                  });
                 },
                 child: const Text('ثبت در گردش حساب'),
               ),
@@ -215,7 +255,9 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       ),
     );
     amountController.dispose();
-    if (amount == null || !mounted) return;
+    if (payment == null || !mounted) return;
+    final amount = payment['amount'] as int;
+    final referenceId = payment['referenceId'] as String?;
 
     try {
       final cashAccountCode = paymentMethod == 'cash' ? '1000' : '1010';
@@ -228,6 +270,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
             'party-advance-$partyId-${DateTime.now().microsecondsSinceEpoch}',
         cashAccountCode: cashAccountCode,
         paymentMethod: paymentMethod,
+        referenceId: referenceId,
       );
       if (isCustomerReceipt) {
         await trades.recordCustomerReceipt(draft);
@@ -239,7 +282,9 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isCustomerReceipt ? 'بیعانه مشتری در گردش حساب ثبت شد' : 'پیش‌پرداخت فروشنده ثبت شد',
+            referenceId == null
+                ? (isCustomerReceipt ? 'بیعانه مشتری در گردش حساب ثبت شد' : 'پیش‌پرداخت فروشنده ثبت شد')
+                : (isCustomerReceipt ? 'دریافت به فاکتور متصل شد' : 'پرداخت به فاکتور متصل شد'),
           ),
         ),
       );
