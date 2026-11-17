@@ -217,7 +217,7 @@ void main() {
       'آزمون دفتر مرکزی مخاطبین',
     );
     await tester.enterText(
-      find.byType(TextFormField).last,
+      find.byType(TextFormField).at(1),
       '09123334455',
     );
     await tester.tap(find.text('فروشنده'));
@@ -236,6 +236,16 @@ void main() {
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('حذف مخاطب'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.widgetWithText(FilledButton, 'حذف مخاطب'));
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsNothing);
+    expect(await repository.getParties(), isEmpty);
   });
 
   testWidgets('logo help can be dismissed and gallery opens only on request',
