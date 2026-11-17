@@ -399,5 +399,12 @@ class BackupService {
         integrity.first.values.first?.toString().toLowerCase() != 'ok') {
       throw const FormatException('سلامت فایل پایگاه داده تأیید نشد.');
     }
+
+    final foreignKeyErrors = await db.rawQuery('PRAGMA foreign_key_check');
+    if (foreignKeyErrors.isNotEmpty) {
+      throw const FormatException(
+        'ارتباط بین اطلاعات فایل پشتیبان ناقص است؛ بازیابی انجام نشد.',
+      );
+    }
   }
 }

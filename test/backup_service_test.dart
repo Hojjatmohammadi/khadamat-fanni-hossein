@@ -149,6 +149,36 @@ void main() {
     expect(rows.single['نام مشتری'], 'اطلاعات باید حفظ شود');
   });
 
+  test('rejects a backup with broken foreign-key relationships', () async {
+    final backup = await service.createBackup();
+    final damaged = await databaseFactory.openDatabase(
+      backup.path,
+      options: OpenDatabaseOptions(
+        singleInstance: false,
+        onOpen: (db) async {
+          await db.execute('PRAGMA foreign_keys = OFF');
+          await db.insert('inventory_movements', {
+            'product_id': 999999,
+            'movement_type': 'test',
+            'quantity_delta': 1,
+            'unit_cost': 0,
+            'total_cost': 0,
+            'occurred_at': '2026-11-14',
+            'idempotency_key': 'broken-foreign-key-test',
+            'payload_json': '{}',
+            'created_at': '2026-11-14',
+          });
+        },
+      ),
+    );
+    await damaged.close();
+
+    await expectLater(
+      service.restoreFromPath(backup.path),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   test('prevents deleting files outside the app backup folder', () async {
     final outside = File('${root.path}/keep.db');
     await outside.writeAsString('keep');
