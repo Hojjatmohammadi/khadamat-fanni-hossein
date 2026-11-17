@@ -6,11 +6,11 @@ on:
     branches:
       - fix/dashboard-layout-phase2
 
-# Keep the active validation run alive. New pushes may replace a pending run,
-# but must never cancel a run that is already testing this branch.
+# Always validate the newest source. Cancel stale runs so a stalled
+# older test cannot block the latest commit in the queue.
 concurrency:
   group: flutter-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
