@@ -1148,9 +1148,15 @@ class AppDatabase {
           'SELECT COUNT(*) AS total FROM journal_entries WHERE reference_id = ?',
           [id.toString()],
         );
-        if (linkedEntries > 0) {
+        final linkedStockMovements = await count(
+          'SELECT COUNT(*) AS total FROM inventory_movements '
+          'WHERE reference_type = ? AND reference_id = ?',
+          ['repair_consumption', id.toString()],
+        );
+        if (linkedEntries > 0 || linkedStockMovements > 0) {
           throw StateError(
-            'برای این پذیرش سند حسابداری ثبت شده است؛ حذف مستقیم مجاز نیست.',
+            'برای این پذیرش سابقه حسابداری یا مصرف قطعه در انبار ثبت شده است؛ '
+            'حذف مستقیم مجاز نیست.',
           );
         }
       }
