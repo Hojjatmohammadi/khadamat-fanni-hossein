@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart' as painting;
@@ -251,6 +252,105 @@ class _ReportsPageState extends State<ReportsPage> {
   }
 
 
+  String get _reportTitle => switch (_report) {
+    'stock' => 'گزارش کاردکس و گردش انبار',
+    'stock_prices' => 'فهرست قیمت و موجودی کالاها',
+    'item_sales' => 'گزارش فروش خالص هر کالا',
+    'profit' => 'گزارش سود و زیان',
+    'item_profit' => 'گزارش سود هر کالا',
+    'expenses' => 'گزارش هزینه‌های ثبت‌شده',
+    'repair_income' => 'گزارش درآمد خدمات تعمیر',
+    _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
+  };
+
+  List<String> _reportExportLines(List<Map<String, Object?>> rows) {
+    return rows.map((row) {
+      if (_report == 'expenses' || _report == 'repair_income') {
+        return "\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان";
+      }
+      if (_report == 'profit') {
+        return "\${row['account_code']} - \${row['account_name']} | \${_profitGroupName(row)}: \${_money(row['balance'])} تومان";
+      }
+      if (_report == 'item_sales') {
+        return "\${row['product_name']} | تعداد خالص: \${row['net_quantity']} | فروش خالص: \${_money(row['net_revenue'])} تومان";
+      }
+      if (_report == 'item_profit') {
+        return "\${row['product_name']} | فروش: \${_money(row['net_revenue'])} | بها: \${_money(row['net_cost'])} | سود: \${_money(row['gross_profit'])}";
+      }
+      if (_report == 'stock_prices') {
+        return "\${row['product_name']} | کد: \${row['product_code']} | موجودی: \${row['stock_quantity']} | خرید: \${_money(row['purchase_price'])} | فروش: \${_money(row['sale_price'])} تومان";
+      }
+      if (_report == 'stock') {
+        return "\${row['occurred_at']} | \${row['product_name']} | \${_typeName(row['movement_type'])} | تغییر: \${row['quantity_delta']} | مانده: \${row['balance_after']}\${row['adjustment_reason'] == null ? '' : " | علت: \${row['adjustment_reason']} | شمارش واقعی: \${row['counted_quantity']}"}";
+      }
+      return "\${row['document_date']} | \${_typeName(row['document_type'])} | \${row['document_number']} | \${_money(row['total_amount'])} تومان";
+    }).toList(growable: false);
+  }
+
+  Future<Uint8List> _renderReportPagePng(
+    List<String> lines, {
+    required int pageNumber,
+    required int pageCount,
+  }) async {
+    const width = 1240.0;
+    const height = 1754.0;
+    const margin = 64.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
+    var y = 64.0;
+
+    double drawText(String value, {double size = 23, bool bold = false}) {
+      final painter = painting.TextPainter(
+        text: painting.TextSpan(
+          text: value,
+          style: painting.TextStyle(
+            color: const ui.Color(0xFF202124),
+            fontSize: size,
+            fontWeight: bold ? painting.FontWeight.bold : painting.FontWeight.normal,
+          ),
+        ),
+        textDirection: painting.TextDirection.rtl,
+        textAlign: painting.TextAlign.right,
+        maxLines: 2,
+      )..layout(maxWidth: width - margin * 2);
+      painter.paint(canvas, ui.Offset(margin, y));
+      return painter.height;
+    }
+
+    y += drawText('خدمات فنی حسین', size: 42, bold: true) + 18;
+    y += drawText(_reportTitle, size: 32, bold: true) + 12;
+    y += drawText(
+      'از \${_from.toIso8601String().substring(0, 10)} تا \${_to.toIso8601String().substring(0, 10)}',
+      size: 21,
+    ) + 12;
+    y += drawText('صفحه $pageNumber از $pageCount', size: 18) + 20;
+    canvas.drawLine(
+      ui.Offset(margin, y),
+      ui.Offset(width - margin, y),
+      ui.Paint()..color = const ui.Color(0xFFB8BEC5)..strokeWidth = 2,
+    );
+    y += 22;
+
+    for (var index = 0; index < lines.length; index++) {
+      y += drawText('\${(pageNumber - 1) * 18 + index + 1}. \${lines[index]}', size: 21) + 13;
+      canvas.drawLine(
+        ui.Offset(margin, y),
+        ui.Offset(width - margin, y),
+        ui.Paint()..color = const ui.Color(0xFFE0E3E7),
+      );
+      y += 9;
+    }
+
+    final picture = recorder.endRecording();
+    final raster = await picture.toImage(width.toInt(), height.toInt());
+    final png = await raster.toByteData(format: ui.ImageByteFormat.png);
+    raster.dispose();
+    picture.dispose();
+    if (png == null) throw StateError('ساخت تصویر گزارش ناموفق بود');
+    return png.buffer.asUint8List();
+  }
+
   Future<void> _exportPdf() async {
     final exportRows = _visibleRows;
     if (exportRows.isEmpty) {
@@ -258,98 +358,28 @@ class _ReportsPageState extends State<ReportsPage> {
       return;
     }
     try {
-      const width = 1240.0;
-      const height = 1754.0;
-      const margin = 64.0;
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
-      var y = 70.0;
-
-      double drawText(String value, {double size = 25, bool bold = false}) {
-        final painter = painting.TextPainter(
-          text: painting.TextSpan(
-            text: value,
-            style: painting.TextStyle(
-              color: const ui.Color(0xFF202124),
-              fontSize: size,
-              fontWeight: bold ? painting.FontWeight.bold : painting.FontWeight.normal,
-            ),
-          ),
-          textDirection: painting.TextDirection.rtl,
-          textAlign: painting.TextAlign.right,
-          maxLines: 2,
-        )..layout(maxWidth: width - margin * 2);
-        painter.paint(canvas, ui.Offset(margin, y));
-        return painter.height;
-      }
-
-      final title = switch (_report) {
-        'stock' => 'گزارش کاردکس و گردش انبار',
-        'stock_prices' => 'فهرست قیمت و موجودی کالاها',
-        'item_sales' => 'گزارش فروش خالص هر کالا',
-        'profit' => 'گزارش سود و زیان',
-        'item_profit' => 'گزارش سود هر کالا',
-        'expenses' => 'گزارش هزینه‌های ثبت‌شده',
-        'repair_income' => 'گزارش درآمد خدمات تعمیر',
-        _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
-      };
-      y += drawText('خدمات فنی حسین', size: 40, bold: true) + 12;
-      y += drawText(title, size: 32, bold: true) + 10;
-      y += drawText('از ${_from.toIso8601String().substring(0, 10)} تا ${_to.toIso8601String().substring(0, 10)}', size: 20) + 20;
-      canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFB8BEC5)..strokeWidth = 2);
-      y += 20;
-
-      final lines = <String>[];
-      for (final row in exportRows.take(27)) {
-        if (_report == 'expenses' || _report == 'repair_income') {
-          lines.add("\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان");
-        } else if (_report == 'profit') {
-          lines.add("${row['account_code']} - ${row['account_name']} | ${_profitGroupName(row)}: ${_money(row['balance'])} تومان");
-        } else if (_report == 'item_sales') {
-          lines.add("${row['product_name']} | تعداد خالص: ${row['net_quantity']} | فروش خالص: ${_money(row['net_revenue'])} تومان");
-        } else if (_report == 'item_profit') {
-          lines.add("${row['product_name']} | فروش: ${_money(row['net_revenue'])} | بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}");
-        } else if (_report == 'stock_prices') {
-          lines.add("${row['product_name']} | موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | فروش: ${_money(row['sale_price'])} تومان");
-        } else if (_report == 'stock') {
-          lines.add("${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | مانده: ${row['balance_after']}" "${row['adjustment_reason'] == null ? '' : ' | علت: ${row['adjustment_reason']} | شمارش واقعی: ${row['counted_quantity']}'}");
-        } else {
-          lines.add("${row['document_date']} | ${_typeName(row['document_type'])} | ${row['document_number']} | ${_money(row['total_amount'])} تومان");
-        }
-      }
-      for (var i = 0; i < lines.length; i++) {
-        final h = drawText('${i + 1}. ${lines[i]}', size: 21);
-        y += h + 15;
-        canvas.drawLine(ui.Offset(margin, y), ui.Offset(width - margin, y), ui.Paint()..color = const ui.Color(0xFFE0E3E7));
-        y += 8;
-        if (y > height - 100) break;
-      }
-      if (exportRows.length > lines.length) {
-        y += 8;
-        drawText('برای کوتاه ماندن فایل، فقط ${lines.length} ردیف نخست نمایش داده شد.', size: 18);
-      }
-
-      final picture = recorder.endRecording();
-      final raster = await picture.toImage(width.toInt(), height.toInt());
-      final png = await raster.toByteData(format: ui.ImageByteFormat.png);
-      raster.dispose();
-      picture.dispose();
-      if (png == null) throw StateError('ساخت تصویر گزارش ناموفق بود');
-
+      const pageSize = 18;
+      final lines = _reportExportLines(exportRows);
+      final pageCount = (lines.length / pageSize).ceil();
       final document = pw.Document();
-      document.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: pw.EdgeInsets.zero,
-        build: (_) => pw.Image(
-          pw.MemoryImage(png.buffer.asUint8List()),
-          fit: pw.BoxFit.fill,
-        ),
-      ));
+      for (var page = 0; page < pageCount; page++) {
+        final start = page * pageSize;
+        final end = (start + pageSize).clamp(0, lines.length);
+        final png = await _renderReportPagePng(
+          lines.sublist(start, end),
+          pageNumber: page + 1,
+          pageCount: pageCount,
+        );
+        document.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.zero,
+          build: (_) => pw.Image(pw.MemoryImage(png), fit: pw.BoxFit.fill),
+        ));
+      }
       final bytes = await document.save();
       await Printing.sharePdf(
         bytes: bytes,
-        filename: 'report_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        filename: 'report_\${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
     } catch (error) {
       _message('ساخت یا اشتراک PDF ناموفق بود: $error');
@@ -362,154 +392,42 @@ class _ReportsPageState extends State<ReportsPage> {
       _message('داده‌ای برای خروجی وجود ندارد');
       return;
     }
-    File? imageFile;
+    final imageFiles = <File>[];
     try {
-      const width = 1240.0;
-      const margin = 64.0;
-      final lines = <String>[];
-      for (final row in exportRows.take(30)) {
-        if (_report == 'stock_prices') {
-          lines.add(
-            "${row['product_name']} | کد: ${row['product_code']} | "
-            "موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | "
-            "فروش: ${_money(row['sale_price'])} تومان",
-          );
-        } else if (_report == 'stock') {
-          lines.add(
-            "${row['occurred_at']} | ${row['product_name']} | "
-            "${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | "
-            "مانده پس از گردش: ${row['balance_after']}"
-            "${row['adjustment_reason'] == null ? '' : ' | علت اصلاح: ${row['adjustment_reason']} | شمارش واقعی: ${row['counted_quantity']}'}",
-          );
-        } else if (_report == 'profit') {
-          lines.add(
-            "${row['account_name']} | ${_profitGroupName(row)} | "
-            "${_money(row['balance'])} تومان",
-          );
-        } else if (_report == 'item_sales') {
-          lines.add(
-            "${row['product_name']} | تعداد خالص: ${row['net_quantity']} | "
-            "فروش خالص: ${_money(row['net_revenue'])} تومان",
-          );
-        } else if (_report == 'item_profit') {
-          lines.add(
-            "${row['product_name']} | فروش: ${_money(row['net_revenue'])} | "
-            "بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}",
-          );
-        } else if (_report == 'expenses' || _report == 'repair_income') {
-          lines.add(
-            "${row['entry_date']} | ${row['description']} | "
-            "${row['account_name']} | ${_money(row['amount'])} تومان",
-          );
-        } else {
-          lines.add(
-            "${row['document_date']} | ${_typeName(row['document_type'])} | "
-            "${row['document_number']} | ${_money(row['total_amount'])} تومان",
-          );
-        }
-      }
-
-      final height = (300 + lines.length * 92).clamp(600, 3600).toInt();
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
-      var y = 64.0;
-
-      double drawText(
-        String value, {
-        double size = 24,
-        bool bold = false,
-      }) {
-        final painter = painting.TextPainter(
-          text: painting.TextSpan(
-            text: value,
-            style: painting.TextStyle(
-              color: const ui.Color(0xFF202124),
-              fontSize: size,
-              fontWeight: bold
-                  ? painting.FontWeight.bold
-                  : painting.FontWeight.normal,
-            ),
-          ),
-          textDirection: painting.TextDirection.rtl,
-          textAlign: painting.TextAlign.right,
-          maxLines: 2,
-        )..layout(maxWidth: width - margin * 2);
-        painter.paint(canvas, ui.Offset(margin, y));
-        return painter.height;
-      }
-
-      final title = switch (_report) {
-        'stock' => 'گزارش کاردکس و گردش انبار',
-        'stock_prices' => 'فهرست قیمت و موجودی کالاها',
-        'item_sales' => 'گزارش فروش خالص هر کالا',
-        'profit' => 'گزارش سود و زیان',
-        'item_profit' => 'گزارش سود هر کالا',
-        'expenses' => 'گزارش هزینه‌های ثبت‌شده',
-        'repair_income' => 'گزارش درآمد خدمات تعمیر',
-        _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
-      };
-      y += drawText('خدمات فنی حسین', size: 42, bold: true) + 18;
-      y += drawText(title, size: 32, bold: true) + 12;
-      y += drawText(
-        'از ${_from.toIso8601String().substring(0, 10)} '
-        'تا ${_to.toIso8601String().substring(0, 10)}',
-        size: 21,
-      ) + 22;
-      canvas.drawLine(
-        ui.Offset(margin, y),
-        ui.Offset(width - margin, y),
-        ui.Paint()
-          ..color = const ui.Color(0xFFB8BEC5)
-          ..strokeWidth = 2,
-      );
-      y += 24;
-
-      for (var index = 0; index < lines.length; index++) {
-        y += drawText('${index + 1}. ${lines[index]}', size: 22) + 14;
-        canvas.drawLine(
-          ui.Offset(margin, y),
-          ui.Offset(width - margin, y),
-          ui.Paint()..color = const ui.Color(0xFFE0E3E7),
-        );
-        y += 12;
-      }
-      if (exportRows.length > lines.length) {
-        y += drawText(
-          'برای خوانایی تصویر، فقط ${lines.length} ردیف نخست نمایش داده شد.',
-          size: 18,
-        );
-      }
-
-      final picture = recorder.endRecording();
-      final raster = await picture.toImage(width.toInt(), height);
-      final png = await raster.toByteData(format: ui.ImageByteFormat.png);
-      raster.dispose();
-      picture.dispose();
-      if (png == null) throw StateError('ساخت تصویر گزارش ناموفق بود');
-
+      const pageSize = 18;
+      final lines = _reportExportLines(exportRows);
+      final pageCount = (lines.length / pageSize).ceil();
       final directory = await getTemporaryDirectory();
-      imageFile = File(
-        '${directory.path}/report_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await imageFile.writeAsBytes(
-        png.buffer.asUint8List(),
-        flush: true,
-      );
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      for (var page = 0; page < pageCount; page++) {
+        final start = page * pageSize;
+        final end = (start + pageSize).clamp(0, lines.length);
+        final png = await _renderReportPagePng(
+          lines.sublist(start, end),
+          pageNumber: page + 1,
+          pageCount: pageCount,
+        );
+        final file = File(
+          '\${directory.path}/report_\${stamp}_\${(page + 1).toString().padLeft(2, '0')}.png',
+        );
+        await file.writeAsBytes(png, flush: true);
+        imageFiles.add(file);
+      }
       await Share.shareXFiles(
-        [XFile(imageFile.path, mimeType: 'image/png')],
-        text: 'تصویر گزارش نرم‌افزار خدمات فنی حسین',
+        imageFiles.map((file) => XFile(file.path, mimeType: 'image/png')).toList(),
+        text: pageCount == 1
+            ? 'تصویر گزارش نرم‌افزار خدمات فنی حسین'
+            : 'تصاویر گزارش چندصفحه‌ای نرم‌افزار خدمات فنی حسین ($pageCount صفحه)',
       );
     } catch (error) {
       _message('ساخت یا اشتراک تصویر گزارش ناموفق بود: $error');
     } finally {
-      try {
-        if (imageFile != null && await imageFile.exists()) {
-          await imageFile.delete();
+      for (final file in imageFiles) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (_) {
+          // The sharing extension may still be reading the temporary file.
         }
-      } catch (_) {
-        // A temporary image may be retained if the sharing extension still
-        // has the file open; the app cache can clean it later.
       }
     }
   }
