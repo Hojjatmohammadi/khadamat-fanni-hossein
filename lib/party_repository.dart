@@ -706,11 +706,6 @@ class PartyRepository {
     String partyId, {
     String? asOfDate,
   }) async {
-    final cutoff = asOfDate == null
-        ? null
-        : DateTime.parse(asOfDate).add(const Duration(days: 1))
-            .toIso8601String();
-
     Future<int> balanceFor(String type) async {
       final rows = await db.rawQuery('''
         SELECT COALESCE(SUM(
@@ -718,17 +713,20 @@ class PartyRepository {
         ), 0) AS available
         FROM business_documents d
         LEFT JOIN (
-          SELECT payment_document_id, SUM(amount) AS allocated_amount
-          FROM invoice_payment_allocations
-          ${cutoff == null ? '' : 'WHERE created_at < ?'}
-          GROUP BY payment_document_id
+          SELECT allocations.payment_document_id,
+            SUM(allocations.amount) AS allocated_amount
+          FROM invoice_payment_allocations allocations
+          JOIN business_documents invoice
+            ON invoice.id = allocations.invoice_document_id
+          ${asOfDate == null ? '' : 'WHERE invoice.document_date <= ?'}
+          GROUP BY allocations.payment_document_id
         ) a ON a.payment_document_id = d.id
         WHERE d.counterparty_id = ?
           AND d.document_type = ?
           AND d.source_document_id IS NULL
           ${asOfDate == null ? '' : 'AND d.document_date <= ?'}
       ''', [
-        if (cutoff != null) cutoff,
+        if (asOfDate != null) asOfDate,
         partyId,
         type,
         if (asOfDate != null) asOfDate,
