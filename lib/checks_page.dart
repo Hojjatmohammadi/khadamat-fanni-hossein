@@ -301,8 +301,9 @@ class _CheckPageState extends State<CheckPage> {
         eventDate: _iso(DateTime.now()),
       );
       var reminderSyncFailed = false;
+      var remindersEnabled = true;
       try {
-        await widget.reminders.synchronize(widget.checks);
+        remindersEnabled = await widget.reminders.synchronize(widget.checks);
       } catch (_) {
         reminderSyncFailed = true;
       }
@@ -314,7 +315,9 @@ class _CheckPageState extends State<CheckPage> {
             content: Text(
               reminderSyncFailed
                   ? 'وضعیت چک ثبت شد؛ به‌روزرسانی یادآوری خودکار ناموفق بود.'
-                  : 'وضعیت چک و یادآوری‌های آن به‌روزرسانی شد.',
+                  : !remindersEnabled
+                      ? 'وضعیت چک ثبت شد؛ مجوز اعلان‌ها غیرفعال است و یادآوری خودکار فعال نیست.'
+                      : 'وضعیت چک و یادآوری‌های آن به‌روزرسانی شد.',
             ),
           ),
         );

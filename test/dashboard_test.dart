@@ -8,6 +8,7 @@ import 'package:khadamat_fanni_hosein/main.dart';
 import 'package:khadamat_fanni_hosein/contacts_page.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
 import 'package:khadamat_fanni_hosein/check_repository.dart';
+import 'package:khadamat_fanni_hosein/check_reminder_service.dart';
 import 'package:khadamat_fanni_hosein/party_repository.dart';
 import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
@@ -215,6 +216,7 @@ void main() {
       MaterialApp(
         home: ContactsPage(
           repository: repository,
+          reminders: CheckReminderService(),
           trades: trades,
           checks: checks,
           onChanged: () {},
