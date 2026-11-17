@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
 import 'package:khadamat_fanni_hosein/contacts_page.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/check_repository.dart';
 import 'package:khadamat_fanni_hosein/party_repository.dart';
 import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
@@ -199,6 +200,7 @@ void main() {
     );
     final repository = PartyRepository(database);
     final trades = TradeRepository(database);
+    final checks = CheckRepository(database);
     addTearDown(() async {
       await database.close();
       if (await tempDir.exists()) {
@@ -208,7 +210,14 @@ void main() {
     await database.database;
 
     await tester.pumpWidget(
-      MaterialApp(home: ContactsPage(repository: repository, trades: trades)),
+      MaterialApp(
+        home: ContactsPage(
+          repository: repository,
+          trades: trades,
+          checks: checks,
+          onChanged: () {},
+        ),
+      ),
     );
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -240,6 +249,15 @@ void main() {
     expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
     expect(find.byKey(const ValueKey('record-customer-advance')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
+    expect(find.byKey(const ValueKey('record-customer-check')), findsOneWidget);
+    expect(find.byKey(const ValueKey('record-supplier-check')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('record-customer-check')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('ثبت چک جدید'), findsOneWidget);
+    expect(find.text('شماره چک'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
     await tester.pump(const Duration(milliseconds: 100));
