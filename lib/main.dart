@@ -473,7 +473,12 @@ class _HomePageState extends State<HomePage> {
       CustomerPage(listKey: _customerPageKey, onChanged: () => setState(() {})),
       RepairPage(key: _repairPageKey, onChanged: () => setState(() {})),
       SalesPage(onChanged: () => setState(() {})),
-      PartyLedgerPage(repository: DemoStore.parties, trades: DemoStore.trades),
+      PartyLedgerPage(
+        repository: DemoStore.parties,
+        trades: DemoStore.trades,
+        checks: DemoStore.checks,
+        onChanged: () => setState(() {}),
+      ),
       CheckPage(
         checks: DemoStore.checks,
         parties: DemoStore.parties,
@@ -487,7 +492,12 @@ class _HomePageState extends State<HomePage> {
         initialMessage: DemoStore.backupStartupNotice,
       ),
       LoanManagementPage(repository: DemoStore.loans),
-      ContactsPage(repository: DemoStore.parties, trades: DemoStore.trades),
+      ContactsPage(
+        repository: DemoStore.parties,
+        trades: DemoStore.trades,
+        checks: DemoStore.checks,
+        onChanged: () => setState(() {}),
+      ),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
