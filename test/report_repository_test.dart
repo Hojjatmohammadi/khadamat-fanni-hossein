@@ -477,5 +477,82 @@ void main() {
     expect(itemStock['stock_quantity'], 2);
     expect(itemStock['stock_value'], 200);
   });
+  test('cheque movement report links bounced and cancelled events to reversal journals', () async {
+    final checks = CheckRepository(database);
+
+    Future<int> createReversedCheck({
+      required String suffix,
+      required String status,
+      required String eventDate,
+    }) async {
+      final checkId = await checks.createCheck(CheckDraft(
+        direction: 'incoming',
+        checkNumber: 'RPT-$suffix',
+        bankName: 'بانک آزمایشی',
+        drawerName: 'صادرکننده',
+        partyName: 'مشتری گزارش چک',
+        amount: 750000,
+        issueDate: '2026-11-16',
+        dueDate: '2026-11-25',
+        idempotencyKey: 'report-check-$suffix',
+      ));
+      await checks.updateCheckStatus(
+        checkId: checkId,
+        newStatus: status,
+        reason: status == 'bounced' ? 'چک برگشت خورد' : 'چک لغو شد',
+        eventDate: eventDate,
+      );
+      return checkId;
+    }
+
+    final bouncedCheckId = await createReversedCheck(
+      suffix: 'BOUNCED',
+      status: 'bounced',
+      eventDate: '2026-11-17',
+    );
+    final cancelledCheckId = await createReversedCheck(
+      suffix: 'CANCELLED',
+      status: 'cancelled',
+      eventDate: '2026-11-18',
+    );
+
+    final rows = await ReportRepository(database).getCheckMovements(
+      from: DateTime(2026, 11, 16),
+      to: DateTime(2026, 11, 18),
+    );
+    expect(rows, hasLength(4));
+
+    final db = await database.database;
+    for (final checkId in [bouncedCheckId, cancelledCheckId]) {
+      final check = await checks.getCheck(checkId);
+      final acceptanceId = check['acceptance_journal_id'] as int;
+      final reversalId = check['reversal_journal_id'] as int;
+      final reversalStatus = checkId == bouncedCheckId ? 'bounced' : 'cancelled';
+
+      final acceptedEvent = rows.singleWhere(
+        (row) => row['check_id'] == checkId && row['new_status'] == 'received',
+      );
+      final reversedEvent = rows.singleWhere(
+        (row) =>
+            row['check_id'] == checkId &&
+            row['new_status'] == reversalStatus,
+      );
+      expect(acceptedEvent['journal_entry_id'], acceptanceId);
+      expect(reversedEvent['journal_entry_id'], reversalId);
+      expect(reversedEvent['journal_entry_date'], isNotNull);
+      expect(reversedEvent['journal_entry_description'], isNotEmpty);
+
+      for (final journalId in {acceptanceId, reversalId}) {
+        final totals = await db.rawQuery(
+          'SELECT COALESCE(SUM(debit), 0) AS debit_total, '
+          'COALESCE(SUM(credit), 0) AS credit_total '
+          'FROM journal_lines WHERE journal_entry_id = ?',
+          [journalId],
+        );
+        expect(totals.single['debit_total'], 750000);
+        expect(totals.single['credit_total'], 750000);
+      }
+    }
+  });
 
 }
