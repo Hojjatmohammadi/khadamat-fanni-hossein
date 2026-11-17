@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'check_repository.dart';
+import 'checks_page.dart';
 import 'jalali_date_field.dart';
 import 'localized_number.dart';
 import 'party_repository.dart';
@@ -10,11 +12,15 @@ class PartyLedgerPage extends StatefulWidget {
     super.key,
     required this.repository,
     this.trades,
+    this.checks,
+    this.onChanged,
     this.initialPartyId,
   });
 
   final PartyRepository repository;
   final TradeRepository? trades;
+  final CheckRepository? checks;
+  final VoidCallback? onChanged;
   final String? initialPartyId;
 
   @override
@@ -245,6 +251,35 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     }
   }
 
+  Future<void> _openCheckEntry({required bool incoming}) async {
+    final checks = widget.checks;
+    final trades = widget.trades;
+    final partyId = _selectedPartyId;
+    if (checks == null || trades == null || partyId == null) return;
+
+    final party = _statement?['party'] as Map<String, Object?>?;
+    if (party == null) return;
+    final displayName = party['display_name']?.toString() ?? 'طرف حساب';
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: Text(incoming ? 'ثبت چک دریافتی • $displayName' : 'ثبت چک پرداختی • $displayName'),
+          ),
+          body: CheckPage(
+            checks: checks,
+            parties: widget.repository,
+            trades: trades,
+            onChanged: widget.onChanged ?? () {},
+            initialPartyId: partyId,
+            initialDirection: incoming ? 'incoming' : 'outgoing',
+          ),
+        ),
+      ),
+    );
+    if (mounted) await _selectParty(partyId);
+  }
+
   Future<void> _loadMore() async {
     final partyId = _selectedPartyId;
     if (partyId == null || _loadingMore || !_hasMore) return;
@@ -432,12 +467,26 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         icon: const Icon(Icons.savings_outlined),
                         label: const Text('ثبت بیعانه / دریافت'),
                       ),
+                    if (selectedRoles.contains('customer') && widget.checks != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('record-customer-check'),
+                        onPressed: () => _openCheckEntry(incoming: true),
+                        icon: const Icon(Icons.request_quote_outlined),
+                        label: const Text('ثبت چک دریافتی'),
+                      ),
                     if (selectedRoles.contains('supplier'))
                       OutlinedButton.icon(
                         key: const ValueKey('record-supplier-prepayment'),
                         onPressed: () => _recordPartyPayment(isCustomerReceipt: false),
                         icon: const Icon(Icons.payments_outlined),
                         label: const Text('ثبت پیش‌پرداخت به فروشنده'),
+                      ),
+                    if (selectedRoles.contains('supplier') && widget.checks != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('record-supplier-check'),
+                        onPressed: () => _openCheckEntry(incoming: false),
+                        icon: const Icon(Icons.request_quote_outlined),
+                        label: const Text('ثبت چک پرداختی'),
                       ),
                   ],
                 ),
