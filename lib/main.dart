@@ -3366,6 +3366,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       if (_isPurchase) {
         await DemoStore.trades.recordPurchase(
           draft,
+          invoiceHeaderSnapshot: invoiceSettings,
           documentPrefix: configuredPrefix,
         );
       } else {
@@ -3927,14 +3928,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                           icon: const Icon(Icons.payments_outlined),
                           label: Text(_isPurchase ? 'ثبت پرداخت' : 'ثبت دریافت'),
                         ),
-                        if (!_isPurchase)
-                          TextButton.icon(
-                            onPressed: document['invoice_archived'] == true
-                                ? () => _viewArchivedInvoice(document)
-                                : null,
-                            icon: const Icon(Icons.archive_outlined),
-                            label: const Text('نسخه بایگانی'),
-                          ),
+                        TextButton.icon(
+                          onPressed: document['invoice_archived'] == true
+                              ? () => _viewArchivedInvoice(document)
+                              : null,
+                          icon: const Icon(Icons.archive_outlined),
+                          label: const Text('نسخه بایگانی'),
+                        ),
                       ],
                     ),
                   ],
