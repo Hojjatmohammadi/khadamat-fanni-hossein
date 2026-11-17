@@ -9,8 +9,8 @@ on:
 # Always validate the newest source. Cancel stale runs so a stalled
 # older test cannot block the latest commit in the queue.
 concurrency:
-  # A stalled run for an older commit must not block validation of new code.
-  group: flutter-ci-${{ github.ref }}-${{ github.sha }}
+  # Keep only the newest run for this development branch active.
+  group: flutter-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
