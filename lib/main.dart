@@ -621,23 +621,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   itemBuilder: (context) => const [
                     PopupMenuItem(
                       value: 'hide',
-                      child: ListTile(
-                        leading: Icon(Icons.hide_image_outlined),
-                        title: Text('عدم نمایش عکس کالا'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.hide_image_outlined),
+                          SizedBox(width: 12),
+                          Text('عدم نمایش عکس کالا'),
+                        ],
                       ),
                     ),
                     PopupMenuItem(
                       value: 'default',
-                      child: ListTile(
-                        leading: Icon(Icons.photo_outlined),
-                        title: Text('پیش‌فرض عکس کالا'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.photo_outlined),
+                          SizedBox(width: 12),
+                          Text('پیش‌فرض عکس کالا'),
+                        ],
                       ),
                     ),
                     PopupMenuItem(
                       value: 'small',
-                      child: ListTile(
-                        leading: Icon(Icons.photo_size_select_small_outlined),
-                        title: Text('کوچک کردن عکس کالا'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.photo_size_select_small_outlined),
+                          SizedBox(width: 12),
+                          Text('کوچک کردن عکس کالا'),
+                        ],
                       ),
                     ),
                   ],
