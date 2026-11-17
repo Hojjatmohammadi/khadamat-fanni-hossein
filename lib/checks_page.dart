@@ -348,6 +348,10 @@ class _CheckPageState extends State<CheckPage> {
             onPressed: () => _changeStatus(check, 'bounced'),
             child: const Text('برگشتی'),
           ),
+          TextButton(
+            onPressed: () => _changeStatus(check, 'cancelled'),
+            child: const Text('لغو چک'),
+          ),
         ],
       );
     }
@@ -362,6 +366,10 @@ class _CheckPageState extends State<CheckPage> {
           TextButton(
             onPressed: () => _changeStatus(check, 'bounced'),
             child: const Text('برگشتی'),
+          ),
+          TextButton(
+            onPressed: () => _changeStatus(check, 'cancelled'),
+            child: const Text('لغو چک'),
           ),
         ],
       );
