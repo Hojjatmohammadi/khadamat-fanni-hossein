@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/check_repository.dart';
 import 'package:khadamat_fanni_hosein/party_repository.dart';
 import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
@@ -665,4 +667,177 @@ void main() {
       throwsStateError,
     );
   });
+
+
+  test('party reconciliation counts linked settlements and free advances and checks once', () async {
+    final checks = CheckRepository(store);
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای تطبیق مانده',
+      'موجودی': '20',
+      'بهای تمام‌شده هر واحد': '500',
+    });
+    const customerId = 'customer-reconciliation-all-settlements';
+    const supplierId = 'supplier-reconciliation-all-settlements';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری تطبیق مانده',
+      preferredId: customerId,
+    ));
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'supplier',
+      displayName: 'فروشنده تطبیق مانده',
+      preferredId: supplierId,
+    ));
+
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'مشتری تطبیق مانده',
+      counterpartyId: customerId,
+      idempotencyKey: 'reconciliation-customer-sale',
+      lines: [TradeLineDraft(productId: productId, quantity: 2, unitPrice: 5000)],
+      paidAmount: 1000,
+    ));
+    await trades.recordCustomerReceipt(PartyPaymentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'مشتری تطبیق مانده',
+      counterpartyId: customerId,
+      amount: 2000,
+      idempotencyKey: 'reconciliation-customer-linked-receipt',
+      referenceId: saleId.toString(),
+    ));
+    await checks.createCheck(CheckDraft(
+      direction: 'incoming',
+      checkNumber: 'RCV-1001',
+      bankName: 'بانک آزمایشی',
+      drawerName: 'مشتری تطبیق مانده',
+      partyName: 'مشتری تطبیق مانده',
+      amount: 1000,
+      issueDate: '2026-11-14',
+      dueDate: '2026-11-20',
+      idempotencyKey: 'reconciliation-customer-linked-check',
+      partyId: customerId,
+      sourceDocumentId: saleId,
+    ));
+    await trades.recordCustomerReceipt(PartyPaymentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'مشتری تطبیق مانده',
+      counterpartyId: customerId,
+      amount: 500,
+      idempotencyKey: 'reconciliation-customer-free-receipt',
+    ));
+    await checks.createCheck(CheckDraft(
+      direction: 'incoming',
+      checkNumber: 'RCV-1002',
+      bankName: 'بانک آزمایشی',
+      drawerName: 'مشتری تطبیق مانده',
+      partyName: 'مشتری تطبیق مانده',
+      amount: 250,
+      issueDate: '2026-11-14',
+      dueDate: '2026-11-22',
+      idempotencyKey: 'reconciliation-customer-free-check',
+      partyId: customerId,
+    ));
+
+    final customer = (await parties.getPartyBalanceReconciliation(customerId))['customer']
+        as Map<String, Object?>;
+    expect(customer['open_invoice_balance'], 6000);
+    expect(customer['unallocated_advance'], 500);
+    expect(customer['unlinked_check_balance'], 250);
+    expect(customer['document_balance'], 5250);
+    expect(customer['ledger_balance'], 5250);
+    expect(customer['difference'], 0);
+    expect(customer['is_reconciled'], isTrue);
+
+    final purchaseId = await trades.recordPurchase(TradeDocumentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'فروشنده تطبیق مانده',
+      counterpartyId: supplierId,
+      idempotencyKey: 'reconciliation-supplier-purchase',
+      lines: [TradeLineDraft(productId: productId, quantity: 2, unitPrice: 5000)],
+      paidAmount: 1000,
+    ));
+    await trades.recordSupplierPayment(PartyPaymentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'فروشنده تطبیق مانده',
+      counterpartyId: supplierId,
+      amount: 2000,
+      idempotencyKey: 'reconciliation-supplier-linked-payment',
+      referenceId: purchaseId.toString(),
+    ));
+    await checks.createCheck(CheckDraft(
+      direction: 'outgoing',
+      checkNumber: 'PAY-1001',
+      bankName: 'بانک آزمایشی',
+      drawerName: 'فروشگاه',
+      partyName: 'فروشنده تطبیق مانده',
+      amount: 1000,
+      issueDate: '2026-11-14',
+      dueDate: '2026-11-20',
+      idempotencyKey: 'reconciliation-supplier-linked-check',
+      partyId: supplierId,
+      sourceDocumentId: purchaseId,
+    ));
+    await trades.recordSupplierPayment(PartyPaymentDraft(
+      documentDate: '2026-11-14',
+      counterpartyName: 'فروشنده تطبیق مانده',
+      counterpartyId: supplierId,
+      amount: 500,
+      idempotencyKey: 'reconciliation-supplier-free-payment',
+    ));
+    await checks.createCheck(CheckDraft(
+      direction: 'outgoing',
+      checkNumber: 'PAY-1002',
+      bankName: 'بانک آزمایشی',
+      drawerName: 'فروشگاه',
+      partyName: 'فروشنده تطبیق مانده',
+      amount: 250,
+      issueDate: '2026-11-14',
+      dueDate: '2026-11-22',
+      idempotencyKey: 'reconciliation-supplier-free-check',
+      partyId: supplierId,
+    ));
+
+    final supplier = (await parties.getPartyBalanceReconciliation(supplierId))['supplier']
+        as Map<String, Object?>;
+    expect(supplier['open_invoice_balance'], 6000);
+    expect(supplier['unallocated_advance'], 500);
+    expect(supplier['unlinked_check_balance'], 250);
+    expect(supplier['document_balance'], 5250);
+    expect(supplier['ledger_balance'], 5250);
+    expect(supplier['difference'], 0);
+    expect(supplier['is_reconciled'], isTrue);
+  });
+
+  test('party reconciliation flags control-account entries without matching documents', () async {
+    const customerId = 'customer-reconciliation-discrepancy';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری دارای اختلاف',
+      preferredId: customerId,
+    ));
+    final accounting = AccountingRepository(store);
+    await accounting.postJournalEntry(JournalEntryDraft(
+      entryDate: '2026-11-15',
+      description: 'ثبت آزمایشی مانده افتتاحیه',
+      idempotencyKey: 'reconciliation-unmatched-control-entry',
+      referenceType: 'manual_test',
+      referenceId: customerId,
+      lines: [
+        JournalLineDraft(
+          accountCode: '1100',
+          debit: 1200,
+          partyId: customerId,
+        ),
+        JournalLineDraft(accountCode: '3000', credit: 1200),
+      ],
+    ));
+
+    final customer = (await parties.getPartyBalanceReconciliation(customerId))['customer']
+        as Map<String, Object?>;
+    expect(customer['document_balance'], 0);
+    expect(customer['ledger_balance'], 1200);
+    expect(customer['difference'], -1200);
+    expect(customer['is_reconciled'], isFalse);
+  });
+
 }

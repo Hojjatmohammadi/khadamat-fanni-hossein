@@ -379,6 +379,170 @@ class PartyRepository {
     ''', [partyType]);
   }
 
+
+  /// Compares document-derived receivables/payables with their control-account
+  /// balances. Linked receipts, payments and checks are counted against their
+  /// invoices; free advances and unlinked active checks are deducted once.
+  Future<Map<String, Object?>> getPartyBalanceReconciliation(
+    String partyId, {
+    Map<String, int>? advanceBalances,
+  }) async {
+    if (partyId.trim().isEmpty) {
+      throw ArgumentError('شناسه طرف حساب معتبر نیست');
+    }
+    final db = await _database.database;
+    final partyRows = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: [partyId],
+      limit: 1,
+    );
+    if (partyRows.isEmpty) throw StateError('طرف حساب پیدا نشد');
+
+    final party = partyRows.single;
+    final storedRoles = await getPartyRoles(partyId);
+    final roles = storedRoles.isEmpty
+        ? [party['party_type']?.toString() ?? 'other']
+        : storedRoles;
+    final advances = advanceBalances ??
+        await _getUnallocatedAdvanceBalances(db, partyId);
+
+    Future<Map<String, Object?>> reconcileRole({
+      required String invoiceType,
+      required String paymentType,
+      required String returnType,
+      required String checkDirection,
+      required String controlAccountCode,
+      required String advanceKey,
+      required bool isSupplier,
+    }) async {
+      final invoiceRows = await db.rawQuery('''
+        SELECT
+          COALESCE(SUM(
+            d.total_amount - d.paid_amount -
+            COALESCE(payments.amount, 0) -
+            COALESCE(linked_checks.amount, 0) -
+            COALESCE(returns.amount, 0) -
+            COALESCE(allocations.amount, 0)
+          ), 0) AS open_invoice_balance,
+          COUNT(d.id) AS invoice_count
+        FROM business_documents d
+        LEFT JOIN (
+          SELECT source_document_id, SUM(paid_amount) AS amount
+          FROM business_documents
+          WHERE document_type = ? AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) payments ON payments.source_document_id = d.id
+        LEFT JOIN (
+          SELECT source_document_id, SUM(amount) AS amount
+          FROM check_records
+          WHERE direction = ?
+            AND status NOT IN ('bounced', 'cancelled')
+            AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) linked_checks ON linked_checks.source_document_id = d.id
+        LEFT JOIN (
+          SELECT source_document_id, SUM(total_amount) AS amount
+          FROM business_documents
+          WHERE document_type = ? AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) returns ON returns.source_document_id = d.id
+        LEFT JOIN (
+          SELECT invoice_document_id, SUM(amount) AS amount
+          FROM invoice_payment_allocations
+          GROUP BY invoice_document_id
+        ) allocations ON allocations.invoice_document_id = d.id
+        WHERE d.counterparty_id = ? AND d.document_type = ?
+      ''', [
+        paymentType,
+        checkDirection,
+        returnType,
+        partyId,
+        invoiceType,
+      ]);
+      final openInvoiceBalance =
+          (invoiceRows.single['open_invoice_balance'] as num).toInt();
+      final invoiceCount = (invoiceRows.single['invoice_count'] as num).toInt();
+
+      final freeCheckRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(amount), 0) AS amount,
+          COUNT(*) AS check_count
+        FROM check_records
+        WHERE party_id = ?
+          AND direction = ?
+          AND source_document_id IS NULL
+          AND status NOT IN ('bounced', 'cancelled')
+      ''', [partyId, checkDirection]);
+      final freeCheckBalance =
+          (freeCheckRows.single['amount'] as num).toInt();
+      final freeCheckCount =
+          (freeCheckRows.single['check_count'] as num).toInt();
+      final unallocatedAdvance = advances[advanceKey] ?? 0;
+      final documentBalance =
+          openInvoiceBalance - unallocatedAdvance - freeCheckBalance;
+
+      final ledgerRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(debit), 0) AS debit,
+          COALESCE(SUM(credit), 0) AS credit
+        FROM journal_lines
+        WHERE party_id = ? AND account_code = ?
+      ''', [partyId, controlAccountCode]);
+      final debit = (ledgerRows.single['debit'] as num).toInt();
+      final credit = (ledgerRows.single['credit'] as num).toInt();
+      final ledgerBalance = isSupplier ? credit - debit : debit - credit;
+      final difference = documentBalance - ledgerBalance;
+
+      return {
+        'control_account_code': controlAccountCode,
+        'invoice_count': invoiceCount,
+        'open_invoice_balance': openInvoiceBalance,
+        'unallocated_advance': unallocatedAdvance,
+        'unlinked_check_balance': freeCheckBalance,
+        'unlinked_check_count': freeCheckCount,
+        'document_balance': documentBalance,
+        'ledger_balance': ledgerBalance,
+        'difference': difference,
+        'is_reconciled': difference == 0,
+      };
+    }
+
+    final customer = roles.contains('customer')
+        ? await reconcileRole(
+            invoiceType: 'sale',
+            paymentType: 'customer_receipt',
+            returnType: 'customer_return',
+            checkDirection: 'incoming',
+            controlAccountCode: '1100',
+            advanceKey: 'available_customer_advance',
+            isSupplier: false,
+          )
+        : null;
+    final supplier = roles.contains('supplier')
+        ? await reconcileRole(
+            invoiceType: 'purchase',
+            paymentType: 'supplier_payment',
+            returnType: 'supplier_return',
+            checkDirection: 'outgoing',
+            controlAccountCode: '2000',
+            advanceKey: 'available_supplier_prepayment',
+            isSupplier: true,
+          )
+        : null;
+    final applicable = [
+      if (customer != null) customer,
+      if (supplier != null) supplier,
+    ];
+
+    return {
+      'party_id': partyId,
+      'roles': roles,
+      'customer': customer,
+      'supplier': supplier,
+      'is_reconciled': applicable.isNotEmpty &&
+          applicable.every((balance) => balance['is_reconciled'] == true),
+    };
+  }
+
   Future<Map<String, List<Map<String, Object?>>>> getPartyActivity(
     String partyId,
   ) async {
@@ -513,9 +677,14 @@ class PartyRepository {
 
     final advanceBalances =
         await _getUnallocatedAdvanceBalances(db, partyId);
+    final reconciliation = await getPartyBalanceReconciliation(
+      partyId,
+      advanceBalances: advanceBalances,
+    );
 
     return {
       ...advanceBalances,
+      'balance_reconciliation': reconciliation,
       'party': party,
       'lines': statement,
       'total_debit': debitTotal,
@@ -678,9 +847,16 @@ class PartyRepository {
       partyId,
       asOfDate: toDate,
     );
+    final reconciliation = fromDate == null && toDate == null
+        ? await getPartyBalanceReconciliation(
+            partyId,
+            advanceBalances: advanceBalances,
+          )
+        : null;
 
     return {
       ...advanceBalances,
+      'balance_reconciliation': reconciliation,
       'party': party,
       'lines': lines,
       'total_debit': totalDebit,

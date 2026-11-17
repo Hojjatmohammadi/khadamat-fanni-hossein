@@ -461,8 +461,51 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     };
   }
 
+  Widget _buildReconciliationSection(
+    String title,
+    Map<String, Object?> balance,
+  ) {
+    final difference = (balance['difference'] as num?)?.toInt() ?? 0;
+    final reconciled = balance['is_reconciled'] == true;
+    final accountCode = balance['control_account_code']?.toString() ?? '';
+    final details = [
+      'مانده اسناد: ${_amount(balance['document_balance'])} تومان',
+      'مانده حسابداری ($accountCode): ${_amount(balance['ledger_balance'])} تومان',
+      'فاکتورهای باز: ${_amount(balance['invoice_count'])} مورد',
+      if ((balance['unallocated_advance'] as num? ?? 0) > 0)
+        'بیعانه / پیش‌پرداخت آزاد: ${_amount(balance['unallocated_advance'])} تومان',
+      if ((balance['unlinked_check_balance'] as num? ?? 0) > 0)
+        'چک آزاد فعال: ${_amount(balance['unlinked_check_balance'])} تومان',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          for (final detail in details) Text(detail),
+          Text(
+            reconciled
+                ? 'وضعیت: منطبق'
+                : 'اختلاف: ${_amount(difference.abs())} تومان • '
+                    '${difference > 0 ? 'مانده اسناد بیشتر است' : 'مانده حسابداری بیشتر است'}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: reconciled
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final reconciliation =
+        _statement?['balance_reconciliation'] as Map<String, Object?>?;
     final party = _statement?['party'] as Map<String, Object?>?;
     final lines = (_statement?['lines'] as List<Map<String, Object?>>?) ?? [];
     final closing = (_statement?['closing_balance'] as num?)?.toInt() ?? 0;
@@ -578,6 +621,20 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                           'پیش‌پرداخت آزاد فروشنده: ${_amount(_statement?['available_supplier_prepayment'])} تومان',
                           style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
                         ),
+                      if (reconciliation?['customer'] is Map<String, Object?>) ...[
+                        const Divider(),
+                        _buildReconciliationSection(
+                          'تطبیق حساب مشتری',
+                          reconciliation!['customer'] as Map<String, Object?>,
+                        ),
+                      ],
+                      if (reconciliation?['supplier'] is Map<String, Object?>) ...[
+                        const Divider(),
+                        _buildReconciliationSection(
+                          'تطبیق حساب فروشنده',
+                          reconciliation!['supplier'] as Map<String, Object?>,
+                        ),
+                      ],
                     ],
                   ),
                 ),
