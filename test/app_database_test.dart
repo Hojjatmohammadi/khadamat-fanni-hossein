@@ -705,6 +705,35 @@ void main() {
     expect(await db.query('journal_entries'), isEmpty);
   });
 
+  test('enforces only essential fields at the database boundary', () async {
+    await expectLater(
+      store.insert('products', {'نام کالا': 'کالای بدون موجودی'}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      store.insert('products', {'نام کالا': 'کالا', 'موجودی': '-1'}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      store.insert('repairs', {'نام مشتری': 'مشتری'}),
+      throwsArgumentError,
+    );
+
+    final customerId = await store.insert('customers', {
+      'نام مشتری': 'مشتری با مشخصات اختیاری خالی',
+      'شماره تماس': '',
+      'آدرس': '',
+    });
+    expect(customerId, greaterThan(0));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای دارای موجودی صفر',
+      'موجودی': '۰',
+      'گروه اصلی': '',
+      'قیمت فروش': '',
+    });
+    expect(productId, greaterThan(0));
+  });
+
   test('deletes only unreferenced records and protects product stock history', () async {
     final emptyProductId = await store.insert('products', {
       'نام کالا': 'کالای بدون گردش',
