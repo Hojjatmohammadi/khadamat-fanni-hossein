@@ -107,6 +107,7 @@ String normalizePhoneNumber(String value) {
     digits = '0${digits.substring(4)}';
   } else if (digits.startsWith('98') && digits.length == 12) {
     digits = '0${digits.substring(2)}';
+  }
   return digits;
 }
 
