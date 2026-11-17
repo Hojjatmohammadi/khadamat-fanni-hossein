@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 
 import 'check_repository.dart';
@@ -413,6 +415,25 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     return dueDate.isBefore(todayOnly);
   }
 
+  String? _paymentMethodLabel(Map<String, Object?> document) {
+    final type = document['document_type'];
+    if (type != 'customer_receipt' && type != 'supplier_payment') {
+      return null;
+    }
+    try {
+      final payload = jsonDecode(document['payload_json']?.toString() ?? '{}');
+      if (payload is! Map) return null;
+      return switch (payload['paymentMethod']) {
+        'cash' => 'نقدی',
+        'bank_transfer' => 'انتقال بانکی',
+        'card_to_card' => 'کارت‌به‌کارت',
+        _ => null,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _documentTypeLabel(Map<String, Object?> document) {
     final type = document['document_type'];
     final isAdvance = document['source_document_id'] == null;
@@ -588,7 +609,11 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                       title: Text(
                         '${_documentTypeLabel(document)} • ${document['document_number'] ?? ''}',
                       ),
-                      subtitle: Text(_dateLabel(document['document_date'])),
+                      subtitle: Text([
+                        _dateLabel(document['document_date']),
+                        if (_paymentMethodLabel(document) case final method?)
+                          'روش: $method',
+                      ].join(' • ')),
                       trailing: Text('${_amount(document['total_amount'])} تومان'),
                     ),
                   ),
