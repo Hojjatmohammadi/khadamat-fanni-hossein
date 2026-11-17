@@ -563,6 +563,75 @@ void main() {
     expect(await trades.getOutstandingAmount(purchaseId), 0);
   });
 
+  test('partial customer returns reverse exact original sale cost without rounding drift', () async {
+    final productId = await addProduct();
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده هزینه نامتقارن',
+        idempotencyKey: 'customer-return-cost-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+    final saleId = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'مشتری برگشت جزئی',
+        idempotencyKey: 'customer-return-cost-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200),
+        ],
+      ),
+    );
+    final saleLine = (await trades.getDocumentLines(saleId)).single;
+    final db = await store.database;
+    final saleMovement = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ? AND reference_id = ?',
+      whereArgs: ['sale', saleId.toString()],
+    );
+    expect(saleMovement.single['total_cost'], 199);
+    expect(saleLine['unit_cost'], 100);
+
+    for (var i = 0; i < 2; i++) {
+      await trades.recordCustomerReturn(
+        ReturnDocumentDraft(
+          documentDate: '2026-11-16',
+          sourceDocumentId: saleId,
+          counterpartyName: 'مشتری برگشت جزئی',
+          idempotencyKey: 'customer-return-cost-part-$i',
+          lines: [
+            ReturnLineDraft(
+              sourceLineId: saleLine['id'] as int,
+              quantity: 1,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final returnMovements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['customer_return'],
+    );
+    final returnedCost = returnMovements.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_cost'] as num).toInt(),
+    );
+    expect(returnMovements.map((row) => row['total_cost']), [100, 99]);
+    expect(returnedCost, 199);
+    expect(await store.getStockOnHand(productId), 3);
+    expect(await trades.getOutstandingAmount(saleId), 0);
+    expect((await accountTotals('5000'))['total_debit'], 199);
+    expect((await accountTotals('5000'))['total_credit'], 199);
+    expect((await accountTotals('1200'))['total_debit'], 498);
+    expect((await accountTotals('1200'))['total_credit'], 199);
+  });
+
   test('customer receipt and supplier payment are posted to the correct party control accounts', () async {
     final receiptId = await trades.recordCustomerReceipt(
       PartyPaymentDraft(

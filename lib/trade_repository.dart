@@ -801,14 +801,65 @@ class TradeRepository {
         final lineBase = sourceLine['line_total'] as int;
         final lineTax = sourceLine['tax_amount'] as int;
         final isFinalReturn = (returnLine.quantity - remaining).abs() < 0.0000001;
-        // Allocate the exact source-line cost across partial returns.
-        // The final return takes the residual so rounded unit costs cannot
-        // remove more value from stock/payables than the original purchase.
         final returnedBase =
             (returnedRows.single['returned_base'] as num).toInt();
+
+        // Supplier returns use the exact landed cost stored on the purchase
+        // line. Customer returns must use the original sale COGS movement:
+        // its rounded unit_cost is not necessarily the exact amount posted.
+        var sourceCostTotal = lineBase;
+        if (isCustomerReturn) {
+          final positionRows = await txn.rawQuery(
+            'SELECT COUNT(*) AS line_index FROM business_document_lines '
+            'WHERE document_id = ? AND id < ?',
+            [draft.sourceDocumentId, returnLine.sourceLineId],
+          );
+          final lineIndex =
+              (positionRows.single['line_index'] as num).toInt();
+          final sourceMovement = await txn.query(
+            'inventory_movements',
+            where: 'idempotency_key = ? AND movement_type = ? AND product_id = ?',
+            whereArgs: [
+              'sale-stock-${source['idempotency_key']}-$lineIndex',
+              'sale',
+              productId,
+            ],
+            limit: 1,
+          );
+          if (sourceMovement.isNotEmpty) {
+            sourceCostTotal =
+                (sourceMovement.single['total_cost'] as num).toInt();
+          } else {
+            // Compatibility for legacy invoices without a linked stock movement.
+            sourceCostTotal = (unitCost * originalQuantity).round();
+          }
+        }
+
+        var returnedCostTotal = returnedBase;
+        if (isCustomerReturn) {
+          final returnedCostRows = await txn.rawQuery('''
+            SELECT COALESCE(SUM(m.total_cost), 0) AS returned_cost
+            FROM inventory_movements m
+            WHERE m.movement_type = 'customer_return'
+              AND m.product_id = ?
+              AND m.reference_id IN (
+                SELECT CAST(return_doc.id AS TEXT)
+                FROM business_documents return_doc
+                INNER JOIN business_document_lines return_line
+                  ON return_line.document_id = return_doc.id
+                WHERE return_doc.document_type = 'customer_return'
+                  AND return_doc.source_document_id = ?
+                  AND return_line.source_line_id = ?
+              )
+          ''', [productId, draft.sourceDocumentId, returnLine.sourceLineId]);
+          returnedCostTotal =
+              (returnedCostRows.single['returned_cost'] as num).toInt();
+        }
+        // The final partial return consumes the exact residual, preventing
+        // rounded unit costs from overstating or understating inventory.
         final costAmount = isFinalReturn
-            ? lineBase - returnedBase
-            : (lineBase * returnLine.quantity / originalQuantity).round();
+            ? sourceCostTotal - returnedCostTotal
+            : (sourceCostTotal * returnLine.quantity / originalQuantity).round();
         final baseAmount = isCustomerReturn
             ? (isFinalReturn
                 ? lineBase - returnedBase
@@ -928,6 +979,7 @@ class TradeRepository {
               movementType: 'customer_return',
               quantityDelta: quantity,
               unitCost: unitCost,
+              totalCost: costAmount,
               occurredAt: draft.documentDate,
               idempotencyKey: 'customer-return-stock-${draft.idempotencyKey}-$i',
               referenceType: type,
