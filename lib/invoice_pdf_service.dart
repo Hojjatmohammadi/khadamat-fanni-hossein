@@ -90,6 +90,7 @@ class InvoicePdfService {
     final isPurchase = snapshot['documentType'] == 'purchase';
     final documentTitle = isPurchase ? 'فاکتور خرید' : 'فاکتور فروش';
     final partyLabel = isPurchase ? 'فروشنده' : 'مشتری';
+    final currency = snapshot['currency'] == 'ریال' ? 'ریال' : 'تومان';
     final shopName = snapshot['shopName']?.toString() ?? documentTitle;
     final headerHeight = drawText(
       shopName,
@@ -151,7 +152,7 @@ class InvoicePdfService {
       final qty = item['quantity']?.toString() ?? '0';
       final price = item['unitPrice']?.toString() ?? '0';
       final total = item['lineTotal']?.toString() ?? '0';
-      final line = '${i + 1}. $name   |   تعداد: $qty   |   فی: $price تومان   |   جمع: $total تومان';
+      final line = '${i + 1}. $name   |   تعداد: $qty   |   فی: $price $currency   |   جمع: $total $currency';
       final h = drawText(line, fontSize: 23, top: y);
       y += h + 14;
       canvas.drawLine(
@@ -178,7 +179,7 @@ class InvoicePdfService {
       ('مانده', snapshot['outstandingAmount']),
     ]) {
       final h = drawText(
-        '${entry.$1}: ${entry.$2 ?? 0} تومان',
+        '${entry.$1}: ${entry.$2 ?? 0} $currency',
         fontSize: entry.$1 == 'مبلغ نهایی' ? 31 : 25,
         bold: entry.$1 == 'مبلغ نهایی',
         top: y,

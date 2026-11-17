@@ -2701,6 +2701,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   final _otherCostController = TextEditingController(text: '0');
 
   final List<TradeLineDraft> _lines = [];
+  String _currency = 'تومان';
   List<Map<String, Object?>> _documents = [];
   List<Map<String, Object?>> _partyOptions = [];
   String? _selectedPartyId;
@@ -2792,6 +2793,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       final discount = LocalizedNumber.parseDoubleOrZero(settings['defaultDiscount'] ?? '0');
       if (!mounted) return;
       setState(() {
+        _currency = settings['currency'] == 'ریال' ? 'ریال' : 'تومان';
         _vatRateController.text = vat.clamp(0, 100).toString();
         _defaultDiscountPercent = discount.clamp(0, 100).toDouble();
         _applyDefaultDiscount();
@@ -3209,6 +3211,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         return;
       }
       final snapshot = archive['snapshot'] as Map<String, dynamic>;
+      final currency = snapshot['currency'] == 'ریال' ? 'ریال' : 'تومان';
       final items = (snapshot['items'] as List? ?? const [])
           .whereType<Map<Object?, Object?>>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -3262,18 +3265,18 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         contentPadding: EdgeInsets.zero,
                         title: Text(item['productName']?.toString() ?? ''),
                         subtitle: Text(
-                          'تعداد: ${item['quantity']} × ${item['unitPrice']} تومان',
+                          'تعداد: ${item['quantity']} × ${item['unitPrice']} $currency',
                         ),
-                        trailing: Text('${item['lineTotal']} تومان'),
+                        trailing: Text('${item['lineTotal']} $currency'),
                       ),
                     const Divider(),
-                    Text('جمع: ${snapshot['subtotal']} تومان'),
-                    Text('تخفیف: ${snapshot['discountAmount']} تومان'),
-                    Text('هزینه‌های جانبی: ${snapshot['chargesAmount']} تومان'),
-                    Text('ارزش افزوده: ${snapshot['vatAmount']} تومان'),
-                    Text('مبلغ نهایی: ${snapshot['totalAmount']} تومان'),
-                    Text('پرداخت‌شده: ${snapshot['paidAmount']} تومان'),
-                    Text('مانده: ${snapshot['outstandingAmount']} تومان'),
+                    Text('جمع: ${snapshot['subtotal']} $currency'),
+                    Text('تخفیف: ${snapshot['discountAmount']} $currency'),
+                    Text('هزینه‌های جانبی: ${snapshot['chargesAmount']} $currency'),
+                    Text('ارزش افزوده: ${snapshot['vatAmount']} $currency'),
+                    Text('مبلغ نهایی: ${snapshot['totalAmount']} $currency'),
+                    Text('پرداخت‌شده: ${snapshot['paidAmount']} $currency'),
+                    Text('مانده: ${snapshot['outstandingAmount']} $currency'),
                     imagePreview('stampImageBase64', 'مهر ثبت‌شده هنگام صدور'),
                     imagePreview('signatureImageBase64', 'امضای ثبت‌شده هنگام صدور'),
                     const SizedBox(height: 8),
@@ -3580,7 +3583,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'مبلغ',
-                    helperText: 'مانده فاکتور: $outstanding تومان',
+                    helperText: 'مانده فاکتور: $outstanding $_currency',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -3807,7 +3810,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 child: ListTile(
                   title: Text(_productName(_lines[i].productId)),
                   subtitle: Text(
-                    'تعداد: ${_lines[i].quantity} × ${_lines[i].unitPrice} تومان',
+                    'تعداد: ${_lines[i].quantity} × ${_lines[i].unitPrice} $_currency',
                   ),
                   trailing: IconButton(
                     tooltip: 'حذف ردیف',
@@ -3823,7 +3826,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             controller: _discountController,
             onChanged: (_) => setState(() => _discountManuallyEdited = true),
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'تخفیف کل (تومان)'),
+            decoration: InputDecoration(labelText: 'تخفیف کل ($_currency)'),
           ),
           const SizedBox(height: 10),
           CheckboxListTile(
@@ -3893,13 +3896,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('پیش‌نمایش مبلغ', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('جمع ردیف‌ها: $_subtotal تومان'),
-                  Text('تخفیف: $_previewDiscount تومان'),
+                  Text('جمع ردیف‌ها: $_subtotal $_currency'),
+                  Text('تخفیف: $_previewDiscount $_currency'),
                   if (_isPurchase)
-                    Text('هزینه‌های جانبی: $_previewCharges تومان'),
-                  Text('ارزش افزوده: $_previewVat تومان'),
-                  Text('مبلغ نهایی: $_previewTotal تومان'),
-                  Text('مانده پس از پرداخت اولیه: $_previewBalance تومان'),
+                    Text('هزینه‌های جانبی: $_previewCharges $_currency'),
+                  Text('ارزش افزوده: $_previewVat $_currency'),
+                  Text('مبلغ نهایی: $_previewTotal $_currency'),
+                  Text('مانده پس از پرداخت اولیه: $_previewBalance $_currency'),
                 ],
               ),
             ),
@@ -3951,8 +3954,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                     ),
                     const SizedBox(height: 4),
                     Text('تاریخ: ${formatJalaliDate(DateTime.parse(document['document_date'] as String))}'),
-                    Text('مبلغ: ${document['total_amount']} تومان  •  پرداخت اولیه: ${document['paid_amount']} تومان'),
-                    Text('مانده: ${document['outstanding_amount']} تومان'),
+                    Text('مبلغ: ${document['total_amount']} $_currency  •  پرداخت اولیه: ${document['paid_amount']} $_currency'),
+                    Text('مانده: ${document['outstanding_amount']} $_currency'),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,

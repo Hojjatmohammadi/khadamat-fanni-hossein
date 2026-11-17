@@ -213,6 +213,7 @@ void main() {
       ),
       invoiceHeaderSnapshot: {
         'shopName': 'خدمات فنی حسین',
+        'currency': 'ریال',
         'ownerName': 'مسئول خرید',
         'phone': '09150000000',
         'stampImageBase64': 'purchase-stamp-at-issue',
@@ -230,6 +231,7 @@ void main() {
         as Map<String, dynamic>;
     expect(snapshot['documentType'], 'purchase');
     expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['currency'], 'ریال');
     expect(snapshot['stampImageBase64'], 'purchase-stamp-at-issue');
     expect(snapshot['counterpartyName'], 'فروشنده قطعات');
     expect(snapshot['subtotal'], 7000);
@@ -271,6 +273,7 @@ void main() {
       ),
       invoiceHeaderSnapshot: {
         'shopName': 'خدمات فنی حسین',
+        'currency': 'ریال',
         'ownerName': 'حجت محمدی',
         'phone': '09155637505',
         'postalCode': '1234567890',
@@ -291,6 +294,7 @@ void main() {
     final snapshot = jsonDecode(archiveRows.single['snapshot_json'] as String)
         as Map<String, dynamic>;
     expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['currency'], 'ریال');
     expect(snapshot['stampImageBase64'], 'stamp-fixed-at-issue');
     expect(snapshot['signatureImageBase64'], 'signature-fixed-at-issue');
     expect(snapshot['appLogoBase64'], 'logo-fixed-at-issue');
