@@ -507,6 +507,7 @@ class _HomePageState extends State<HomePage> {
       LoanManagementPage(repository: DemoStore.loans),
       ContactsPage(
         repository: DemoStore.parties,
+        reminders: DemoStore.reminders,
         trades: DemoStore.trades,
         checks: DemoStore.checks,
         onChanged: () async {

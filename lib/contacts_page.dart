@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'numeric_input.dart';
 
 import 'check_repository.dart';
+import 'check_reminder_service.dart';
 import 'party_ledger_page.dart';
 import 'phone_contact_picker.dart';
 import 'party_repository.dart';
@@ -11,12 +12,14 @@ class ContactsPage extends StatefulWidget {
   const ContactsPage({
     super.key,
     required this.repository,
+    required this.reminders,
     this.trades,
     this.checks,
     this.onChanged,
   });
 
   final PartyRepository repository;
+  final CheckReminderService reminders;
   final TradeRepository? trades;
   final CheckRepository? checks;
   final VoidCallback? onChanged;
@@ -354,6 +357,7 @@ class _ContactsPageState extends State<ContactsPage> {
             repository: widget.repository,
             trades: widget.trades,
             checks: widget.checks,
+            reminders: widget.reminders,
             onChanged: widget.onChanged,
             initialPartyId: id,
           ),
