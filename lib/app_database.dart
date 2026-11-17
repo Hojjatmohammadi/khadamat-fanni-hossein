@@ -1065,6 +1065,70 @@ class AppDatabase {
     });
   }
 
+  /// Deletes only unreferenced legacy records. Financial and stock history is
+  /// append-only: records referenced by a ledger, document, or party are kept.
+  Future<void> deleteRecord(String category, int id) async {
+    final table = _tableFor(category);
+    if (id <= 0) throw ArgumentError('شناسه رکورد معتبر نیست');
+
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        table,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('رکورد موردنظر پیدا نشد');
+
+      Future<int> count(String sql, List<Object?> args) async {
+        final result = await txn.rawQuery(sql, args);
+        return (result.single['total'] as num).toInt();
+      }
+
+      if (category == 'products') {
+        final movements = await count(
+          'SELECT COUNT(*) AS total FROM inventory_movements WHERE product_id = ?',
+          [id],
+        );
+        final documentLines = await count(
+          'SELECT COUNT(*) AS total FROM business_document_lines WHERE product_id = ?',
+          [id],
+        );
+        if (movements > 0 || documentLines > 0) {
+          throw StateError(
+            'این کالا سابقه ورود یا خروج انبار یا فاکتور دارد؛ برای حفظ سوابق امکان حذف آن وجود ندارد.',
+          );
+        }
+      } else if (category == 'customers') {
+        final linkedParties = await txn.query(
+          'parties',
+          columns: ['id'],
+          where: 'source_category = ? AND source_id = ?',
+          whereArgs: ['customers', id.toString()],
+        );
+        if (linkedParties.isNotEmpty) {
+          throw StateError(
+            'این مشتری در دفتر مخاطبین ثبت شده است؛ حذف را از دفتر مخاطبین انجام دهید تا سوابق بررسی شوند.',
+          );
+        }
+      } else if (category == 'repairs') {
+        final linkedEntries = await count(
+          'SELECT COUNT(*) AS total FROM journal_entries WHERE reference_id = ?',
+          [id.toString()],
+        );
+        if (linkedEntries > 0) {
+          throw StateError(
+            'برای این پذیرش سند حسابداری ثبت شده است؛ حذف مستقیم مجاز نیست.',
+          );
+        }
+      }
+
+      await txn.delete(table, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
   Future<double> getStockOnHand(int productId) async {
     final db = await database;
     final rows = await db.rawQuery(
