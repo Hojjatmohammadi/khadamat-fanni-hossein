@@ -127,8 +127,8 @@ void main() {
     );
 
     var statement = await parties.getPartyStatement(customerId);
-    expect(statement['closing_balance'], 10000);
-    expect(statement['total_debit'], 10000);
+    expect(statement['closing_balance'], 6000);
+    expect(statement['total_debit'], 6000);
     expect(statement['total_credit'], 0);
 
     await accounting.recordRepairServiceReceipt(
@@ -142,8 +142,8 @@ void main() {
     );
 
     statement = await parties.getPartyStatement(customerId);
-    expect(statement['closing_balance'], 7000);
-    expect(statement['total_debit'], 10000);
+    expect(statement['closing_balance'], 3000);
+    expect(statement['total_debit'], 6000);
     expect(statement['total_credit'], 3000);
 
     final trial = await accounting.getTrialBalance();

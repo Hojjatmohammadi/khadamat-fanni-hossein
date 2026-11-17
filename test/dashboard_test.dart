@@ -284,6 +284,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     expect(await repository.getParties(), hasLength(1));
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('inventory app bar exposes product image display options', (tester) async {
