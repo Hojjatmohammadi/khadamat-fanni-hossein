@@ -106,7 +106,7 @@ void main() {
           const TextEditingValue(),
           const TextEditingValue(text: '۱۴۰۵/۰۸/۲۳abc'),
         ).text,
-        '۱۴۰۵/۰۸/۲۳',
+        '1405/08/23',
       );
       expect(
         gregorian.formatEditUpdate(
@@ -120,7 +120,7 @@ void main() {
           const TextEditingValue(),
           const TextEditingValue(text: '١٤٠٥/٠٨/٢٣/٤'),
         ).text,
-        '١٤٠٥/٠٨/٢٣',
+        '1405/08/23',
       );
     });
   });

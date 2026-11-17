@@ -59,7 +59,7 @@ class NumericDateInputFormatter extends TextInputFormatter {
       final digit = NumericInputFormatter._digit(rune);
       if (digit != null) {
         if (length >= 10) continue;
-        output.writeCharCode(rune);
+        output.writeCharCode(digit);
         length++;
       } else if (String.fromCharCode(rune) == separator &&
           separatorCount < 2 &&
