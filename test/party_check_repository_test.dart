@@ -827,4 +827,51 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('bounced outgoing check restores supplier payable and leaves due reminders', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'supplier',
+        displayName: 'فروشنده چک برگشتی پرداختی',
+      ),
+    );
+    final productId = await addProduct();
+    final purchaseId = await recordPurchase(productId, partyId);
+    final checkId = await checks.createCheck(
+      CheckDraft(
+        direction: 'outgoing',
+        checkNumber: 'OUT-BOUNCE-01',
+        bankName: 'بانک',
+        drawerName: 'خدمات فنی حسین',
+        partyName: 'فروشنده چک برگشتی پرداختی',
+        partyId: partyId,
+        amount: 800,
+        issueDate: '2026-11-14',
+        dueDate: '2026-11-15',
+        idempotencyKey: 'outgoing-check-bounced',
+        sourceDocumentId: purchaseId,
+      ),
+    );
+
+    expect(await trades.getOutstandingAmount(purchaseId), 1200);
+    await checks.updateCheckStatus(
+      checkId: checkId,
+      newStatus: 'bounced',
+      reason: 'عدم موجودی حساب',
+      eventDate: '2026-11-16',
+    );
+
+    expect(await trades.getOutstandingAmount(purchaseId), 2000);
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], 2000);
+    final check = await checks.getCheck(checkId);
+    expect(check['status'], 'bounced');
+    expect(check['reversal_journal_id'], isNotNull);
+    expect(
+      (await checks.getDueChecks(asOfDate: DateTime(2026, 11, 17)))
+          .any((row) => row['id'] == checkId),
+      isFalse,
+    );
+    expect(await checks.getCheckEvents(checkId), hasLength(2));
+  });
 }
