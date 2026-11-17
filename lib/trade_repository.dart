@@ -125,6 +125,7 @@ class PartyPaymentDraft {
     this.counterpartyId,
     this.cashAccountCode = '1000',
     this.referenceId,
+    this.paymentMethod,
   });
 
   final String documentDate;
@@ -134,6 +135,11 @@ class PartyPaymentDraft {
   final String? counterpartyId;
   final String cashAccountCode;
   final String? referenceId;
+  /// cash, bank_transfer or card_to_card. Checks are recorded in CheckRepository.
+  final String? paymentMethod;
+
+  String get effectivePaymentMethod =>
+      paymentMethod ?? (cashAccountCode == '1000' ? 'cash' : 'bank_transfer');
 
   Map<String, Object?> toPayload(String type) => {
         'type': type,
@@ -144,6 +150,7 @@ class PartyPaymentDraft {
         'counterpartyId': counterpartyId,
         'cashAccountCode': cashAccountCode,
         'referenceId': referenceId,
+        'paymentMethod': effectivePaymentMethod,
       };
 }
 
@@ -914,6 +921,19 @@ class TradeRepository {
       throw ArgumentError('اطلاعات دریافت یا پرداخت معتبر نیست');
     }
     _validateCashAccount(draft.cashAccountCode);
+    const methods = {'cash', 'bank_transfer', 'card_to_card'};
+    final paymentMethod = draft.effectivePaymentMethod;
+    if (!methods.contains(paymentMethod) ||
+        (paymentMethod == 'cash' && draft.cashAccountCode != '1000') ||
+        (paymentMethod != 'cash' && draft.cashAccountCode != '1010')) {
+      throw ArgumentError('روش دریافت یا پرداخت با حساب انتخاب‌شده سازگار نیست');
+    }
+    final paymentMethodLabel = switch (paymentMethod) {
+      'cash' => 'نقدی',
+      'bank_transfer' => 'انتقال بانکی',
+      'card_to_card' => 'کارت‌به‌کارت',
+      _ => 'نامشخص',
+    };
     final type = isCustomerReceipt ? 'customer_receipt' : 'supplier_payment';
     final payload = jsonEncode(draft.toPayload(type));
     final db = await _database.database;
@@ -990,11 +1010,13 @@ class TradeRepository {
               JournalLineDraft(
                 accountCode: draft.cashAccountCode,
                 debit: draft.amount,
+                memo: 'روش دریافت: $paymentMethodLabel',
               ),
               JournalLineDraft(
                 accountCode: '1100',
                 credit: draft.amount,
                 partyId: effectiveCounterpartyId,
+                memo: 'ثبت دریافت از طرف حساب',
               ),
             ]
           : [
@@ -1002,10 +1024,12 @@ class TradeRepository {
                 accountCode: '2000',
                 debit: draft.amount,
                 partyId: effectiveCounterpartyId,
+                memo: 'ثبت پرداخت به طرف حساب',
               ),
               JournalLineDraft(
                 accountCode: draft.cashAccountCode,
                 credit: draft.amount,
+                memo: 'روش پرداخت: $paymentMethodLabel',
               ),
             ];
       final journalId = await _accounting.postJournalEntryInTransaction(
@@ -1013,8 +1037,8 @@ class TradeRepository {
         JournalEntryDraft(
           entryDate: draft.documentDate,
           description: isCustomerReceipt
-              ? 'دریافت از مشتری ${effectiveCounterpartyName.trim()}'
-              : 'پرداخت به فروشنده ${effectiveCounterpartyName.trim()}',
+              ? 'دریافت از مشتری ${effectiveCounterpartyName.trim()} • $paymentMethodLabel'
+              : 'پرداخت به فروشنده ${effectiveCounterpartyName.trim()} • $paymentMethodLabel',
           idempotencyKey: '${type}-journal-${draft.idempotencyKey}',
           referenceType: type,
           referenceId: draft.referenceId,
