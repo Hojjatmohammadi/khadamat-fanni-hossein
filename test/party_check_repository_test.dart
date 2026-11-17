@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -178,6 +179,73 @@ void main() {
     expect(statement['closing_balance'], 1500);
     expect(statement['closing_label'], 'بدهی مشتری');
     expect(statement['lines'], hasLength(2));
+  });
+
+  test('standalone customer advance is recorded in the party ledger with its payment method', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری بیعانه',
+      ),
+    );
+    const draft = PartyPaymentDraft(
+      documentDate: '2026-11-17',
+      counterpartyName: 'مشتری بیعانه',
+      counterpartyId: 'customer-placeholder',
+      amount: 750,
+      idempotencyKey: 'customer-advance-card-to-card',
+      cashAccountCode: '1010',
+      paymentMethod: 'card_to_card',
+    );
+    final payment = PartyPaymentDraft(
+      documentDate: draft.documentDate,
+      counterpartyName: draft.counterpartyName,
+      counterpartyId: partyId,
+      amount: draft.amount,
+      idempotencyKey: draft.idempotencyKey,
+      cashAccountCode: draft.cashAccountCode,
+      paymentMethod: draft.paymentMethod,
+    );
+
+    final documentId = await trades.recordCustomerReceipt(payment);
+    expect(await trades.recordCustomerReceipt(payment), documentId);
+
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], -750);
+    expect(statement['closing_label'], 'طلب مشتری');
+
+    final db = await store.database;
+    final documents = await db.query(
+      'business_documents',
+      where: 'id = ?',
+      whereArgs: [documentId],
+    );
+    expect(documents.single['source_document_id'], isNull);
+    final payload = jsonDecode(documents.single['payload_json'] as String)
+        as Map<String, dynamic>;
+    expect(payload['paymentMethod'], 'card_to_card');
+
+    final journal = await db.query(
+      'journal_entries',
+      where: 'id = ?',
+      whereArgs: [documents.single['journal_entry_id']],
+    );
+    expect(journal.single['description'], contains('کارت‌به‌کارت'));
+
+    await expectLater(
+      trades.recordCustomerReceipt(
+        PartyPaymentDraft(
+          documentDate: '2026-11-17',
+          counterpartyName: 'مشتری بیعانه',
+          counterpartyId: partyId,
+          amount: 750,
+          idempotencyKey: 'invalid-advance-method',
+          cashAccountCode: '1000',
+          paymentMethod: 'card_to_card',
+        ),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('incoming check reduces customer debt, clears to bank, and keeps an audit trail', () async {
