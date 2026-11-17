@@ -634,14 +634,31 @@ class AccountingRepository {
       credit: amount,
       memo: description.trim(),
     ));
-    return postJournalEntry(JournalEntryDraft(
+    final draft = JournalEntryDraft(
       entryDate: serviceDate,
       description: 'درآمد خدمات تعمیر: ${description.trim()}',
       idempotencyKey: idempotencyKey,
       referenceType: 'repair_service',
-      referenceId: repairId,
+      referenceId: repairId.trim(),
       lines: lines,
-    ));
+    );
+    final db = await _database.database;
+    return db.transaction((txn) async {
+      final previousCharge = await txn.query(
+        'journal_entries',
+        columns: ['idempotency_key'],
+        where: 'reference_type = ? AND reference_id = ? AND idempotency_key != ?',
+        whereArgs: ['repair_service', repairId.trim(), idempotencyKey],
+        limit: 1,
+      );
+      if (previousCharge.isNotEmpty) {
+        throw StateError('درآمد اجرت این پذیرش قبلاً ثبت شده است');
+      }
+      // Same-key retries are idempotent; a second key for the same repair
+      // is rejected so a separate invoice/action cannot recognize the labour
+      // revenue twice.
+      return _postJournalEntry(txn, draft);
+    });
   }
 
   /// Collects a later payment against the unpaid labour charge of one repair.

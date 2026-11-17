@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
 import 'package:khadamat_fanni_hosein/check_repository.dart';
 import 'package:khadamat_fanni_hosein/jalali_date_field.dart';
@@ -469,6 +470,79 @@ void main() {
       ),
       700,
     );
+  });
+
+
+  test('repair labour income is posted once and later receipts do not credit income again', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری اجرت تعمیر',
+      ),
+    );
+    final accounting = AccountingRepository(store);
+
+    Future<int> postIncome({String key = 'repair-service-income-once'}) {
+      return accounting.recordRepairServiceIncome(
+        serviceDate: '2026-11-14',
+        description: 'اجرت تعمیر دریل',
+        amount: 1000,
+        paidAmount: 400,
+        cashAccountCode: '1000',
+        customerId: partyId,
+        repairId: 'repair-labour-once',
+        idempotencyKey: key,
+      );
+    }
+
+    final firstEntry = await postIncome();
+    expect(await postIncome(), firstEntry);
+    await expectLater(
+      postIncome(key: 'repair-service-income-second-key'),
+      throwsStateError,
+    );
+
+    await accounting.recordRepairServiceReceipt(
+      receiptDate: '2026-11-15',
+      repairId: 'repair-labour-once',
+      customerId: partyId,
+      description: 'اجرت تعمیر دریل',
+      amount: 250,
+      cashAccountCode: '1000',
+      idempotencyKey: 'repair-service-receipt-part-one',
+    );
+    await accounting.recordRepairServiceReceipt(
+      receiptDate: '2026-11-16',
+      repairId: 'repair-labour-once',
+      customerId: partyId,
+      description: 'اجرت تعمیر دریل',
+      amount: 350,
+      cashAccountCode: '1010',
+      idempotencyKey: 'repair-service-receipt-part-two',
+    );
+
+    await expectLater(
+      accounting.recordRepairServiceReceipt(
+        receiptDate: '2026-11-17',
+        repairId: 'repair-labour-once',
+        customerId: partyId,
+        description: 'اجرت تعمیر دریل',
+        amount: 1,
+        cashAccountCode: '1000',
+        idempotencyKey: 'repair-service-receipt-overpay',
+      ),
+      throwsStateError,
+    );
+
+    final trialBalance = await accounting.getTrialBalance();
+    final serviceIncome = trialBalance.singleWhere(
+      (row) => row['account_code'] == '4100',
+    );
+    expect(serviceIncome['total_credit'], 1000);
+    expect(serviceIncome['total_debit'], 0);
+
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], 0);
   });
 
   test('incoming check reduces customer debt, clears to bank, and keeps an audit trail', () async {
