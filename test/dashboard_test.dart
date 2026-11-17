@@ -282,6 +282,38 @@ void main() {
     expect(await repository.getParties(), hasLength(1));
   });
 
+  testWidgets('inventory app bar exposes product image display options', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.text('انبار'));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final menu = find.byTooltip('تنظیم نمایش عکس کالا');
+    expect(menu, findsOneWidget);
+    await tester.tap(menu);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('عدم نمایش عکس کالا'), findsOneWidget);
+    expect(find.text('پیش‌فرض عکس کالا'), findsOneWidget);
+    expect(find.text('کوچک کردن عکس کالا'), findsOneWidget);
+
+    await tester.tap(find.text('عدم نمایش عکس کالا'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(menu);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('کوچک کردن عکس کالا'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(menu);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('پیش‌فرض عکس کالا'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byTooltip('تنظیم نمایش عکس کالا'), findsOneWidget);
+  });
+
   testWidgets('logo help can be dismissed and gallery opens only on request',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
