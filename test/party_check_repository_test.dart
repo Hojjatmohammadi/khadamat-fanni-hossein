@@ -188,23 +188,14 @@ void main() {
         displayName: 'مشتری بیعانه',
       ),
     );
-    const draft = PartyPaymentDraft(
+    final payment = PartyPaymentDraft(
       documentDate: '2026-11-17',
       counterpartyName: 'مشتری بیعانه',
-      counterpartyId: 'customer-placeholder',
+      counterpartyId: partyId,
       amount: 750,
       idempotencyKey: 'customer-advance-card-to-card',
       cashAccountCode: '1010',
       paymentMethod: 'card_to_card',
-    );
-    final payment = PartyPaymentDraft(
-      documentDate: draft.documentDate,
-      counterpartyName: draft.counterpartyName,
-      counterpartyId: partyId,
-      amount: draft.amount,
-      idempotencyKey: draft.idempotencyKey,
-      cashAccountCode: draft.cashAccountCode,
-      paymentMethod: draft.paymentMethod,
     );
 
     final documentId = await trades.recordCustomerReceipt(payment);
