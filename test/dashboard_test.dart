@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
 import 'package:khadamat_fanni_hosein/contacts_page.dart';
+import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/party_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -183,14 +187,31 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await DemoStore.init();
-    await tester.pumpWidget(
-      MaterialApp(home: ContactsPage(repository: DemoStore.parties)),
+    // Keep this widget test independent from DemoStore.init(), which also
+    // performs startup backup work and shares a process-wide database with
+    // other widget tests.
+    final tempDir = await Directory.systemTemp.createTemp(
+      'khadamat_contacts_widget_test_',
     );
-    await tester.pump(const Duration(milliseconds: 500));
+    final database = AppDatabase(
+      databasePath: '${tempDir.path}/contacts-widget.db',
+    );
+    final repository = PartyRepository(database);
+    addTearDown(() async {
+      await database.close();
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    await database.database;
+
+    await tester.pumpWidget(
+      MaterialApp(home: ContactsPage(repository: repository)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
 
     await tester.tap(find.byTooltip('افزودن مخاطب'));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.enterText(
       find.byType(TextFormField).first,
       'آزمون دفتر مرکزی مخاطبین',
@@ -202,17 +223,18 @@ void main() {
     await tester.tap(find.text('فروشنده'));
     await tester.pump();
     await tester.tap(find.text('ذخیره مخاطب'));
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    final roles = await DemoStore.parties.getPartyRoles(
-      (await DemoStore.parties.getParties())
-          .singleWhere((party) => party['display_name'] == 'آزمون دفتر مرکزی مخاطبین')['id'] as String,
+    final party = (await repository.getParties()).singleWhere(
+      (item) => item['display_name'] == 'آزمون دفتر مرکزی مخاطبین',
     );
+    final roles = await repository.getPartyRoles(party['id'] as String);
     expect(roles, containsAll(['customer', 'supplier']));
 
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
   });
 
