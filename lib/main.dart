@@ -2767,14 +2767,23 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         (sum, line) => sum + (line.quantity * line.unitPrice).round(),
       );
 
-  int get _previewTotal {
-    final net = (_subtotal - _int(_discountController)).clamp(0, _subtotal);
-    final charges = _isPurchase
-        ? _int(_shippingController) + _int(_freightController) + _int(_otherCostController)
-        : 0;
-    final vat = _vatExempt ? 0 : (net * _double(_vatRateController) / 100).round();
-    return net + charges + vat;
-  }
+  int get _previewDiscount => _int(_discountController);
+
+  int get _previewCharges => _isPurchase
+      ? _int(_shippingController) +
+          _int(_freightController) +
+          _int(_otherCostController)
+      : 0;
+
+  int get _previewNet => _subtotal - _previewDiscount;
+
+  int get _previewVat => _vatExempt
+      ? 0
+      : (_previewNet * _double(_vatRateController) / 100).round();
+
+  int get _previewTotal => _previewNet + _previewCharges + _previewVat;
+
+  int get _previewBalance => _previewTotal - _int(_paidController);
 
   Future<void> _loadInvoiceDefaults() async {
     try {
@@ -3336,6 +3345,33 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       );
       return;
     }
+    final discount = _previewDiscount;
+    final vatRate = _double(_vatRateController);
+    final paid = _int(_paidController);
+    if (discount < 0 || discount > _subtotal) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تخفیف باید بین صفر و جمع کالاها باشد')),
+      );
+      return;
+    }
+    if (!vatRate.isFinite || vatRate < 0 || vatRate > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('درصد ارزش افزوده باید بین صفر تا ۱۰۰ باشد')),
+      );
+      return;
+    }
+    if (_previewCharges < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('هزینه‌های جانبی نمی‌توانند منفی باشند')),
+      );
+      return;
+    }
+    if (paid < 0 || paid > _previewTotal) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('پرداخت اولیه باید بین صفر و مبلغ نهایی فاکتور باشد')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final partyName = _partyController.text.trim();
@@ -3397,7 +3433,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       });
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isPurchase ? 'فاکتور خرید ثبت شد' : 'فاکتور فروش ثبت و بایگانی شد')),
+        SnackBar(content: Text(_isPurchase ? 'فاکتور خرید ثبت و بایگانی شد' : 'فاکتور فروش ثبت و بایگانی شد')),
       );
     } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3858,7 +3894,12 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 children: [
                   const Text('پیش‌نمایش مبلغ', style: TextStyle(fontWeight: FontWeight.bold)),
                   Text('جمع ردیف‌ها: $_subtotal تومان'),
-                  Text('مبلغ تقریبی فاکتور: $_previewTotal تومان'),
+                  Text('تخفیف: $_previewDiscount تومان'),
+                  if (_isPurchase)
+                    Text('هزینه‌های جانبی: $_previewCharges تومان'),
+                  Text('ارزش افزوده: $_previewVat تومان'),
+                  Text('مبلغ نهایی: $_previewTotal تومان'),
+                  Text('مانده پس از پرداخت اولیه: $_previewBalance تومان'),
                 ],
               ),
             ),
