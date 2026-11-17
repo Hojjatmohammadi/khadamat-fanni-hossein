@@ -1446,13 +1446,16 @@ class _ProductPageState extends State<ProductPage> {
                     const Align(alignment: Alignment.centerRight, child: Text('هزینه‌های رساندن کالا به مغازه', style: TextStyle(fontWeight: FontWeight.bold))),
                     const SizedBox(height: 10),
                     TextField(
-                        textInputAction: TextInputAction.next,controller: shipping, keyboardType: TextInputType.number, onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه پست')),
+                        textInputAction: TextInputAction.next,controller: shipping, keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه پست')),
                     const SizedBox(height: 10),
                     TextField(
-                        textInputAction: TextInputAction.next,controller: freight, keyboardType: TextInputType.number, onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
+                        textInputAction: TextInputAction.next,controller: freight, keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'هزینه باربری / حمل')),
                     const SizedBox(height: 10),
                     TextField(
-                        textInputAction: TextInputAction.next,controller: other, keyboardType: TextInputType.number, onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
+                        textInputAction: TextInputAction.next,controller: other, keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید')),
                     const Divider(height: 24),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -1466,6 +1469,7 @@ class _ProductPageState extends State<ProductPage> {
                         textInputAction: TextInputAction.next,
                         controller: vatRate,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
                         onChanged: (_) => refresh(() {}),
                         decoration: const InputDecoration(labelText: 'درصد ارزش افزوده', suffixText: '٪'),
                       ),
@@ -1651,6 +1655,7 @@ class _ProductPageState extends State<ProductPage> {
                         textInputAction: TextInputAction.next,
                   controller: countedController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
                   decoration: const InputDecoration(
                     labelText: 'تعداد واقعی شمارش‌شده',
                     helperText: 'عدد نهایی موجودی را وارد کنید، نه مقدار اختلاف را',
@@ -2422,6 +2427,7 @@ class _RepairPageState extends State<RepairPage> {
                         textInputAction: TextInputAction.next,
                         controller: quantityController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
                         style: TextStyle(fontSize: 16 * uiScale()),
                         decoration: InputDecoration(
                           labelText: 'تعداد مصرفی',
@@ -2549,7 +2555,8 @@ class _RepairPageState extends State<RepairPage> {
     final paid = await showDialog<int>(context: context, builder: (dialogContext) => AlertDialog(
       title: const Text('ثبت درآمد اجرت تعمیر'),
       content: TextField(
-                        textInputAction: TextInputAction.next,controller: paidController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافت‌شده (تومان)', helperText: 'برای اجرت دریافت‌نشده عدد صفر وارد کنید')),
+                        textInputAction: TextInputAction.next,controller: paidController, keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()], decoration: const InputDecoration(labelText: 'مبلغ دریافت‌شده (تومان)', helperText: 'برای اجرت دریافت‌نشده عدد صفر وارد کنید')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, LocalizedNumber.tryParseInt(paidController.text)), child: const Text('ثبت')),
@@ -2601,7 +2608,8 @@ class _RepairPageState extends State<RepairPage> {
     final amount = await showDialog<int>(context: context, builder: (dialogContext) => AlertDialog(
       title: const Text('دریافت مانده اجرت'),
       content: TextField(
-                        textInputAction: TextInputAction.next,controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'مبلغ دریافتی (تومان)')),
+                        textInputAction: TextInputAction.next,controller: amountController, keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()], decoration: const InputDecoration(labelText: 'مبلغ دریافتی (تومان)')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, LocalizedNumber.tryParseInt(amountController.text)), child: const Text('ثبت دریافت')),
@@ -2908,10 +2916,12 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                     },
                   ),
                   const SizedBox(height: 10),
-                  TextField(
+                  TextFormField(
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
+                    inputFormatters: numericInputFormattersForField('شماره همراه'),
                     decoration: const InputDecoration(labelText: 'شماره همراه'),
+                    validator: (value) => validateNumericField('شماره همراه', value),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -3530,6 +3540,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         textInputAction: TextInputAction.next,
                     controller: quantityController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
                     decoration: const InputDecoration(labelText: 'تعداد مرجوعی'),
                   ),
                 ],
@@ -3618,6 +3629,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         textInputAction: TextInputAction.next,
                   controller: amountController,
                   keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                   decoration: InputDecoration(
                     labelText: 'مبلغ',
                     helperText: 'مانده فاکتور: $outstanding $_currency',
@@ -3820,6 +3832,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         textInputAction: TextInputAction.next,
                   controller: _quantityController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
                   decoration: const InputDecoration(labelText: 'تعداد'),
                 ),
               ),
@@ -3829,6 +3842,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         textInputAction: TextInputAction.next,
                   controller: _priceController,
                   keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                   decoration: InputDecoration(labelText: _isPurchase ? 'قیمت خرید واحد' : 'قیمت فروش واحد'),
                 ),
               ),
@@ -3866,6 +3880,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
             controller: _discountController,
             onChanged: (_) => setState(() => _discountManuallyEdited = true),
             keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
             decoration: InputDecoration(labelText: 'تخفیف کل ($_currency)'),
           ),
           const SizedBox(height: 10),
@@ -3882,6 +3897,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               controller: _vatRateController,
               onChanged: (_) => setState(() {}),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [NumericInputFormatter(allowDecimal: true)],
               decoration: const InputDecoration(labelText: 'درصد ارزش افزوده'),
             ),
           if (_isPurchase) ...[
@@ -3891,6 +3907,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               controller: _shippingController,
               onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
               decoration: const InputDecoration(labelText: 'هزینه پست'),
             ),
             const SizedBox(height: 10),
@@ -3899,6 +3916,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               controller: _freightController,
               onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
               decoration: const InputDecoration(labelText: 'هزینه باربری / حمل'),
             ),
             const SizedBox(height: 10),
@@ -3907,6 +3925,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               controller: _otherCostController,
               onChanged: (_) => setState(() {}),
               keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
               decoration: const InputDecoration(labelText: 'سایر هزینه‌های خرید'),
             ),
           ],
@@ -3915,6 +3934,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                         textInputAction: TextInputAction.next,
             controller: _paidController,
             keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
             decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام ثبت'),
           ),
           const SizedBox(height: 10),

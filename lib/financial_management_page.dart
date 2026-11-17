@@ -360,6 +360,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     TextField(
                       controller: _amount,
                       keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                       decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
                     ),
                     const SizedBox(height: 10),
@@ -568,6 +569,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       TextField(
                         controller: _statementBalance,
                         keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                         decoration: const InputDecoration(labelText: 'مانده پایان صورت‌حساب (تومان)'),
                       ),
                       const SizedBox(height: 10),
