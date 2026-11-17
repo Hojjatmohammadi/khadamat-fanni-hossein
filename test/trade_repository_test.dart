@@ -49,6 +49,88 @@ void main() {
   }
 
 
+  test('stock count shortage adjusts stock value and posts a balanced loss journal once', () async {
+    final productId = await addProduct();
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده انبارگردانی',
+        idempotencyKey: 'stock-count-source-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 10, unitPrice: 1000),
+        ],
+      ),
+    );
+
+    final adjustmentId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 8,
+      fallbackUnitCost: 500,
+      occurredAt: '2026-11-17T10:00:00.000',
+      reason: 'کسری شمارش دوره‌ای',
+      idempotencyKey: 'stock-count-shortage-once',
+    );
+
+    expect(await store.getStockOnHand(productId), 8);
+    expect((await accountTotals('5200'))['total_debit'], 2000);
+    expect((await accountTotals('1200'))['total_debit'], 10000);
+    expect((await accountTotals('1200'))['total_credit'], 2000);
+
+    final db = await store.database;
+    final movements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['adjustment'],
+    );
+    expect(movements, hasLength(1));
+    expect(movements.single['quantity_delta'], -2);
+    expect(movements.single['total_cost'], 2000);
+
+    expect(
+      await accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 8,
+        fallbackUnitCost: 500,
+        occurredAt: '2026-11-17T10:00:00.000',
+        reason: 'کسری شمارش دوره‌ای',
+        idempotencyKey: 'stock-count-shortage-once',
+      ),
+      adjustmentId,
+    );
+    expect(await db.query('inventory_movements', where: 'movement_type = ?', whereArgs: ['adjustment']), hasLength(1));
+    expect((await db.query('journal_entries')).length, 2);
+  });
+
+  test('stock count surplus uses fallback cost for zero opening stock and rejects key reuse', () async {
+    final productId = await addProduct();
+    final adjustmentId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 3,
+      fallbackUnitCost: 750,
+      occurredAt: '2026-11-17T11:00:00.000',
+      reason: 'مازاد شمارش فیزیکی',
+      idempotencyKey: 'stock-count-surplus',
+    );
+
+    expect(adjustmentId, greaterThan(0));
+    expect(await store.getStockOnHand(productId), 3);
+    expect((await accountTotals('1200'))['total_debit'], 2250);
+    expect((await accountTotals('4055'))['total_credit'], 2250);
+
+    await expectLater(
+      accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 4,
+        fallbackUnitCost: 750,
+        occurredAt: '2026-11-17T11:00:00.000',
+        reason: 'اصلاح متفاوت',
+        idempotencyKey: 'stock-count-surplus',
+      ),
+      throwsStateError,
+    );
+    expect(await store.getStockOnHand(productId), 3);
+  });
+
   test('invoice numbers are readable sequential and shared safely by a custom prefix', () async {
     final productId = await addProduct();
     final firstPurchase = await trades.recordPurchase(
