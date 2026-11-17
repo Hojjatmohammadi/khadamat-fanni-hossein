@@ -1426,7 +1426,7 @@ class TradeRepository {
     var sequence = (countRows.single['total'] as num).toInt() + 1;
     late String documentNumber;
     while (true) {
-      documentNumber = '$numberPrefix\${sequence.toString().padLeft(6, '0')}';
+      documentNumber = numberPrefix + sequence.toString().padLeft(6, '0');
       final existing = await txn.query(
         'business_documents',
         columns: ['id'],
