@@ -48,6 +48,65 @@ void main() {
     return rows.singleWhere((row) => row['account_code'] == code);
   }
 
+
+  test('invoice numbers are readable sequential and shared safely by a custom prefix', () async {
+    final productId = await addProduct();
+    final firstPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده شماره‌گذاری',
+        idempotencyKey: 'invoice-number-first-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 5, unitPrice: 100),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final sale = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'مشتری شماره‌گذاری',
+        idempotencyKey: 'invoice-number-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 150),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final secondPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده شماره‌گذاری',
+        idempotencyKey: 'invoice-number-second-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 120),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final first = (await trades.getDocuments(type: 'purchase'))
+        .singleWhere((row) => row['id'] == firstPurchase);
+    final sold = (await trades.getDocuments(type: 'sale'))
+        .singleWhere((row) => row['id'] == sale);
+    final second = (await trades.getDocuments(type: 'purchase'))
+        .singleWhere((row) => row['id'] == secondPurchase);
+
+    expect(first['document_number'], 'HOS-000001');
+    expect(sold['document_number'], 'HOS-000002');
+    expect(second['document_number'], 'HOS-000003');
+    expect(
+      {
+        first['document_number'],
+        sold['document_number'],
+        second['document_number'],
+      },
+      hasLength(3),
+    );
+  });
+
   test('purchase discounts and partial sales preserve exact inventory value', () async {
     final productId = await addProduct();
 
