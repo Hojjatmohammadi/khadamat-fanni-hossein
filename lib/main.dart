@@ -3375,7 +3375,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       return;
     }
     final amountController = TextEditingController(text: outstanding.toString());
-    String accountCode = '1000';
+    String paymentMethod = 'cash';
     final amount = await showDialog<int?>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -3397,13 +3397,15 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: accountCode,
-                  decoration: const InputDecoration(labelText: 'محل دریافت / پرداخت'),
+                  initialValue: paymentMethod,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'روش دریافت / پرداخت'),
                   items: const [
-                    DropdownMenuItem(value: '1000', child: Text('صندوق')),
-                    DropdownMenuItem(value: '1010', child: Text('بانک')),
+                    DropdownMenuItem(value: 'cash', child: Text('نقدی')),
+                    DropdownMenuItem(value: 'bank_transfer', child: Text('انتقال بانکی')),
+                    DropdownMenuItem(value: 'card_to_card', child: Text('کارت‌به‌کارت')),
                   ],
-                  onChanged: (value) => refresh(() => accountCode = value ?? '1000'),
+                  onChanged: (value) => refresh(() => paymentMethod = value ?? 'cash'),
                 ),
               ],
             ),
@@ -3414,7 +3416,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
               ),
               FilledButton(
                 onPressed: () {
-                  final value = int.tryParse(amountController.text.trim());
+                  final value = LocalizedNumber.tryParseInt(amountController.text);
                   if (value == null || value <= 0 || value > outstanding) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('مبلغ باید از صفر بیشتر و حداکثر برابر مانده فاکتور باشد')),
@@ -3441,7 +3443,8 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         amount: amount,
         idempotencyKey:
             'settlement-${document['id']}-${DateTime.now().microsecondsSinceEpoch}',
-        cashAccountCode: accountCode,
+        cashAccountCode: paymentMethod == 'cash' ? '1000' : '1010',
+        paymentMethod: paymentMethod,
         referenceId: document['id'].toString(),
       );
       if (_isPurchase) {
