@@ -87,7 +87,10 @@ class InvoicePdfService {
       }
     }
 
-    final shopName = snapshot['shopName']?.toString() ?? 'فاکتور فروش';
+    final isPurchase = snapshot['documentType'] == 'purchase';
+    final documentTitle = isPurchase ? 'فاکتور خرید' : 'فاکتور فروش';
+    final partyLabel = isPurchase ? 'فروشنده' : 'مشتری';
+    final shopName = snapshot['shopName']?.toString() ?? documentTitle;
     final headerHeight = drawText(
       shopName,
       fontSize: 48,
@@ -125,13 +128,13 @@ class InvoicePdfService {
     canvas.drawLine(ui.Offset(_margin, y), ui.Offset(right, y), borderPaint);
     y += 20;
     y += drawText(
-      'فاکتور فروش شماره: ${snapshot['documentNumber'] ?? ''}',
+      '${documentTitle} شماره: ${snapshot['documentNumber'] ?? ''}',
       fontSize: 34,
       bold: true,
       top: y,
     ) + 8;
     y += drawText(
-      'تاریخ: ${snapshot['documentDate'] ?? ''}    مشتری: ${snapshot['counterpartyName'] ?? ''}',
+      'تاریخ: ${snapshot['documentDate'] ?? ''}    ${partyLabel}: ${snapshot['counterpartyName'] ?? ''}',
       fontSize: 25,
       top: y,
     ) + 22;
@@ -236,7 +239,7 @@ class InvoicePdfService {
     await file.writeAsBytes(bytes, flush: true);
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'image/png')],
-      text: 'تصویر فاکتور فروش $number',
+      text: '${snapshot['documentType'] == 'purchase' ? 'تصویر فاکتور خرید' : 'تصویر فاکتور فروش'} $number',
     );
   }
 

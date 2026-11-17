@@ -207,6 +207,8 @@ void main() {
         lines: [
           TradeLineDraft(productId: productId, quantity: 2, unitPrice: 3500),
         ],
+        discountAmount: 500,
+        shippingCost: 1000,
         paidAmount: 1000,
       ),
       invoiceHeaderSnapshot: {
@@ -230,11 +232,17 @@ void main() {
     expect(snapshot['shopName'], 'خدمات فنی حسین');
     expect(snapshot['stampImageBase64'], 'purchase-stamp-at-issue');
     expect(snapshot['counterpartyName'], 'فروشنده قطعات');
-    expect(snapshot['totalAmount'], 7000);
+    expect(snapshot['subtotal'], 7000);
+    expect(snapshot['discountAmount'], 500);
+    expect(snapshot['chargesAmount'], 1000);
+    expect(snapshot['totalAmount'], 7500);
     expect(snapshot['paidAmount'], 1000);
-    expect(snapshot['outstandingAmount'], 6000);
+    expect(snapshot['outstandingAmount'], 6500);
     expect(snapshot['items'], hasLength(1));
-    expect((snapshot['items'] as List).single['productName'], 'برد الکترونیکی');
+    final item = (snapshot['items'] as List).single as Map;
+    expect(item['productName'], 'برد الکترونیکی');
+    expect(item['lineTotal'], 7000);
+    expect(item['netLineTotal'], 7500);
   });
 
   test('sale invoice and immutable display snapshot are archived atomically', () async {
@@ -258,7 +266,8 @@ void main() {
         lines: [
           TradeLineDraft(productId: productId, quantity: 2, unitPrice: 2500),
         ],
-        paidAmount: 5000,
+        discountAmount: 500,
+        paidAmount: 4500,
       ),
       invoiceHeaderSnapshot: {
         'shopName': 'خدمات فنی حسین',
@@ -286,10 +295,15 @@ void main() {
     expect(snapshot['signatureImageBase64'], 'signature-fixed-at-issue');
     expect(snapshot['appLogoBase64'], 'logo-fixed-at-issue');
     expect(snapshot['counterpartyName'], 'مشتری فاکتور');
-    expect(snapshot['totalAmount'], 5000);
-    expect(snapshot['paidAmount'], 5000);
+    expect(snapshot['subtotal'], 5000);
+    expect(snapshot['discountAmount'], 500);
+    expect(snapshot['totalAmount'], 4500);
+    expect(snapshot['paidAmount'], 4500);
     expect(snapshot['items'], hasLength(1));
-    expect((snapshot['items'] as List).single['productName'], 'خازن 100 میکرو');
+    final item = (snapshot['items'] as List).single as Map;
+    expect(item['productName'], 'خازن 100 میکرو');
+    expect(item['lineTotal'], 5000);
+    expect(item['netLineTotal'], 4500);
   });
 
   test('sale with insufficient stock leaves no invoice, journal or stock movement', () async {

@@ -333,12 +333,21 @@ class TradeRepository {
           'paidAmount': document['paid_amount'],
           'outstandingAmount': (document['total_amount'] as int) -
               (document['paid_amount'] as int),
-          'items': lineRows.map((row) => <String, Object?>{
-            'productName': row['product_name'],
-            'quantity': row['quantity'],
-            'unitPrice': row['unit_price'],
-            'lineTotal': row['line_total'],
-            'taxAmount': row['tax_amount'],
+          'items': lineRows.map((row) {
+            final quantity = (row['quantity'] as num).toDouble();
+            final unitPrice = (row['unit_price'] as num).toInt();
+            return <String, Object?>{
+              'productName': row['product_name'],
+              'quantity': row['quantity'],
+              'unitPrice': row['unit_price'],
+              // Invoice rows show the original gross amount. Global discount
+              // and purchase charges are displayed separately in the totals.
+              'lineTotal': (quantity * unitPrice).round(),
+              // Keep the posted net/landed value for audit and accounting.
+              'netLineTotal': row['line_total'],
+              'unitCost': row['unit_cost'],
+              'taxAmount': row['tax_amount'],
+            };
           }).toList(),
         };
         await InvoiceArchiveRepository.insertInTransaction(
@@ -538,12 +547,21 @@ class TradeRepository {
           'paidAmount': document['paid_amount'],
           'outstandingAmount': (document['total_amount'] as int) -
               (document['paid_amount'] as int),
-          'items': lineRows.map((row) => <String, Object?>{
-            'productName': row['product_name'],
-            'quantity': row['quantity'],
-            'unitPrice': row['unit_price'],
-            'lineTotal': row['line_total'],
-            'taxAmount': row['tax_amount'],
+          'items': lineRows.map((row) {
+            final quantity = (row['quantity'] as num).toDouble();
+            final unitPrice = (row['unit_price'] as num).toInt();
+            return <String, Object?>{
+              'productName': row['product_name'],
+              'quantity': row['quantity'],
+              'unitPrice': row['unit_price'],
+              // Invoice rows show the original gross amount. Global discount
+              // and purchase charges are displayed separately in the totals.
+              'lineTotal': (quantity * unitPrice).round(),
+              // Keep the posted net/landed value for audit and accounting.
+              'netLineTotal': row['line_total'],
+              'unitCost': row['unit_cost'],
+              'taxAmount': row['tax_amount'],
+            };
           }).toList(),
         };
         await InvoiceArchiveRepository.insertInTransaction(
