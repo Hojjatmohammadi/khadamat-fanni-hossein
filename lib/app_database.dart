@@ -981,6 +981,21 @@ class AppDatabase {
     final table = _tableFor(category);
     final db = await database;
     final rows = await db.query(table, orderBy: 'id ASC');
+    final stockByProductId = <int, double>{};
+    if (category == 'products' && rows.isNotEmpty) {
+      // Product JSON is descriptive metadata; live stock belongs to the
+      // append-only movement ledger. Aggregate once to avoid N+1 queries and
+      // never show the stale opening quantity after purchases, sales or returns.
+      final stockRows = await db.rawQuery('''
+        SELECT product_id, COALESCE(SUM(quantity_delta), 0) AS quantity
+        FROM inventory_movements
+        GROUP BY product_id
+      ''');
+      for (final stockRow in stockRows) {
+        stockByProductId[stockRow['product_id'] as int] =
+            (stockRow['quantity'] as num).toDouble();
+      }
+    }
     return rows.map((row) {
       final raw = row['data_json'] as String;
       final decoded = jsonDecode(raw);
@@ -990,7 +1005,11 @@ class AppDatabase {
       final item = decoded.map(
         (key, value) => MapEntry(key, value?.toString() ?? ''),
       );
-      item['__database_id'] = row['id'].toString();
+      final productId = row['id'] as int;
+      if (category == 'products') {
+        item['موجودی'] = (stockByProductId[productId] ?? 0).toString();
+      }
+      item['__database_id'] = productId.toString();
       return item;
     }).toList(growable: true);
   }

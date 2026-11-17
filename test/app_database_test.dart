@@ -254,6 +254,31 @@ void main() {
     await migrated.close();
   });
 
+  test('product list reads current stock from movements without requiring a metadata edit', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'موجودی پویا',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '1000',
+    });
+
+    await accounting.recordStockMovement(
+      StockMovementDraft(
+        productId: productId,
+        movementType: 'sale',
+        quantityDelta: -3,
+        unitCost: 1000,
+        occurredAt: '2026-11-14T12:00:00.000',
+        idempotencyKey: 'live-stock-list-sale-$productId',
+        referenceType: 'test',
+        referenceId: 'sale-live-stock',
+      ),
+    );
+
+    final listedProduct = (await store.getAll('products')).single;
+    expect(listedProduct['موجودی'], '7.0');
+    expect(await store.getStockOnHand(productId), 7);
+  });
+
   test('editing product details preserves live stock and immutable accounting history', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'خازن قدیمی',
