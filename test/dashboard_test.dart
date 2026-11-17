@@ -8,6 +8,7 @@ import 'package:khadamat_fanni_hosein/main.dart';
 import 'package:khadamat_fanni_hosein/contacts_page.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
 import 'package:khadamat_fanni_hosein/party_repository.dart';
+import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -197,6 +198,7 @@ void main() {
       databasePath: '${tempDir.path}/contacts-widget.db',
     );
     final repository = PartyRepository(database);
+    final trades = TradeRepository(database);
     addTearDown(() async {
       await database.close();
       if (await tempDir.exists()) {
@@ -206,7 +208,7 @@ void main() {
     await database.database;
 
     await tester.pumpWidget(
-      MaterialApp(home: ContactsPage(repository: repository)),
+      MaterialApp(home: ContactsPage(repository: repository, trades: trades)),
     );
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -236,6 +238,20 @@ void main() {
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
+    expect(find.byKey(const ValueKey('record-customer-advance')), findsOneWidget);
+    expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.enterText(
+      find.byKey(const ValueKey('party-ledger-advance-amount')),
+      '750',
+    );
+    await tester.tap(find.text('ثبت در گردش حساب'));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('بیعانه مشتری در گردش حساب ثبت شد'), findsOneWidget);
+    expect(find.textContaining('مانده بستانکار: 750 تومان'), findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
@@ -244,8 +260,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'حذف مخاطب'));
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsNothing);
-    expect(await repository.getParties(), isEmpty);
+    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
+    expect(await repository.getParties(), hasLength(1));
   });
 
   testWidgets('logo help can be dismissed and gallery opens only on request',
