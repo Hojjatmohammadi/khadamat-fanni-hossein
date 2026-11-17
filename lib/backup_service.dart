@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
+import 'backup_storage.dart';
 
 /// Local SQLite backup, daily backup and validated restore operations.
 class BackupService {
@@ -16,16 +17,119 @@ class BackupService {
     Directory? backupDirectory,
     Directory? temporaryDirectory,
     DateTime Function()? clock,
+    BackupFolderAccess? folderAccess,
+    BackupLocationStore? locationStore,
   })  : _databasePathOverride = databasePath,
         _backupDirectoryOverride = backupDirectory,
         _temporaryDirectoryOverride = temporaryDirectory,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _folderAccess = folderAccess ??
+            (Platform.isAndroid ? SafBackupFolderAccess() : null),
+        _locationStore = locationStore ?? FileBackupLocationStore();
 
   final AppDatabase _appDatabase;
   final String? _databasePathOverride;
   final Directory? _backupDirectoryOverride;
   final Directory? _temporaryDirectoryOverride;
   final DateTime Function() _clock;
+
+  final BackupFolderAccess? _folderAccess;
+  final BackupLocationStore _locationStore;
+  String? lastBackupWarning;
+
+  Future<BackupFolder?> getBackupLocation() => _locationStore.read();
+
+  Future<BackupFolder?> chooseBackupLocation() async {
+    final access = _folderAccess;
+    if (access == null) {
+      throw UnsupportedError('انتخاب پوشهٔ بیرونی پشتیبان‌گیری فقط در اندروید فعال است.');
+    }
+    final current = await _locationStore.read();
+    final selected = await access.pickDirectory(initialUri: current?.uri);
+    if (selected == null) return null;
+    if (!await access.hasPersistedWritePermission(selected.uri)) {
+      throw StateError('مجوز ماندگار خواندن و نوشتن پوشه دریافت نشد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    await access.verifyWritable(selected.uri);
+    await _locationStore.write(selected);
+    lastBackupWarning = null;
+    return selected;
+  }
+
+  Future<void> clearBackupLocation() async {
+    await _locationStore.write(null);
+    lastBackupWarning = null;
+  }
+
+  Future<List<ExternalBackupFile>> listExternalBackups() async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null) return <ExternalBackupFile>[];
+    try {
+      if (!await access.hasPersistedWritePermission(folder.uri)) {
+        lastBackupWarning = 'مجوز پوشهٔ بیرونی در دسترس نیست؛ نسخه‌های داخلی همچنان محفوظ‌اند.';
+        return <ExternalBackupFile>[];
+      }
+      return await access.listBackups(folder.uri);
+    } catch (error) {
+      lastBackupWarning = 'دسترسی به پوشهٔ بیرونی برقرار نیست؛ نسخهٔ داخلی پشتیبان محفوظ است. ($error)';
+      return <ExternalBackupFile>[];
+    }
+  }
+
+  Future<void> deleteExternalBackup(ExternalBackupFile file) async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null || file.folderUri != folder.uri) {
+      throw ArgumentError('فایل انتخاب‌شده متعلق به پوشهٔ پشتیبان ثبت‌شده نیست.');
+    }
+    if (!await access.hasPersistedWritePermission(folder.uri)) {
+      throw StateError('مجوز حذف از پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    await access.deleteFile(file.uri);
+  }
+
+  Future<void> restoreFromExternalBackup(ExternalBackupFile file) async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null || file.folderUri != folder.uri) {
+      throw ArgumentError('فایل انتخاب‌شده متعلق به پوشهٔ پشتیبان ثبت‌شده نیست.');
+    }
+    if (!await access.hasPersistedWritePermission(folder.uri)) {
+      throw StateError('مجوز پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    final temporaryDirectory = await _temporaryDirectory;
+    await temporaryDirectory.create(recursive: true);
+    final staged = File(p.join(
+      temporaryDirectory.path,
+      'external-restore-${_clock().microsecondsSinceEpoch}.db',
+    ));
+    try {
+      await access.copyToLocalFile(file.uri, staged.path);
+      await restoreFromPath(staged.path);
+    } finally {
+      if (await staged.exists()) await staged.delete();
+    }
+  }
+
+  Future<void> _copyToSelectedFolder(File backup) async {
+    lastBackupWarning = null;
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null) return;
+    try {
+      if (!await access.hasPersistedWritePermission(folder.uri)) {
+        lastBackupWarning =
+            'مجوز پوشهٔ بیرونی لغو شده است؛ نسخه در حافظهٔ داخلی ذخیره شد. پوشه را دوباره انتخاب کنید.';
+        return;
+      }
+      await access.copyLocalFile(backup, folder.uri);
+    } catch (error) {
+      lastBackupWarning =
+          'ذخیره در پوشهٔ بیرونی انجام نشد؛ نسخهٔ داخلی محفوظ است. ($error)';
+    }
+  }
+
 
   Future<String> get _databaseFile async {
     final override = _databasePathOverride;
@@ -70,6 +174,7 @@ class BackupService {
     if (await dailyFile.exists()) {
       try {
         await _validateBackupFile(dailyFile);
+        await _copyToSelectedFolder(dailyFile);
         return null;
       } catch (_) {
         await dailyFile.delete();
@@ -118,6 +223,7 @@ class BackupService {
       await source.copy(destination.path);
       await _validateBackupFile(destination);
       await _applyRetention();
+      await _copyToSelectedFolder(destination);
       return destination;
     } catch (_) {
       if (destination != null && await destination.exists()) {

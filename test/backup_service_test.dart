@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:khadamat_fanni_hosein/app_database.dart';
 import 'package:khadamat_fanni_hosein/backup_service.dart';
+import 'package:khadamat_fanni_hosein/backup_storage.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,8 @@ void main() {
   late AppDatabase database;
   late DateTime clock;
   late BackupService service;
+  late _FakeBackupFolderAccess folderAccess;
+  late FileBackupLocationStore locationStore;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('khadamat_backup_test_');
@@ -28,12 +31,18 @@ void main() {
     clock = DateTime(2026, 11, 14, 9, 30);
     database = AppDatabase(databasePath: databasePath);
     await database.database;
+    folderAccess = _FakeBackupFolderAccess();
+    locationStore = FileBackupLocationStore(
+      file: File(root.path + '/backup_location.json'),
+    );
     service = BackupService(
       database,
       databasePath: databasePath,
       backupDirectory: backups,
       temporaryDirectory: temporary,
       clock: () => clock,
+      folderAccess: folderAccess,
+      locationStore: locationStore,
     );
   });
 
@@ -179,6 +188,42 @@ void main() {
     );
   });
 
+
+
+  test('persists the selected folder and copies validated backups there', () async {
+    final selected = await service.chooseBackupLocation();
+    expect(selected?.name, 'پوشه پشتیبان');
+    expect(folderAccess.probeVerified, isTrue);
+    expect((await locationStore.read())?.uri, 'content://backup-folder');
+
+    final backup = await service.createBackup();
+    expect(await backup.exists(), isTrue);
+    expect(folderAccess.copiedFiles, hasLength(1));
+    expect(folderAccess.copiedFiles.single, backup.path);
+    expect(service.lastBackupWarning, isNull);
+  });
+
+  test('keeps the internal backup when copying to the selected folder fails', () async {
+    await service.chooseBackupLocation();
+    folderAccess.copyFailure = StateError('storage unavailable');
+
+    final backup = await service.createBackup();
+
+    expect(await backup.exists(), isTrue);
+    expect(service.lastBackupWarning, contains('نسخهٔ داخلی محفوظ است'));
+  });
+
+  test('falls back to internal storage when the persisted folder grant is revoked', () async {
+    await service.chooseBackupLocation();
+    folderAccess.hasWriteGrant = false;
+
+    final backup = await service.createBackup();
+
+    expect(await backup.exists(), isTrue);
+    expect(folderAccess.copiedFiles, isEmpty);
+    expect(service.lastBackupWarning, contains('مجوز پوشهٔ بیرونی لغو شده'));
+  });
+
   test('prevents deleting files outside the app backup folder', () async {
     final outside = File('${root.path}/keep.db');
     await outside.writeAsString('keep');
@@ -189,4 +234,44 @@ void main() {
     );
     expect(await outside.exists(), isTrue);
   });
+}
+
+
+class _FakeBackupFolderAccess implements BackupFolderAccess {
+  bool hasWriteGrant = true;
+  bool probeVerified = false;
+  Object? copyFailure;
+  final List<String> copiedFiles = <String>[];
+
+  @override
+  Future<BackupFolder?> pickDirectory({String? initialUri}) async =>
+      const BackupFolder(uri: 'content://backup-folder', name: 'پوشه پشتیبان');
+
+  @override
+  Future<bool> hasPersistedWritePermission(String uri) async =>
+      uri == 'content://backup-folder' && hasWriteGrant;
+
+  @override
+  Future<void> verifyWritable(String uri) async {
+    if (!hasWriteGrant) throw StateError('write permission revoked');
+    probeVerified = true;
+  }
+
+  @override
+  Future<void> copyLocalFile(File source, String destinationUri) async {
+    final failure = copyFailure;
+    if (failure != null) throw failure;
+    copiedFiles.add(source.path);
+  }
+
+  @override
+  Future<List<ExternalBackupFile>> listBackups(String folderUri) async =>
+      <ExternalBackupFile>[];
+
+  @override
+  Future<void> copyToLocalFile(String sourceUri, String destinationPath) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> deleteFile(String uri) async => throw UnimplementedError();
 }

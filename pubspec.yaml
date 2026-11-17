@@ -30,6 +30,7 @@ dependencies:
 
   share_plus: ^10.1.4
   file_picker: ^8.1.7
+  saf: ^2.1.2
   flutter_local_notifications: ^18.0.1
   flutter_timezone: ^3.0.1
   timezone: ^0.10.1
