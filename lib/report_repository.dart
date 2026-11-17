@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'app_database.dart';
+import 'localized_number.dart';
 
 class ReportRepository {
   ReportRepository(this._database);
@@ -67,6 +68,47 @@ class ReportRepository {
     }).toList();
   }
 
+
+  /// Current catalogue prices and ledger-derived stock balances.
+  /// The quantity comes from immutable inventory movements, never legacy JSON.
+  Future<List<Map<String, Object?>>> getStockPriceList() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery('''
+      SELECT p.id AS product_id, p.data_json,
+        COALESCE(SUM(m.quantity_delta), 0) AS stock_quantity
+      FROM products p
+      LEFT JOIN inventory_movements m ON m.product_id = p.id
+      GROUP BY p.id, p.data_json
+      ORDER BY p.id ASC
+    ''');
+
+    int amount(Object? value) =>
+        LocalizedNumber.tryParseDouble(value?.toString() ?? '')?.round() ?? 0;
+
+    return rows.map((row) {
+      Map<String, Object?> data = const {};
+      try {
+        final decoded = jsonDecode(row['data_json']?.toString() ?? '{}');
+        if (decoded is Map) {
+          data = Map<String, Object?>.from(decoded);
+        }
+      } catch (_) {
+        // Keep malformed legacy rows visible with their database ID.
+      }
+      final id = (row['product_id'] as num).toInt();
+      return <String, Object?>{
+        'product_id': id,
+        'product_name': (data['نام کالا'] ?? data['نام'] ?? data['name'] ?? 'کالای $id').toString(),
+        'product_code': (data['کد کالا'] ?? data['کد'] ?? '').toString(),
+        'category': (data['گروه اصلی'] ?? data['دسته‌بندی'] ?? '').toString(),
+        'stock_quantity': (row['stock_quantity'] as num).toDouble(),
+        'purchase_price': amount(
+          data['قیمت خرید هر واحد'] ?? data['بهای تمام‌شده هر واحد'],
+        ),
+        'sale_price': amount(data['قیمت فروش']),
+      };
+    }).toList(growable: false);
+  }
 
   /// Profit and loss balances derived from posted double-entry journal lines.
   /// Reversal entries are naturally included as they carry opposite postings.
