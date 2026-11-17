@@ -381,6 +381,28 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     return date == null ? '—' : formatJalaliDate(date);
   }
 
+  String _checkStatusLabel(Object? value) => switch (value?.toString()) {
+        'received' => 'دریافت‌شده',
+        'issued' => 'صادرشده',
+        'deposited' => 'واگذار‌شده به بانک',
+        'cleared' => 'وصول / پاس‌شده',
+        'bounced' => 'برگشتی',
+        'cancelled' => 'باطل‌شده',
+        _ => 'نامشخص',
+      };
+
+  bool _isOverdueCheck(Map<String, Object?> check) {
+    final status = check['status']?.toString();
+    if (const {'cleared', 'bounced', 'cancelled'}.contains(status)) {
+      return false;
+    }
+    final dueDate = DateTime.tryParse(check['due_date']?.toString() ?? '');
+    if (dueDate == null) return false;
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    return dueDate.isBefore(todayOnly);
+  }
+
   String _documentTypeLabel(Object? type) => switch (type) {
         'purchase' => 'فاکتور خرید',
         'sale' => 'فاکتور فروش',
@@ -595,7 +617,12 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         '${check['direction'] == 'incoming' ? 'چک دریافتی' : 'چک پرداختی'} • ${check['check_number']}',
                       ),
                       subtitle: Text(
-                        '${check['bank_name']} • سررسید: ${_dateLabel(check['due_date'])} • ${check['status']}',
+                        '${check['bank_name']} • سررسید: ${_dateLabel(check['due_date'])} • ${_checkStatusLabel(check['status'])}${_isOverdueCheck(check) ? ' • سررسید گذشته' : ''}',
+                        style: TextStyle(
+                          color: _isOverdueCheck(check)
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                        ),
                       ),
                       trailing: Text('${_amount(check['amount'])} تومان'),
                     ),
