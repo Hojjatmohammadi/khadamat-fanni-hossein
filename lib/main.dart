@@ -1710,7 +1710,7 @@ class _ProductPageState extends State<ProductPage> {
                 if (counted == null || counted < 0 || reason.isEmpty ||
                     (currentStock <= 0 && (enteredCost == null || enteredCost <= 0))) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
+                    SnackBar(
                       content: Text(currentStock <= 0 && (enteredCost == null || enteredCost <= 0)
                           ? 'برای کالایی با موجودی صفر، بهای تمام‌شده معتبر و بیشتر از صفر وارد کنید'
                           : 'تعداد واقعی و علت معتبر را وارد کنید'),
