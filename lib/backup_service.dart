@@ -77,27 +77,51 @@ class BackupService {
     }
   }
 
+  Future<void> _validateExternalBackupReference(
+    BackupFolderAccess access,
+    BackupFolder folder,
+    ExternalBackupFile file,
+  ) async {
+    if (file.folderUri != folder.uri ||
+        !p.basename(file.name).startsWith('khadamat-backup-') ||
+        !file.name.endsWith('.db')) {
+      throw ArgumentError('فایل انتخاب‌شده متعلق به فهرست پشتیبان‌های معتبر نیست.');
+    }
+    final currentFiles = await access.listBackups(folder.uri);
+    final stillExists = currentFiles.any(
+      (candidate) =>
+          candidate.uri == file.uri &&
+          candidate.folderUri == folder.uri &&
+          candidate.name == file.name,
+    );
+    if (!stillExists) {
+      throw StateError('فایل پشتیبان دیگر در پوشهٔ انتخاب‌شده وجود ندارد؛ فهرست را تازه‌سازی کنید.');
+    }
+  }
+
   Future<void> deleteExternalBackup(ExternalBackupFile file) async {
     final folder = await _locationStore.read();
     final access = _folderAccess;
-    if (folder == null || access == null || file.folderUri != folder.uri) {
-      throw ArgumentError('فایل انتخاب‌شده متعلق به پوشهٔ پشتیبان ثبت‌شده نیست.');
+    if (folder == null || access == null) {
+      throw ArgumentError('پوشهٔ پشتیبان بیرونی انتخاب نشده است.');
     }
     if (!await access.hasPersistedWritePermission(folder.uri)) {
       throw StateError('مجوز حذف از پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
     }
+    await _validateExternalBackupReference(access, folder, file);
     await access.deleteFile(file.uri);
   }
 
   Future<void> restoreFromExternalBackup(ExternalBackupFile file) async {
     final folder = await _locationStore.read();
     final access = _folderAccess;
-    if (folder == null || access == null || file.folderUri != folder.uri) {
-      throw ArgumentError('فایل انتخاب‌شده متعلق به پوشهٔ پشتیبان ثبت‌شده نیست.');
+    if (folder == null || access == null) {
+      throw ArgumentError('پوشهٔ پشتیبان بیرونی انتخاب نشده است.');
     }
     if (!await access.hasPersistedWritePermission(folder.uri)) {
       throw StateError('مجوز پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
     }
+    await _validateExternalBackupReference(access, folder, file);
     final temporaryDirectory = await _temporaryDirectory;
     await temporaryDirectory.create(recursive: true);
     final staged = File(p.join(

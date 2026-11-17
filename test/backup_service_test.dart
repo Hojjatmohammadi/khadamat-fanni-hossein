@@ -258,6 +258,7 @@ void main() {
       lastModified: clock.millisecondsSinceEpoch,
     );
     folderAccess.externalSources[externalUri] = backup.path;
+    folderAccess.externalBackups.add(external);
 
     await database.insert('customers', {'نام مشتری': 'اطلاعات جدید برای جایگزینی'});
     expect(await database.getAll('customers'), hasLength(2));
@@ -267,6 +268,23 @@ void main() {
     final restored = await database.getAll('customers');
     expect(restored, hasLength(1));
     expect(restored.single['نام مشتری'], 'مشتری داخل نسخه بیرونی');
+  });
+
+  test('rejects an external backup reference that is not in the selected folder', () async {
+    final folder = await service.chooseBackupLocation();
+    final forged = ExternalBackupFile(
+      uri: 'content://unrelated/private.db',
+      folderUri: folder!.uri,
+      name: 'khadamat-backup-forged.db',
+      length: 2048,
+      lastModified: clock.millisecondsSinceEpoch,
+    );
+
+    await expectLater(
+      service.deleteExternalBackup(forged),
+      throwsA(isA<StateError>()),
+    );
+    expect(folderAccess.deletedUris, isEmpty);
   });
 
   test('prevents deleting files outside the app backup folder', () async {

@@ -44,7 +44,7 @@ class _BackupPageState extends State<BackupPage> {
           _backups = files;
           _backupFolder = folder;
           _externalBackups = externalFiles;
-          if (warning != null && (_message == null || _message!.isEmpty)) {
+          if (warning != null) {
             _message = warning;
           }
         });
