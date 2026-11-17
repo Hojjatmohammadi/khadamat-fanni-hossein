@@ -7,33 +7,43 @@ class PhoneContactSelection {
   const PhoneContactSelection({
     required this.name,
     required this.phone,
+    this.phonePermissionDenied = false,
   });
 
   final String name;
   final String phone;
+  final bool phonePermissionDenied;
 }
 
-class PhoneContactPermissionDenied implements Exception {
-  const PhoneContactPermissionDenied();
-}
-
-/// Opens the system contact picker and reads only the selected contact's name
-/// and phone number. It never enumerates or imports the whole address book.
+/// Opens the system picker first, without requesting access to the full
+/// address book. After the user selects one contact, requests read access only
+/// to load that contact's phone number.
 Future<PhoneContactSelection?> pickDevicePhoneContact() async {
-  final permission = await FlutterContacts.permissions.request(PermissionType.read);
-  if (permission != PermissionStatus.granted) {
-    throw const PhoneContactPermissionDenied();
-  }
-
-  final picked = await FlutterContacts.native.showPicker(
-    properties: {ContactProperty.phone},
-  );
+  final picked = await FlutterContacts.native.showPicker();
   if (picked == null) return null;
 
   final name = (picked.displayName ?? '').trim();
-  final phone = picked.phones
+  final contactId = picked.id?.trim() ?? '';
+  if (contactId.isEmpty) {
+    return PhoneContactSelection(name: name, phone: '');
+  }
+
+  final permission = await FlutterContacts.permissions.request(PermissionType.read);
+  if (permission != PermissionStatus.granted) {
+    return PhoneContactSelection(
+      name: name,
+      phone: '',
+      phonePermissionDenied: true,
+    );
+  }
+
+  final selectedContact = await FlutterContacts.get(
+    contactId,
+    properties: {ContactProperty.phone},
+  );
+  final phone = selectedContact?.phones
       .map((entry) => entry.number.trim())
-      .firstWhere((number) => number.isNotEmpty, orElse: () => '');
+      .firstWhere((number) => number.isNotEmpty, orElse: () => '') ?? '';
 
   return PhoneContactSelection(name: name, phone: phone);
 }
@@ -77,11 +87,11 @@ class _PhoneContactPickerButtonState extends State<PhoneContactPickerButton> {
         return;
       }
       widget.onSelected(contact);
-      if (contact.phone.isEmpty) {
+      if (contact.phonePermissionDenied) {
+        _showMessage('نام انتخاب شد؛ برای خواندن شماره، مجوز مخاطبین گوشی را فعال کنید.');
+      } else if (contact.phone.isEmpty) {
         _showMessage('نام انتخاب شد؛ برای این مخاطب شمارهٔ همراه ثبت نشده است.');
       }
-    } on PhoneContactPermissionDenied {
-      _showMessage('برای انتخاب مخاطب، مجوز خواندن مخاطبین گوشی لازم است.');
     } on PlatformException catch (error) {
       _showMessage('باز کردن مخاطبین گوشی ناموفق بود: ${error.message ?? error.code}');
     } catch (error) {

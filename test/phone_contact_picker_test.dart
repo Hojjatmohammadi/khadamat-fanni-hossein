@@ -26,6 +26,34 @@ void main() {
     expect(selected?.phone, '09123456789');
   });
 
+  testWidgets('selected name is kept when phone permission is denied', (tester) async {
+    PhoneContactSelection? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PhoneContactPickerButton(
+            loader: () async => const PhoneContactSelection(
+              name: 'احمد رضایی',
+              phone: '',
+              phonePermissionDenied: true,
+            ),
+            onSelected: (contact) => selected = contact,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('انتخاب از مخاطبین گوشی'));
+    await tester.pumpAndSettle();
+
+    expect(selected?.name, 'احمد رضایی');
+    expect(selected?.phone, isEmpty);
+    expect(
+      find.text('نام انتخاب شد؛ برای خواندن شماره، مجوز مخاطبین گوشی را فعال کنید.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('cancelling the system picker does not change the selection', (tester) async {
     var called = false;
     await tester.pumpWidget(
