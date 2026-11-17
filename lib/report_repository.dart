@@ -141,6 +141,33 @@ class ReportRepository {
     ]);
   }
 
+  /// Net quantity and revenue for each item, with customer returns
+  /// deducted from sales during the selected inclusive date range.
+  Future<List<Map<String, Object?>>> getItemSales({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT l.product_id,
+        l.product_name,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.line_total ELSE -l.line_total END) AS net_revenue,
+        SUM(CASE WHEN d.document_type = 'sale'
+          THEN l.quantity ELSE -l.quantity END) AS net_quantity
+      FROM business_document_lines l
+      JOIN business_documents d ON d.id = l.document_id
+      WHERE d.document_type IN ('sale', 'customer_return')
+        AND d.document_date >= ? AND d.document_date < ?
+      GROUP BY l.product_id, l.product_name
+      ORDER BY net_revenue DESC, l.product_name COLLATE NOCASE
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
   /// Net sales margin by item: sales less customer returns, minus the
   /// corresponding cost of goods sold. Supplier returns do not affect sales.
   Future<List<Map<String, Object?>>> getItemProfit({
