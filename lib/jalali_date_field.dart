@@ -32,10 +32,6 @@ DateTime? parseJalaliDate(String value) {
     normalized = normalized.replaceAll(persian[i], '$i');
     normalized = normalized.replaceAll(arabic[i], '$i');
   }
-  if (normalized.contains('-')) {
-    if (normalized.contains('/')) return null;
-    normalized = normalized.replaceAll('-', '/');
-  }
   final match = RegExp(r'^([0-9]{4})/([0-9]{2})/([0-9]{2})$')
       .firstMatch(normalized);
   if (match == null) return null;
