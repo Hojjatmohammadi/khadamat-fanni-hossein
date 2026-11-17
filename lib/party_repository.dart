@@ -308,16 +308,32 @@ class PartyRepository {
       ].fold<int>(linkedRepairs, (sum, value) => sum + (value as num).toInt());
 
 
+      final sourceCategory = record['source_category']?.toString() ?? '';
+      final sourceId = record['source_id']?.toString() ?? '';
+      final linkedLegacyCustomerId = sourceCategory == 'customers'
+          ? int.tryParse(sourceId)
+          : null;
       final hasLegacySource =
-          (record['source_category']?.toString().isNotEmpty ?? false) ||
-          (record['source_id']?.toString().isNotEmpty ?? false);
-      if (references > 0 || hasLegacySource) {
+          sourceCategory.isNotEmpty || sourceId.isNotEmpty;
+      final hasUnsupportedLegacySource =
+          hasLegacySource && linkedLegacyCustomerId == null;
+      if (references > 0 || hasUnsupportedLegacySource) {
         throw StateError(
           'این مخاطب سابقه فاکتور، چک، سند حسابداری یا پذیرش تعمیر دارد؛ '
           'برای حفظ سوابق امکان حذف مستقیم وجود ندارد.',
         );
       }
 
+      // A legacy customer row is owned by this contact. Remove it in the
+      // same transaction only after every financial and repair reference
+      // above has been checked.
+      if (linkedLegacyCustomerId != null) {
+        await txn.delete(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [linkedLegacyCustomerId],
+        );
+      }
       await txn.delete(
         'parties',
         where: 'id = ?',
