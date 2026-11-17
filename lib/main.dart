@@ -2287,6 +2287,14 @@ class _RepairPageState extends State<RepairPage> {
     int? selectedProductId =
         int.tryParse(productOptions.first['__database_id'] ?? '');
     final quantityController = TextEditingController(text: '1');
+    String selectedUiSize = 'معمولی';
+
+    double get uiScale => switch (selectedUiSize) {
+      'ریز' => 0.80,
+      'کوچک' => 0.90,
+      'بزرگ' => 1.15,
+      _ => 1.0,
+    };
 
     final saved = await showDialog<bool>(
       context: context,
@@ -2294,18 +2302,52 @@ class _RepairPageState extends State<RepairPage> {
         builder: (context, refresh) => Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            title: const Text('ثبت مصرف قطعه در تعمیر'),
+            title: Text(
+              'ثبت مصرف قطعه در تعمیر',
+              style: TextStyle(fontSize: 20 * uiScale),
+            ),
             content: SizedBox(
-              width: 380,
+              width: 380 * uiScale,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(selectedUiSize),
+                      initialValue: selectedUiSize,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'اندازه نمایش بخش قطعات',
+                        labelStyle: TextStyle(fontSize: 14 * uiScale),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14 * uiScale,
+                          vertical: 14 * uiScale,
+                        ),
+                      ),
+                      items: [
+                        for (final size in const ['ریز', 'کوچک', 'معمولی', 'بزرگ'])
+                          DropdownMenuItem(
+                            value: size,
+                            child: Text(size, style: TextStyle(fontSize: 14 * uiScale)),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        refresh(() => selectedUiSize = value ?? 'معمولی');
+                      },
+                    ),
+                    SizedBox(height: 12 * uiScale),
                     DropdownButtonFormField<int>(
                       key: ValueKey(selectedRepairId),
                       initialValue: selectedRepairId,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'پذیرش تعمیر'),
+                      decoration: InputDecoration(
+                        labelText: 'پذیرش تعمیر',
+                        labelStyle: TextStyle(fontSize: 14 * uiScale),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14 * uiScale,
+                          vertical: 14 * uiScale,
+                        ),
+                      ),
                       items: [
                         for (final repair in repairOptions)
                           DropdownMenuItem(
@@ -2319,12 +2361,19 @@ class _RepairPageState extends State<RepairPage> {
                       onChanged: (value) =>
                           refresh(() => selectedRepairId = value),
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12 * uiScale),
                     DropdownButtonFormField<int>(
                       key: ValueKey(selectedProductId),
                       initialValue: selectedProductId,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'قطعه مصرفی'),
+                      decoration: InputDecoration(
+                        labelText: 'قطعه مصرفی',
+                        labelStyle: TextStyle(fontSize: 14 * uiScale),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14 * uiScale,
+                          vertical: 14 * uiScale,
+                        ),
+                      ),
                       items: [
                         for (final product in productOptions)
                           DropdownMenuItem(
@@ -2338,17 +2387,28 @@ class _RepairPageState extends State<RepairPage> {
                       onChanged: (value) =>
                           refresh(() => selectedProductId = value),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
+                    SizedBox(height: 12 * uiScale),
+                    SizedBox(
+                      height: 58 * uiScale,
+                      child: TextField(
                         textInputAction: TextInputAction.next,
-                      controller: quantityController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'تعداد مصرفی'),
+                        controller: quantityController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        style: TextStyle(fontSize: 16 * uiScale),
+                        decoration: InputDecoration(
+                          labelText: 'تعداد مصرفی',
+                          labelStyle: TextStyle(fontSize: 14 * uiScale),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 14 * uiScale,
+                            vertical: 14 * uiScale,
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
+                    SizedBox(height: 8 * uiScale),
+                    Text(
                       'هزینه قطعه بر اساس میانگین بهای موجودی محاسبه و به هزینه قطعات مصرفی تعمیر منتقل می‌شود.',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                      style: TextStyle(fontSize: 12 * uiScale, color: Colors.black54),
                     ),
                   ],
                 ),
@@ -2357,9 +2417,23 @@ class _RepairPageState extends State<RepairPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
+                style: TextButton.styleFrom(
+                  textStyle: TextStyle(fontSize: 14 * uiScale),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16 * uiScale,
+                    vertical: 12 * uiScale,
+                  ),
+                ),
                 child: const Text('انصراف'),
               ),
               FilledButton(
+                style: FilledButton.styleFrom(
+                  textStyle: TextStyle(fontSize: 14 * uiScale),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 18 * uiScale,
+                    vertical: 12 * uiScale,
+                  ),
+                ),
                 onPressed: () async {
                   final quantity = LocalizedNumber.tryParseDouble(quantityController.text);
                   if (selectedRepairId == null ||
