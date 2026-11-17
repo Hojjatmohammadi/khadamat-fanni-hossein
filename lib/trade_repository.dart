@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'accounting_repository.dart';
 import 'invoice_archive_repository.dart';
+import 'invoice_balance.dart';
 import 'app_database.dart';
 
 class TradeLineDraft {
@@ -304,6 +305,12 @@ class TradeRepository {
           ),
         );
       }
+      await InvoiceBalance.allocateAvailableAdvances(
+        txn,
+        invoiceDocumentId: documentId,
+        invoiceType: 'purchase',
+        partyId: draft.counterpartyId,
+      );
       if (invoiceHeaderSnapshot != null) {
         final documentRows = await txn.query(
           'business_documents',
@@ -330,9 +337,13 @@ class TradeRepository {
           'chargesAmount': document['charges_amount'],
           'vatAmount': document['vat_amount'],
           'totalAmount': document['total_amount'],
-          'paidAmount': document['paid_amount'],
-          'outstandingAmount': (document['total_amount'] as int) -
-              (document['paid_amount'] as int),
+          'paidAmount': (document['paid_amount'] as num).toInt() +
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'directPaidAmount': document['paid_amount'],
+          'advanceAppliedAmount':
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'outstandingAmount':
+              await InvoiceBalance.getOutstandingAmount(txn, documentId),
           'items': lineRows.map((row) {
             final quantity = (row['quantity'] as num).toDouble();
             final unitPrice = (row['unit_price'] as num).toInt();
@@ -518,6 +529,12 @@ class TradeRepository {
         );
       }
 
+      await InvoiceBalance.allocateAvailableAdvances(
+        txn,
+        invoiceDocumentId: documentId,
+        invoiceType: 'sale',
+        partyId: draft.counterpartyId,
+      );
       if (invoiceHeaderSnapshot != null) {
         final documentRows = await txn.query(
           'business_documents',
@@ -544,9 +561,13 @@ class TradeRepository {
           'chargesAmount': document['charges_amount'],
           'vatAmount': document['vat_amount'],
           'totalAmount': document['total_amount'],
-          'paidAmount': document['paid_amount'],
-          'outstandingAmount': (document['total_amount'] as int) -
-              (document['paid_amount'] as int),
+          'paidAmount': (document['paid_amount'] as num).toInt() +
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'directPaidAmount': document['paid_amount'],
+          'advanceAppliedAmount':
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'outstandingAmount':
+              await InvoiceBalance.getOutstandingAmount(txn, documentId),
           'items': lineRows.map((row) {
             final quantity = (row['quantity'] as num).toDouble();
             final unitPrice = (row['unit_price'] as num).toInt();
@@ -1102,36 +1123,10 @@ class TradeRepository {
         effectiveCounterpartyId ??= source['counterparty_id']?.toString();
         final sourceName = source['counterparty_name']?.toString().trim() ?? '';
         if (sourceName.isNotEmpty) effectiveCounterpartyName = sourceName;
-        final paymentRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [
-            sourceDocumentId,
-            isCustomerReceipt ? 'customer_receipt' : 'supplier_payment',
-          ],
+        final outstanding = await InvoiceBalance.getOutstandingAmount(
+          txn,
+          sourceDocumentId,
         );
-        final returnRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(total_amount), 0) AS returned '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [
-            sourceDocumentId,
-            isCustomerReceipt ? 'customer_return' : 'supplier_return',
-          ],
-        );
-        final checkRows = await txn.rawQuery(
-          "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
-          "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
-          [sourceDocumentId],
-        );
-        final alreadySettled =
-            (source['paid_amount'] as num).toInt() +
-            (paymentRows.single['paid'] as num).toInt() +
-            (checkRows.single['amount'] as num).toInt();
-        final returnedAmount = (returnRows.single['returned'] as num).toInt();
-        final outstanding =
-            (source['total_amount'] as num).toInt() -
-            alreadySettled -
-            returnedAmount;
         if (draft.amount > outstanding) {
           throw StateError('مبلغ دریافت یا پرداخت از مانده فاکتور بیشتر است');
         }
@@ -1200,45 +1195,7 @@ class TradeRepository {
 
   Future<int> getOutstandingAmount(int documentId) async {
     final db = await _database.database;
-    final rows = await db.query(
-      'business_documents',
-      where: 'id = ?',
-      whereArgs: [documentId],
-      limit: 1,
-    );
-    if (rows.isEmpty) throw StateError('فاکتور پیدا نشد');
-    final document = rows.single;
-    final type = document['document_type'];
-    final paymentType = type == 'sale'
-        ? 'customer_receipt'
-        : type == 'purchase'
-            ? 'supplier_payment'
-            : null;
-    if (paymentType == null) {
-      throw ArgumentError('این نوع سند تسویه دریافت یا پرداخت ندارد');
-    }
-    final payments = await db.rawQuery(
-      'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
-      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-      [documentId, paymentType],
-    );
-    final returnType = type == 'sale' ? 'customer_return' : 'supplier_return';
-    final returns = await db.rawQuery(
-      'SELECT COALESCE(SUM(total_amount), 0) AS returned '
-      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-      [documentId, returnType],
-    );
-    final checks = await db.rawQuery(
-      "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
-      "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
-      [documentId],
-    );
-    final totalPaid = (document['paid_amount'] as num).toInt() +
-        (payments.single['paid'] as num).toInt() +
-        (checks.single['amount'] as num).toInt();
-    final totalReturned = (returns.single['returned'] as num).toInt();
-    final total = (document['total_amount'] as num).toInt();
-    return total - totalPaid - totalReturned;
+    return InvoiceBalance.getOutstandingAmount(db, documentId);
   }
 
   Future<List<Map<String, Object?>>> getDocuments({

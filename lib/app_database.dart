@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 14;
+  static const int schemaVersion = 15;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -65,6 +65,7 @@ class AppDatabase {
         await _createCoreSchema(db);
         await _createAccountingSchema(db);
         await _createCommerceSchema(db);
+        await _createPaymentAllocationSchema(db);
         await _createPartyAndCheckSchema(db);
         await _createPartyRolesSchema(db);
         await _createBankReconciliationSchema(db);
@@ -132,6 +133,9 @@ class AppDatabase {
               SELECT id, party_type, created_at FROM parties
             ''');
           }
+        }
+        if (oldVersion < 15) {
+          await _createPaymentAllocationSchema(db);
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -384,6 +388,47 @@ class AppDatabase {
       BEFORE DELETE ON business_document_lines
       BEGIN
         SELECT RAISE(ABORT, 'posted business document lines are immutable');
+      END
+    """);
+  }
+
+
+  static Future<void> _createPaymentAllocationSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_payment_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_document_id INTEGER NOT NULL,
+        invoice_document_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        created_at TEXT NOT NULL,
+        UNIQUE (payment_document_id, invoice_document_id),
+        CHECK (payment_document_id != invoice_document_id),
+        FOREIGN KEY (payment_document_id)
+          REFERENCES business_documents(id) ON DELETE RESTRICT,
+        FOREIGN KEY (invoice_document_id)
+          REFERENCES business_documents(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_payment_allocations_invoice '
+      'ON invoice_payment_allocations(invoice_document_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment '
+      'ON invoice_payment_allocations(payment_document_id)',
+    );
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_payment_allocations_update
+      BEFORE UPDATE ON invoice_payment_allocations
+      BEGIN
+        SELECT RAISE(ABORT, 'invoice payment allocations are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_payment_allocations_delete
+      BEFORE DELETE ON invoice_payment_allocations
+      BEGIN
+        SELECT RAISE(ABORT, 'invoice payment allocations cannot be deleted');
       END
     """);
   }

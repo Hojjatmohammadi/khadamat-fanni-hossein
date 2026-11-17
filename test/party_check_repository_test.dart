@@ -252,6 +252,225 @@ void main() {
     );
   });
 
+
+  test('unlinked customer advances are allocated once across later invoices and settlements', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'customer',
+        displayName: 'مشتری با بیعانه چندفاکتوری',
+      ),
+    );
+    final productId = await addProduct();
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-10',
+        counterpartyName: 'فروشنده موجودی',
+        idempotencyKey: 'customer-advance-stock-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 10, unitPrice: 100),
+        ],
+      ),
+    );
+
+    await trades.recordCustomerReceipt(
+      PartyPaymentDraft(
+        documentDate: '2026-11-10',
+        counterpartyName: 'مشتری با بیعانه چندفاکتوری',
+        counterpartyId: partyId,
+        amount: 900,
+        idempotencyKey: 'customer-advance-for-future-invoices',
+        cashAccountCode: '1010',
+        paymentMethod: 'card_to_card',
+      ),
+    );
+
+    final firstSale = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-11',
+        counterpartyName: 'مشتری با بیعانه چندفاکتوری',
+        counterpartyId: partyId,
+        idempotencyKey: 'customer-advance-first-invoice',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 600),
+        ],
+      ),
+    );
+    expect(await trades.getOutstandingAmount(firstSale), 0);
+
+    final secondSale = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-12',
+        counterpartyName: 'مشتری با بیعانه چندفاکتوری',
+        counterpartyId: partyId,
+        idempotencyKey: 'customer-advance-second-invoice',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 800),
+        ],
+        paidAmount: 100,
+      ),
+    );
+    expect(await trades.getOutstandingAmount(secondSale), 400);
+
+    await trades.recordCustomerReceipt(
+      PartyPaymentDraft(
+        documentDate: '2026-11-13',
+        counterpartyName: 'مشتری با بیعانه چندفاکتوری',
+        counterpartyId: partyId,
+        amount: 200,
+        idempotencyKey: 'customer-advance-second-invoice-linked-receipt',
+        referenceId: secondSale.toString(),
+      ),
+    );
+    expect(await trades.getOutstandingAmount(secondSale), 200);
+
+    final checkId = await checks.createCheck(
+      CheckDraft(
+        direction: 'incoming',
+        checkNumber: 'ADV-100',
+        bankName: 'بانک آزمایشی',
+        drawerName: 'مشتری',
+        partyName: 'مشتری با بیعانه چندفاکتوری',
+        partyId: partyId,
+        amount: 50,
+        issueDate: '2026-11-14',
+        dueDate: '2026-11-20',
+        idempotencyKey: 'customer-advance-second-invoice-check',
+        sourceDocumentId: secondSale,
+      ),
+    );
+    expect(checkId, greaterThan(0));
+    expect(await trades.getOutstandingAmount(secondSale), 150);
+
+    await expectLater(
+      checks.createCheck(
+        CheckDraft(
+          direction: 'incoming',
+          checkNumber: 'ADV-101',
+          bankName: 'بانک آزمایشی',
+          drawerName: 'مشتری',
+          partyName: 'مشتری با بیعانه چندفاکتوری',
+          partyId: partyId,
+          amount: 151,
+          issueDate: '2026-11-14',
+          dueDate: '2026-11-21',
+          idempotencyKey: 'customer-advance-second-invoice-over-check',
+          sourceDocumentId: secondSale,
+        ),
+      ),
+      throwsStateError,
+    );
+
+    final db = await store.database;
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'invoice_document_id IN (?, ?)',
+      whereArgs: [firstSale, secondSale],
+      orderBy: 'invoice_document_id ASC',
+    );
+    expect(allocations.map((row) => row['amount']), [600, 300]);
+    expect(
+      allocations.fold<int>(
+        0,
+        (sum, row) => sum + (row['amount'] as num).toInt(),
+      ),
+      900,
+    );
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], 150);
+  });
+
+  test('unlinked supplier prepayments are allocated once across later purchases', () async {
+    final partyId = await parties.ensureParty(
+      const PartyDraft(
+        partyType: 'supplier',
+        displayName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+      ),
+    );
+    final productId = await addProduct();
+    await trades.recordSupplierPayment(
+      PartyPaymentDraft(
+        documentDate: '2026-11-10',
+        counterpartyName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+        counterpartyId: partyId,
+        amount: 700,
+        idempotencyKey: 'supplier-prepayment-for-future-invoices',
+      ),
+    );
+
+    final firstPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-11',
+        counterpartyName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+        counterpartyId: partyId,
+        idempotencyKey: 'supplier-prepayment-first-invoice',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 400),
+        ],
+      ),
+    );
+    expect(await trades.getOutstandingAmount(firstPurchase), 0);
+
+    final secondPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-12',
+        counterpartyName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+        counterpartyId: partyId,
+        idempotencyKey: 'supplier-prepayment-second-invoice',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 800),
+        ],
+        paidAmount: 100,
+      ),
+    );
+    expect(await trades.getOutstandingAmount(secondPurchase), 400);
+
+    await trades.recordSupplierPayment(
+      PartyPaymentDraft(
+        documentDate: '2026-11-13',
+        counterpartyName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+        counterpartyId: partyId,
+        amount: 200,
+        idempotencyKey: 'supplier-prepayment-second-invoice-linked-payment',
+        referenceId: secondPurchase.toString(),
+      ),
+    );
+    expect(await trades.getOutstandingAmount(secondPurchase), 200);
+
+    final checkId = await checks.createCheck(
+      CheckDraft(
+        direction: 'outgoing',
+        checkNumber: 'SUP-100',
+        bankName: 'بانک آزمایشی',
+        drawerName: 'خدمات فنی حسین',
+        partyName: 'فروشنده با پیش‌پرداخت چندفاکتوری',
+        partyId: partyId,
+        amount: 50,
+        issueDate: '2026-11-14',
+        dueDate: '2026-11-20',
+        idempotencyKey: 'supplier-prepayment-second-invoice-check',
+        sourceDocumentId: secondPurchase,
+      ),
+    );
+    expect(checkId, greaterThan(0));
+    expect(await trades.getOutstandingAmount(secondPurchase), 150);
+
+    final statement = await parties.getPartyStatement(partyId);
+    expect(statement['closing_balance'], 150);
+    final db = await store.database;
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'invoice_document_id IN (?, ?)',
+      whereArgs: [firstPurchase, secondPurchase],
+    );
+    expect(
+      allocations.fold<int>(
+        0,
+        (sum, row) => sum + (row['amount'] as num).toInt(),
+      ),
+      700,
+    );
+  });
+
   test('incoming check reduces customer debt, clears to bank, and keeps an audit trail', () async {
     final partyId = await parties.ensureParty(
       const PartyDraft(
