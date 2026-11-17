@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'check_repository.dart';
 import 'party_ledger_page.dart';
 import 'phone_contact_picker.dart';
 import 'party_repository.dart';
@@ -10,10 +11,14 @@ class ContactsPage extends StatefulWidget {
     super.key,
     required this.repository,
     this.trades,
+    this.checks,
+    this.onChanged,
   });
 
   final PartyRepository repository;
   final TradeRepository? trades;
+  final CheckRepository? checks;
+  final VoidCallback? onChanged;
 
   @override
   State<ContactsPage> createState() => _ContactsPageState();
@@ -345,6 +350,8 @@ class _ContactsPageState extends State<ContactsPage> {
           body: PartyLedgerPage(
             repository: widget.repository,
             trades: widget.trades,
+            checks: widget.checks,
+            onChanged: widget.onChanged,
             initialPartyId: id,
           ),
         ),
