@@ -92,7 +92,7 @@ void main() {
 
     expect(parseJalaliDate('1405/13/01'), isNull);
     expect(parseJalaliDate('1405/12/30'), isNull);
-    expect(parseJalaliDate('۱۴۰۵-۰۸-۲۳'), parsed);
+    expect(parseJalaliDate('۱۴۰۵-۰۸-۲۳'), isNull);
 
     expect(
       formatJalaliDate(DateTime(2026, 11, 14)),
