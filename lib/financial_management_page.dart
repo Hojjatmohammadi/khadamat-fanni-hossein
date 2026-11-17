@@ -610,6 +610,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       if (_reconciliations.isEmpty) const Text('هنوز تطبیق بانکی ثبت نشده است'),
                     ],
                   ),
+                ),
                 RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
@@ -706,8 +707,6 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                         const Center(child: Text('گزارش تطبیق در دسترس نیست')),
                     ],
                   ),
-                ),
-
                 ),
 
               ],
