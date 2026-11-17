@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
-import 'numeric_input.dart';
 
 class PartyDraft {
   const PartyDraft({

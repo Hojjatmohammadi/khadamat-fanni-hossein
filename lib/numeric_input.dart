@@ -1,5 +1,4 @@
 import 'package:flutter/services.dart';
-import 'package:material_ui/material_ui.dart';
 
 class NumericInputFormatter extends TextInputFormatter {
   const NumericInputFormatter({this.allowDecimal = false, this.maxLength});
