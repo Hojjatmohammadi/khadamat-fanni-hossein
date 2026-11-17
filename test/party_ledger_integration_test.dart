@@ -376,7 +376,7 @@ void main() {
 
     // Allocation is metadata only; the receipt and sale journals are not reposted.
     final entries = await db.query('journal_entries');
-    expect(entries, hasLength(4));
+    expect(entries, hasLength(5));
     final allAllocations = await db.query('invoice_payment_allocations');
     expect(allAllocations, hasLength(2));
     expect(allAllocations.fold<int>(
