@@ -361,8 +361,44 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _dailyBackupCheckRunning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkDailyBackup();
+    }
+  }
+
+  Future<void> _checkDailyBackup() async {
+    if (_dailyBackupCheckRunning) return;
+    _dailyBackupCheckRunning = true;
+    try {
+      final backup = await DemoStore.backups.createDailyBackupIfDue();
+      if (backup != null) {
+        DemoStore.backupStartupNotice =
+            'نسخه پشتیبان روزانه پس از بازگشت به برنامه ایجاد شد.';
+      }
+    } catch (error) {
+      DemoStore.backupStartupNotice = 'هشدار: پشتیبان روزانه ایجاد نشد: $error';
+    } finally {
+      _dailyBackupCheckRunning = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
   final GlobalKey<_ProductPageState> _productPageKey = GlobalKey<_ProductPageState>();
   final GlobalKey<_SimpleListPageState> _customerPageKey = GlobalKey<_SimpleListPageState>();
   final GlobalKey<_RepairPageState> _repairPageKey = GlobalKey<_RepairPageState>();
