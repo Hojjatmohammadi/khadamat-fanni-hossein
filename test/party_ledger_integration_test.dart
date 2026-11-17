@@ -430,6 +430,51 @@ void main() {
     expect(await db.query('journal_entries'), hasLength(2));
   });
 
+
+  test('historical party statement excludes advances allocated after period end', () async {
+    const customerId = 'customer-historical-advance';
+    await parties.ensureParty(const PartyDraft(
+      partyType: 'customer',
+      displayName: 'مشتری بیعانه تاریخی',
+      preferredId: customerId,
+    ));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای مانده تاریخی',
+      'موجودی': '5',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+
+    await trades.recordCustomerReceipt(PartyPaymentDraft(
+      documentDate: '2026-11-10',
+      counterpartyName: 'مشتری بیعانه تاریخی',
+      counterpartyId: customerId,
+      amount: 3000,
+      idempotencyKey: 'historical-advance-receipt',
+    ));
+
+    final beforeAllocation = await parties.getPartyStatementPage(
+      customerId,
+      toDate: '2026-11-10',
+    );
+    expect(beforeAllocation['available_customer_advance'], 3000);
+
+    await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-11',
+      counterpartyName: 'مشتری بیعانه تاریخی',
+      counterpartyId: customerId,
+      idempotencyKey: 'historical-advance-sale',
+      lines: [TradeLineDraft(productId: productId, quantity: 1, unitPrice: 2000)],
+    ));
+
+    final afterAllocation = await parties.getPartyStatementPage(
+      customerId,
+      toDate: '2026-11-11',
+    );
+    expect(afterAllocation['available_customer_advance'], 1000);
+    final current = await parties.getPartyStatementPage(customerId);
+    expect(current['available_customer_advance'], 1000);
+  });
+
   test('party ledger pages preserve opening and closing balances', () async {
     final productId = await store.insert('products', {
       'نام کالا': 'قطعه صفحه‌بندی دفتر',

@@ -673,8 +673,11 @@ class PartyRepository {
     ''', args);
     final totalLines = (pageCount.single['line_count'] as num).toInt();
     final nextOffset = offset + rows.length;
-    final advanceBalances =
-        await _getUnallocatedAdvanceBalances(db, partyId);
+    final advanceBalances = await _getUnallocatedAdvanceBalances(
+      db,
+      partyId,
+      asOfDate: toDate,
+    );
 
     return {
       ...advanceBalances,
@@ -700,8 +703,14 @@ class PartyRepository {
 
   Future<Map<String, int>> _getUnallocatedAdvanceBalances(
     DatabaseExecutor db,
-    String partyId,
-  ) async {
+    String partyId, {
+    String? asOfDate,
+  }) async {
+    final cutoff = asOfDate == null
+        ? null
+        : DateTime.parse(asOfDate).add(const Duration(days: 1))
+            .toIso8601String();
+
     Future<int> balanceFor(String type) async {
       final rows = await db.rawQuery('''
         SELECT COALESCE(SUM(
@@ -711,12 +720,19 @@ class PartyRepository {
         LEFT JOIN (
           SELECT payment_document_id, SUM(amount) AS allocated_amount
           FROM invoice_payment_allocations
+          ${cutoff == null ? '' : 'WHERE created_at < ?'}
           GROUP BY payment_document_id
         ) a ON a.payment_document_id = d.id
         WHERE d.counterparty_id = ?
           AND d.document_type = ?
           AND d.source_document_id IS NULL
-      ''', [partyId, type]);
+          ${asOfDate == null ? '' : 'AND d.document_date <= ?'}
+      ''', [
+        if (cutoff != null) cutoff,
+        partyId,
+        type,
+        if (asOfDate != null) asOfDate,
+      ]);
       return (rows.single['available'] as num).toInt();
     }
 
