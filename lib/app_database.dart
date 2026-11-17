@@ -950,11 +950,40 @@ class AppDatabase {
     }).toList(growable: true);
   }
 
+  void _validateCoreRecord(
+    String category,
+    Map<String, String> item, {
+    required bool isInsert,
+  }) {
+    String value(String key) => item[key]?.trim() ?? '';
+
+    if (category == 'products') {
+      if (value('نام کالا').isEmpty) {
+        throw ArgumentError('نام کالا الزامی است');
+      }
+      if (isInsert) {
+        final stock = LocalizedNumber.tryParseDouble(value('موجودی'));
+        if (stock == null || stock < 0) {
+          throw ArgumentError('موجودی کالا باید عدد معتبر و غیرمنفی باشد');
+        }
+      }
+    } else if (category == 'customers') {
+      if (value('نام مشتری').isEmpty && value('نام').isEmpty) {
+        throw ArgumentError('نام مشتری الزامی است');
+      }
+    } else if (category == 'repairs') {
+      if (value('نام مشتری').isEmpty || value('نوع دستگاه').isEmpty) {
+        throw ArgumentError('نام مشتری و نوع دستگاه برای پذیرش تعمیر الزامی است');
+      }
+    }
+  }
+
   Future<int> insert(String category, Map<String, String> item) async {
     final table = _tableFor(category);
     if (item.isEmpty || item.values.every((value) => value.trim().isEmpty)) {
       throw ArgumentError('اطلاعات خالی قابل ذخیره نیست');
     }
+    _validateCoreRecord(category, item, isInsert: true);
 
     final now = DateTime.now().toIso8601String();
     final db = await database;
@@ -1027,6 +1056,7 @@ class AppDatabase {
         values.values.every((value) => value.trim().isEmpty)) {
       throw ArgumentError('اطلاعات خالی قابل ذخیره نیست');
     }
+    _validateCoreRecord(category, values, isInsert: false);
 
     final db = await database;
     final now = DateTime.now().toIso8601String();
