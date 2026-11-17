@@ -58,6 +58,7 @@ class _ReportsPageState extends State<ReportsPage> {
         'stock' => await _repository.getInventoryMovements(from: _from, to: _to),
         'stock_prices' => await _repository.getStockPriceList(),
         'profit' => await _repository.getProfitAndLoss(from: _from, to: _to),
+        'item_sales' => await _repository.getItemSales(from: _from, to: _to),
         'item_profit' => await _repository.getItemProfit(from: _from, to: _to),
         'expenses' => await _repository.getExpenses(from: _from, to: _to),
         'repair_income' => await _repository.getRepairServiceRevenue(from: _from, to: _to),
@@ -161,6 +162,19 @@ class _ReportsPageState extends State<ReportsPage> {
             IntCellValue((row['amount'] as num).toInt()),
           ]);
         }
+      } else if (_report == 'item_sales') {
+        sheet.appendRow([
+          TextCellValue('کالا'),
+          TextCellValue('تعداد خالص فروش'),
+          TextCellValue('مبلغ خالص فروش'),
+        ]);
+        for (final row in _rows) {
+          sheet.appendRow([
+            TextCellValue(row['product_name']?.toString() ?? ''),
+            DoubleCellValue((row['net_quantity'] as num).toDouble()),
+            IntCellValue((row['net_revenue'] as num).toInt()),
+          ]);
+        }
       } else if (_report == 'item_profit') {
         sheet.appendRow([TextCellValue('کالا'), TextCellValue('تعداد خالص'), TextCellValue('فروش خالص'), TextCellValue('بهای تمام‌شده'), TextCellValue('سود ناخالص')]);
         for (final row in _rows) {
@@ -244,6 +258,7 @@ class _ReportsPageState extends State<ReportsPage> {
       final title = switch (_report) {
         'stock' => 'گزارش کاردکس و گردش انبار',
         'stock_prices' => 'فهرست قیمت و موجودی کالاها',
+        'item_sales' => 'گزارش فروش خالص هر کالا',
         'profit' => 'گزارش سود و زیان',
         'item_profit' => 'گزارش سود هر کالا',
         'expenses' => 'گزارش هزینه‌های ثبت‌شده',
@@ -262,6 +277,8 @@ class _ReportsPageState extends State<ReportsPage> {
           lines.add("\${row['entry_date']} | \${row['description']} | \${row['account_name']} | \${_money(row['amount'])} تومان");
         } else if (_report == 'profit') {
           lines.add("${row['account_code']} - ${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'}: ${_money(row['balance'])} تومان");
+        } else if (_report == 'item_sales') {
+          lines.add("${row['product_name']} | تعداد خالص: ${row['net_quantity']} | فروش خالص: ${_money(row['net_revenue'])} تومان");
         } else if (_report == 'item_profit') {
           lines.add("${row['product_name']} | فروش: ${_money(row['net_revenue'])} | بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}");
         } else if (_report == 'stock_prices') {
@@ -336,6 +353,11 @@ class _ReportsPageState extends State<ReportsPage> {
           lines.add(
             "${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'} | "
             "${_money(row['balance'])} تومان",
+          );
+        } else if (_report == 'item_sales') {
+          lines.add(
+            "${row['product_name']} | تعداد خالص: ${row['net_quantity']} | "
+            "فروش خالص: ${_money(row['net_revenue'])} تومان",
           );
         } else if (_report == 'item_profit') {
           lines.add(
@@ -467,6 +489,7 @@ class _ReportsPageState extends State<ReportsPage> {
       'stock' => visibleRows.fold<double>(0, (sum, row) => sum + (row['quantity_delta'] as num).toDouble()),
       'stock_prices' => _rows.length,
       'profit' => _rows.fold<int>(0, (sum, row) => sum + (row['balance'] as num).toInt() * (row['account_type'] == 'income' ? 1 : -1)),
+      'item_sales' => _rows.fold<int>(0, (sum, row) => sum + (row['net_revenue'] as num).toInt()),
       'item_profit' => _rows.fold<int>(0, (sum, row) => sum + (row['gross_profit'] as num).toInt()),
       'expenses' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
       'repair_income' => _rows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).toInt()),
@@ -497,6 +520,7 @@ class _ReportsPageState extends State<ReportsPage> {
             DropdownMenuItem(value: 'stock', child: Text('کاردکس و گردش انبار')),
             DropdownMenuItem(value: 'stock_prices', child: Text('فهرست قیمت و موجودی کالاها')),
             DropdownMenuItem(value: 'profit', child: Text('سود و زیان حسابداری')),
+            DropdownMenuItem(value: 'item_sales', child: Text('فروش خالص هر کالا')),
             DropdownMenuItem(value: 'item_profit', child: Text('سود هر کالا')),
             DropdownMenuItem(value: 'expenses', child: Text('هزینه‌های ثبت‌شده')),
             DropdownMenuItem(value: 'repair_income', child: Text('درآمد خدمات تعمیر')),
@@ -572,7 +596,9 @@ class _ReportsPageState extends State<ReportsPage> {
                   ? 'تعداد کالاهای فهرست‌شده: $total'
                   : _report == 'documents'
                   ? 'جمع مبلغ اسناد: ${_money(total)} تومان'
-                  : _report == 'expenses'
+                  : _report == 'item_sales'
+                      ? 'جمع فروش خالص کالاها: ${_money(total)} تومان'
+                      : _report == 'expenses'
                       ? 'جمع هزینه‌ها: ${_money(total)} تومان'
                       : _report == 'repair_income'
                           ? 'جمع درآمد خدمات: ${_money(total)} تومان'
@@ -603,6 +629,13 @@ class _ReportsPageState extends State<ReportsPage> {
               title: Text(row['description']?.toString() ?? ''),
               subtitle: Text('${row['entry_date']} • ${row['account_name']}'),
               trailing: Text('${_money(row['amount'])} تومان'),
+            )),
+        if (_report == 'item_sales')
+          for (final row in visibleRows)
+            Card(child: ListTile(
+              title: Text(row['product_name']?.toString() ?? ''),
+              subtitle: Text('تعداد خالص فروش: ${row['net_quantity']}'),
+              trailing: Text('${_money(row['net_revenue'])} تومان'),
             )),
         if (_report == 'item_profit')
           for (final row in _rows)
