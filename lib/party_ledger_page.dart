@@ -415,6 +415,18 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     return dueDate.isBefore(todayOnly);
   }
 
+  String? _linkedInvoiceLabel(Map<String, Object?> document) {
+    final sourceId = document['source_document_id'];
+    if (sourceId == null) return null;
+    for (final source in _activityDocuments) {
+      if (source['id'] == sourceId) {
+        final number = source['document_number']?.toString().trim() ?? '';
+        if (number.isNotEmpty) return 'متصل به فاکتور $number';
+      }
+    }
+    return 'متصل به فاکتور شماره $sourceId';
+  }
+
   String? _paymentMethodLabel(Map<String, Object?> document) {
     final type = document['document_type'];
     if (type != 'customer_receipt' && type != 'supplier_payment') {
@@ -611,6 +623,8 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                       ),
                       subtitle: Text([
                         _dateLabel(document['document_date']),
+                        if (_linkedInvoiceLabel(document) case final invoice?)
+                          invoice,
                         if (_paymentMethodLabel(document) case final method?)
                           'روش: $method',
                       ].join(' • ')),
