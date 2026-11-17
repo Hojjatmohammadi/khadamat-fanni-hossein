@@ -144,6 +144,44 @@ void main() {
     expect(expenseAccount['balance'], 1200);
   });
 
+  test('item sales report nets customer returns by product and date', () async {
+    final productId = await database.insert('products', {
+      'نام کالا': 'بلبرینگ فروش',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+    final saleId = await trades.recordSale(TradeDocumentDraft(
+      documentDate: '2026-11-16',
+      counterpartyName: 'مشتری گزارش فروش کالا',
+      idempotencyKey: 'item-sales-source',
+      lines: [
+        TradeLineDraft(productId: productId, quantity: 3, unitPrice: 500),
+      ],
+    ));
+    final saleLines = await trades.getDocumentLines(saleId);
+    await trades.recordCustomerReturn(ReturnDocumentDraft(
+      documentDate: '2026-11-17',
+      sourceDocumentId: saleId,
+      counterpartyName: 'مشتری گزارش فروش کالا',
+      idempotencyKey: 'item-sales-return',
+      lines: [
+        ReturnLineDraft(
+          sourceLineId: saleLines.single['id'] as int,
+          quantity: 1,
+        ),
+      ],
+    ));
+
+    final rows = await ReportRepository(database).getItemSales(
+      from: DateTime(2026, 11, 16),
+      to: DateTime(2026, 11, 17),
+    );
+    final item = rows.singleWhere((row) => row['product_id'] == productId);
+    expect(item['product_name'], 'بلبرینگ فروش');
+    expect(item['net_quantity'], 2);
+    expect(item['net_revenue'], 1000);
+  });
+
   test('stock report returns ledger movements with product names', () async {
     final productId = await database.insert('products', {
       'نام کالا': 'خازن گزارش',
