@@ -124,7 +124,7 @@ void main() {
   });
 
 
-  test('rejects a current-version backup missing required invoice tables', () async {
+  test('rejects a current-version backup missing required payment-allocation tables', () async {
     await database.insert('customers', {'نام مشتری': 'اطلاعات باید حفظ شود'});
     final backup = await service.createBackup();
 
@@ -133,7 +133,7 @@ void main() {
       options: OpenDatabaseOptions(
         version: AppDatabase.schemaVersion,
         onOpen: (db) async {
-          await db.execute('DROP TABLE invoice_settings');
+          await db.execute('DROP TABLE invoice_payment_allocations');
         },
       ),
     );

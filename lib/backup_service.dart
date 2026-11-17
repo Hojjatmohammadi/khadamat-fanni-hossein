@@ -374,6 +374,9 @@ class BackupService {
       if (version >= 7) required.add('bank_reconciliations');
       if (version >= 11) required.add('invoice_archives');
       if (version >= 12) required.add('invoice_settings');
+      if (version >= 13) required.add('loans');
+      if (version >= 14) required.add('party_roles');
+      if (version >= 15) required.add('invoice_payment_allocations');
 
       final missing = required.difference(tables);
       if (missing.isNotEmpty) {
