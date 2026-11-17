@@ -250,6 +250,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   Navigator.pop(dialogContext, {
                     'amount': parsed,
                     'referenceId': selectedInvoiceId?.toString(),
+                    'paymentMethod': paymentMethod,
                   });
                 },
                 child: const Text('ثبت در گردش حساب'),
@@ -263,9 +264,12 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     if (payment == null || !mounted) return;
     final amount = payment['amount'] as int;
     final referenceId = payment['referenceId'] as String?;
+    final selectedPaymentMethod =
+        payment['paymentMethod'] as String? ?? 'cash';
 
     try {
-      final cashAccountCode = paymentMethod == 'cash' ? '1000' : '1010';
+      final cashAccountCode =
+          selectedPaymentMethod == 'cash' ? '1000' : '1010';
       final draft = PartyPaymentDraft(
         documentDate: DateTime.now().toIso8601String().substring(0, 10),
         counterpartyName: party['display_name']?.toString() ?? 'طرف حساب',
@@ -274,7 +278,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         idempotencyKey:
             'party-advance-$partyId-${DateTime.now().microsecondsSinceEpoch}',
         cashAccountCode: cashAccountCode,
-        paymentMethod: paymentMethod,
+        paymentMethod: selectedPaymentMethod,
         referenceId: referenceId,
       );
       if (isCustomerReceipt) {
