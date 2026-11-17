@@ -1630,6 +1630,7 @@ class _ProductPageState extends State<ProductPage> {
     final countedController =
         TextEditingController(text: product['موجودی'] ?? '0');
     final reasonController = TextEditingController();
+    final costController = TextEditingController();
     final currentStock =
         LocalizedNumber.parseDoubleOrZero(product['موجودی'] ?? '0');
     final fallbackCost = LocalizedNumber.parseIntOrZero(
@@ -1637,6 +1638,7 @@ class _ProductPageState extends State<ProductPage> {
           product['قیمت خرید هر واحد'] ??
           '0',
     );
+    costController.text = fallbackCost > 0 ? fallbackCost.toString() : '';
 
     final saved = await showDialog<bool>(
       context: context,
@@ -1646,7 +1648,8 @@ class _ProductPageState extends State<ProductPage> {
           title: Text('انبارگردانی: ${product['نام کالا'] ?? 'کالا'}'),
           content: SizedBox(
             width: 380,
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('موجودی فعلی دفتر: ${currentStock.toString()} عدد'),
@@ -1671,12 +1674,25 @@ class _ProductPageState extends State<ProductPage> {
                     hintText: 'مثلاً شمارش دوره‌ای یا ثبت کسری',
                   ),
                 ),
+                if (currentStock <= 0) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: costController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: numericInputFormattersForField('بهای تمام‌شده', forceNumeric: true),
+                    decoration: const InputDecoration(
+                      labelText: 'بهای تمام‌شده هر واحد (تومان)',
+                      helperText: 'برای ارزش‌گذاری موجودی جدید الزامی است',
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 const Text(
                   'اختلاف به‌صورت خودکار با میانگین بهای تمام‌شده موجودی ارزش‌گذاری و همراه سند حسابداری ثبت می‌شود.',
                   style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
               ],
+            ),
             ),
           ),
           actions: [
@@ -1689,10 +1705,15 @@ class _ProductPageState extends State<ProductPage> {
                 final counted =
                     LocalizedNumber.tryParseDouble(countedController.text);
                 final reason = reasonController.text.trim();
-                if (counted == null || counted < 0 || reason.isEmpty) {
+                final enteredCost = LocalizedNumber.tryParseInt(costController.text);
+                final effectiveCost = currentStock > 0 ? fallbackCost : (enteredCost ?? 0);
+                if (counted == null || counted < 0 || reason.isEmpty ||
+                    (currentStock <= 0 && (enteredCost == null || enteredCost <= 0))) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('تعداد واقعی و علت معتبر را وارد کنید'),
+                      content: Text(currentStock <= 0 && (enteredCost == null || enteredCost <= 0)
+                          ? 'برای کالایی با موجودی صفر، بهای تمام‌شده معتبر و بیشتر از صفر وارد کنید'
+                          : 'تعداد واقعی و علت معتبر را وارد کنید'),
                     ),
                   );
                   return;
@@ -1709,7 +1730,7 @@ class _ProductPageState extends State<ProductPage> {
                   await DemoStore.accounting.recordStockAdjustment(
                     productId: productId,
                     countedQuantity: counted,
-                    fallbackUnitCost: fallbackCost,
+                    fallbackUnitCost: effectiveCost,
                     occurredAt: DateTime.now().toIso8601String(),
                     reason: reason,
                     idempotencyKey:
@@ -1735,6 +1756,7 @@ class _ProductPageState extends State<ProductPage> {
 
     countedController.dispose();
     reasonController.dispose();
+    costController.dispose();
     if (saved == true && mounted) {
       await DemoStore.refreshProducts();
       if (!mounted) return;
