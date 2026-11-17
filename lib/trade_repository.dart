@@ -168,6 +168,7 @@ class TradeRepository {
 
   Future<int> recordPurchase(
     TradeDocumentDraft draft, {
+    Map<String, Object?>? invoiceHeaderSnapshot,
     String? documentPrefix,
   }) async {
     _validateTradeDraft(draft, type: 'purchase');
@@ -298,6 +299,50 @@ class TradeRepository {
             referenceType: 'purchase',
             referenceId: documentId.toString(),
           ),
+        );
+      }
+      if (invoiceHeaderSnapshot != null) {
+        final documentRows = await txn.query(
+          'business_documents',
+          where: 'id = ?',
+          whereArgs: [documentId],
+          limit: 1,
+        );
+        final lineRows = await txn.query(
+          'business_document_lines',
+          where: 'document_id = ?',
+          whereArgs: [documentId],
+          orderBy: 'id ASC',
+        );
+        final document = documentRows.single;
+        final snapshot = <String, Object?>{
+          ...invoiceHeaderSnapshot,
+          'documentId': documentId,
+          'documentType': 'purchase',
+          'documentNumber': document['document_number'],
+          'documentDate': document['document_date'],
+          'counterpartyName': document['counterparty_name'],
+          'subtotal': document['subtotal'],
+          'discountAmount': document['discount_amount'],
+          'chargesAmount': document['charges_amount'],
+          'vatAmount': document['vat_amount'],
+          'totalAmount': document['total_amount'],
+          'paidAmount': document['paid_amount'],
+          'outstandingAmount': (document['total_amount'] as int) -
+              (document['paid_amount'] as int),
+          'items': lineRows.map((row) => <String, Object?>{
+            'productName': row['product_name'],
+            'quantity': row['quantity'],
+            'unitPrice': row['unit_price'],
+            'lineTotal': row['line_total'],
+            'taxAmount': row['tax_amount'],
+          }).toList(),
+        };
+        await InvoiceArchiveRepository.insertInTransaction(
+          txn,
+          businessDocumentId: documentId,
+          snapshot: snapshot,
+          idempotencyKey: 'purchase-invoice-archive-${draft.idempotencyKey}',
         );
       }
       return documentId;
