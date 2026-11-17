@@ -192,6 +192,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    print('[contacts-widget-test] start');
     // Keep this widget test independent from DemoStore.init(), which also
     // performs startup backup work and shares a process-wide database with
     // other widget tests.
@@ -211,6 +212,7 @@ void main() {
       }
     });
     await database.database;
+    print('[contacts-widget-test] database-ready');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -224,6 +226,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
+    print('[contacts-widget-test] contacts-page-mounted');
 
     await tester.tap(find.byTooltip('افزودن مخاطب'));
     await tester.pump(const Duration(milliseconds: 100));
@@ -237,16 +240,19 @@ void main() {
     );
     await tester.tap(find.text('فروشنده'));
     await tester.pump();
+    print('[contacts-widget-test] add-dialog-filled');
     await tester.tap(find.text('ذخیره مخاطب'));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
 
+    print('[contacts-widget-test] contact-save-returned');
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     final party = (await repository.getParties()).singleWhere(
       (item) => item['display_name'] == 'آزمون دفتر مرکزی مخاطبین',
     );
     final roles = await repository.getPartyRoles(party['id'] as String);
     expect(roles, containsAll(['customer', 'supplier']));
+    print('[contacts-widget-test] contact-and-roles-verified');
 
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
     await tester.pump(const Duration(milliseconds: 300));
@@ -255,6 +261,7 @@ void main() {
     expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-customer-check')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-supplier-check')), findsOneWidget);
+    print('[contacts-widget-test] ledger-opened');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-check')));
     await tester.pump(const Duration(milliseconds: 300));
@@ -262,6 +269,7 @@ void main() {
     expect(find.text('شماره چک'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
+    print('[contacts-widget-test] check-form-opened-and-closed');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
     await tester.pump(const Duration(milliseconds: 100));
@@ -269,11 +277,13 @@ void main() {
       find.byKey(const ValueKey('party-ledger-advance-amount')),
       '750',
     );
+    print('[contacts-widget-test] advance-dialog-filled');
     await tester.tap(find.text('ثبت در گردش حساب'));
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.textContaining('بیعانه مشتری در گردش حساب ثبت شد'), findsOneWidget);
     expect(find.textContaining('مانده بستانکار: 750 تومان'), findsOneWidget);
+    print('[contacts-widget-test] advance-recorded-and-ledger-refreshed');
 
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
@@ -284,7 +294,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     expect(await repository.getParties(), hasLength(1));
+    print('[contacts-widget-test] delete-protection-verified');
     await tester.pumpWidget(const SizedBox.shrink());
+    print('[contacts-widget-test] finished');
   });
 
   testWidgets('inventory app bar exposes product image display options', (tester) async {
