@@ -39,6 +39,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
   List<Map<String, Object?>> _trialBalance = [];
   Map<String, Object?>? _ledger;
   List<Map<String, Object?>> _reconciliations = [];
+  Map<String, Object?>? _inventoryReconciliation;
   bool _loading = true;
   bool _saving = false;
 
@@ -67,6 +68,8 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
       final journal = await widget.repository.getJournalEntries(fromDate: fromDate, toDate: toDate);
       final trial = await widget.repository.getTrialBalance(fromDate: fromDate, toDate: toDate);
       final reconciliations = await widget.repository.getBankReconciliations();
+      final inventoryReconciliation =
+          await widget.repository.getInventoryReconciliation();
       final expenseAccounts = accounts.where((a) => a['account_type'] == 'expense').toList();
       final selectedExpense = expenseAccounts.any((a) => a['code'] == _expenseAccount)
           ? _expenseAccount
@@ -88,6 +91,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
         _ledgerAccount = selectedLedger;
         _ledger = ledger;
         _reconciliations = reconciliations;
+        _inventoryReconciliation = inventoryReconciliation;
         _loading = false;
       });
     } catch (error) {
@@ -322,7 +326,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     final expenses = _accounts.where((a) => a['account_type'] == 'expense').toList();
     final ledgerLines = (_ledger?['lines'] as List<Map<String, Object?>>?) ?? [];
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(
         children: [
           const Material(
@@ -335,6 +339,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                 Tab(text: 'تراز آزمایشی'),
                 Tab(text: 'دفتر کل حساب'),
                 Tab(text: 'تطبیق بانکی'),
+                Tab(text: 'تطبیق انبار'),
               ],
             ),
           ),
@@ -605,6 +610,104 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       if (_reconciliations.isEmpty) const Text('هنوز تطبیق بانکی ثبت نشده است'),
                     ],
                   ),
+                RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      const Text(
+                        'تطبیق ارزش انبار با حسابداری',
+                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'این گزارش، ارزش روز موجودی بر اساس گردش واقعی کالاها را با مانده بدهکار حساب «موجودی کالا» (۱۲۰۰) در دفتر کل مقایسه می‌کند. این گزارش فقط مغایرت را نشان می‌دهد و سند اصلاحی خودکار ثبت نمی‌کند.',
+                      ),
+                      const SizedBox(height: 12),
+                      if (_inventoryReconciliation != null) ...[
+                        Builder(builder: (context) {
+                          final report = _inventoryReconciliation!;
+                          final difference = (report['difference'] as num).toInt();
+                          final negativeStock =
+                              (report['negative_stock_products'] as num).toInt();
+                          final matched = report['is_balanced'] == true;
+                          return Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        matched ? Icons.verified_outlined : Icons.warning_amber_rounded,
+                                        color: matched ? Colors.green : Colors.deepOrange,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          matched ? 'ارزش انبار با دفتر کل منطبق است' : 'مغایرت نیازمند بررسی است',
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(height: 22),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('ارزش موجودی طبق دفتر انبار'),
+                                    trailing: Text('${_money(report['inventory_value'])} تومان'),
+                                  ),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('مانده حساب موجودی کالا (۱۲۰۰)'),
+                                    trailing: Text('${_money(report['ledger_value'])} تومان'),
+                                  ),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('اختلاف انبار منهای دفتر کل'),
+                                    trailing: Text(
+                                      '${difference < 0 ? '-' : ''}${_money(difference.abs())} تومان',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: difference == 0 ? Colors.green : Colors.deepOrange,
+                                      ),
+                                    ),
+                                  ),
+                                  if (negativeStock > 0)
+                                    Text(
+                                      'توجه: برای $negativeStock کالا مانده مقداری منفی ثبت شده است.',
+                                      style: const TextStyle(color: Colors.deepOrange),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        Card(
+                          child: ExpansionTile(
+                            title: const Text('ریز ارزش موجودی کالاها'),
+                            subtitle: Text(
+                              '${(_inventoryReconciliation!['items'] as List<Map<String, Object?>>).length} قلم کالا',
+                            ),
+                            children: [
+                              for (final item in (_inventoryReconciliation!['items'] as List<Map<String, Object?>>))
+                                ListTile(
+                                  dense: true,
+                                  title: Text(item['product_name']?.toString() ?? 'کالا'),
+                                  subtitle: Text('موجودی: ${(item['stock_quantity'] as num).toString()}'),
+                                  trailing: Text('${_money(item['stock_value'])} تومان'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ] else
+                        const Center(child: Text('گزارش تطبیق در دسترس نیست')),
+                    ],
+                  ),
+                ),
+
                 ),
 
               ],

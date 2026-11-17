@@ -131,6 +131,78 @@ void main() {
     expect(await store.getStockOnHand(productId), 3);
   });
 
+
+  test('inventory reconciliation matches stock valuation and general ledger', () async {
+    final productId = await addProduct(
+      name: 'کالای تطبیق',
+      quantity: '5',
+      unitCost: '1000',
+    );
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده تطبیق',
+        idempotencyKey: 'inventory-reconcile-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 5, unitPrice: 1200),
+        ],
+      ),
+    );
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'مشتری تطبیق',
+        idempotencyKey: 'inventory-reconcile-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 1800),
+        ],
+      ),
+    );
+    await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 7,
+      fallbackUnitCost: 500,
+      occurredAt: '2026-11-17T12:00:00.000',
+      reason: 'آزمون تطبیق انبار',
+      idempotencyKey: 'inventory-reconcile-adjustment',
+    );
+
+    final report = await accounting.getInventoryReconciliation();
+    expect(report['inventory_value'], 7700);
+    expect(report['ledger_value'], 7700);
+    expect(report['difference'], 0);
+    expect(report['is_balanced'], isTrue);
+    expect(report['negative_stock_products'], 0);
+    final items = report['items'] as List<Map<String, Object?>>;
+    final item = items.singleWhere((row) => row['product_id'] == productId);
+    expect(item['stock_quantity'], 7);
+    expect(item['stock_value'], 7700);
+  });
+
+  test('inventory reconciliation exposes unmatched general ledger postings', () async {
+    final productId = await addProduct(
+      name: 'کالای دارای مغایرت',
+      quantity: '2',
+      unitCost: '500',
+    );
+    await accounting.postJournalEntry(const JournalEntryDraft(
+      entryDate: '2026-11-17',
+      description: 'ثبت آزمایشی بدون گردش انبار',
+      idempotencyKey: 'inventory-reconcile-unmatched-journal',
+      lines: [
+        JournalLineDraft(accountCode: '1200', debit: 100),
+        JournalLineDraft(accountCode: '3000', credit: 100),
+      ],
+    ));
+
+    final report = await accounting.getInventoryReconciliation();
+    expect(report['inventory_value'], 1000);
+    expect(report['ledger_value'], 1100);
+    expect(report['difference'], -100);
+    expect(report['is_balanced'], isFalse);
+    expect((report['items'] as List).single['product_id'], productId);
+  });
+
   test('invoice numbers are readable sequential and shared safely by a custom prefix', () async {
     final productId = await addProduct();
     final firstPurchase = await trades.recordPurchase(

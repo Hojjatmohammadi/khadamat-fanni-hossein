@@ -890,6 +890,77 @@ class AccountingRepository {
     return result;
   }
 
+
+  /// Compares the current inventory subledger valuation with the general
+  /// ledger balance of the inventory asset account (1200). This is read-only:
+  /// a discrepancy must be investigated before anyone posts an adjustment.
+  Future<Map<String, Object?>> getInventoryReconciliation() async {
+    final db = await _database.database;
+    final movementRows = await db.rawQuery('''
+      SELECT product_id,
+        COALESCE(SUM(quantity_delta), 0) AS quantity,
+        COALESCE(SUM(
+          CASE WHEN quantity_delta > 0 THEN total_cost ELSE -total_cost END
+        ), 0) AS stock_value
+      FROM inventory_movements
+      GROUP BY product_id
+    ''');
+    final movementByProduct = <int, Map<String, Object?>>{
+      for (final row in movementRows)
+        (row['product_id'] as num).toInt(): row,
+    };
+
+    final products = await db.query(
+      'products',
+      columns: ['id', 'data_json'],
+      orderBy: 'id ASC',
+    );
+    final items = <Map<String, Object?>>[];
+    var negativeStockProducts = 0;
+    for (final product in products) {
+      final id = (product['id'] as num).toInt();
+      final decoded = jsonDecode(product['data_json'] as String);
+      final data = decoded is Map ? decoded : const <Object?, Object?>{};
+      final movement = movementByProduct[id];
+      final quantity = (movement?['quantity'] as num?)?.toDouble() ?? 0;
+      final value = (movement?['stock_value'] as num?)?.toInt() ?? 0;
+      if (quantity < -0.0000001) negativeStockProducts++;
+      items.add({
+        'product_id': id,
+        'product_name': data['نام کالا']?.toString().trim().isNotEmpty == true
+            ? data['نام کالا'].toString().trim()
+            : 'کالای شماره $id',
+        'stock_quantity': quantity,
+        'stock_value': value,
+      });
+    }
+    items.sort((left, right) =>
+        ((right['stock_value'] as num).abs())
+            .compareTo((left['stock_value'] as num).abs()));
+
+    final inventoryValue = movementRows.fold<int>(
+      0,
+      (total, row) => total + (row['stock_value'] as num).toInt(),
+    );
+    final ledgerRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(debit - credit), 0) AS balance
+      FROM journal_lines
+      WHERE account_code = ?
+    ''', ['1200']);
+    final ledgerValue =
+        (ledgerRows.single['balance'] as num?)?.toInt() ?? 0;
+    final difference = inventoryValue - ledgerValue;
+
+    return {
+      'inventory_value': inventoryValue,
+      'ledger_value': ledgerValue,
+      'difference': difference,
+      'is_balanced': difference == 0 && negativeStockProducts == 0,
+      'negative_stock_products': negativeStockProducts,
+      'items': items,
+    };
+  }
+
   Future<Map<String, Object?>> getAccountLedger(
     String accountCode, {String? fromDate, String? toDate}) async {
     final db = await _database.database;
