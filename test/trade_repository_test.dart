@@ -141,6 +141,46 @@ void main() {
     expect(await db.query('inventory_movements'), hasLength(2));
   });
 
+  test('purchase invoice and immutable display snapshot are archived atomically', () async {
+    final productId = await addProduct(name: 'برد الکترونیکی');
+    final purchaseId = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-15',
+        counterpartyName: 'فروشنده قطعات',
+        idempotencyKey: 'purchase-archive-test',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 3500),
+        ],
+        paidAmount: 1000,
+      ),
+      invoiceHeaderSnapshot: {
+        'shopName': 'خدمات فنی حسین',
+        'ownerName': 'مسئول خرید',
+        'phone': '09150000000',
+        'stampImageBase64': 'purchase-stamp-at-issue',
+      },
+    );
+
+    final db = await store.database;
+    final archiveRows = await db.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [purchaseId],
+    );
+    expect(archiveRows, hasLength(1));
+    final snapshot = jsonDecode(archiveRows.single['snapshot_json'] as String)
+        as Map<String, dynamic>;
+    expect(snapshot['documentType'], 'purchase');
+    expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['stampImageBase64'], 'purchase-stamp-at-issue');
+    expect(snapshot['counterpartyName'], 'فروشنده قطعات');
+    expect(snapshot['totalAmount'], 7000);
+    expect(snapshot['paidAmount'], 1000);
+    expect(snapshot['outstandingAmount'], 6000);
+    expect(snapshot['items'], hasLength(1));
+    expect((snapshot['items'] as List).single['productName'], 'برد الکترونیکی');
+  });
+
   test('sale invoice and immutable display snapshot are archived atomically', () async {
     final productId = await addProduct(name: 'خازن 100 میکرو');
     await trades.recordPurchase(
