@@ -65,9 +65,12 @@ jobs:
           if "com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" not in content:
               if "</application>" not in content:
                   raise SystemExit("Could not find the Android application closing tag")
-              content = content.replace("</application>", "\\n".join(receiver_lines) + "\\n    </application>", 1)
+              content = content.replace("</application>", "\n".join(receiver_lines) + "\n    </application>", 1)
           content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
           manifest.write_text(content, encoding="utf-8")
+          # Fail early if injected permissions or notification receivers break XML.
+          import xml.etree.ElementTree as ET
+          ET.parse(manifest)
           PY
 
       - name: Set Android compile SDK to 36
