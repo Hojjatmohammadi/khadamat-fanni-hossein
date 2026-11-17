@@ -73,9 +73,32 @@ class ReportRepository {
         }
       } catch (_) {}
     }
-    return movements.map((row) => <String, Object?>{
-      ...row,
-      'product_name': names[row['product_id']] ?? 'کالای ${row['product_id']}',
+    return movements.map((row) {
+      String? adjustmentReason;
+      double? countedQuantity;
+      if (row['movement_type'] == 'adjustment' &&
+          row['reference_type'] == 'stock_count') {
+        try {
+          final reference = jsonDecode(row['reference_id']?.toString() ?? '{}');
+          if (reference is Map) {
+            adjustmentReason = reference['reason']?.toString();
+            final counted = reference['countedQuantity'];
+            if (counted is num) {
+              countedQuantity = counted.toDouble();
+            } else if (counted != null) {
+              countedQuantity = double.tryParse(counted.toString());
+            }
+          }
+        } catch (_) {
+          // Keep legacy or malformed adjustment references visible.
+        }
+      }
+      return <String, Object?>{
+        ...row,
+        'product_name': names[row['product_id']] ?? 'کالای ${row['product_id']}',
+        'adjustment_reason': adjustmentReason,
+        'counted_quantity': countedQuantity,
+      };
     }).toList();
   }
 

@@ -131,6 +131,7 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('نوع گردش'), TextCellValue('تغییر تعداد'),
           TextCellValue('بهای واحد'), TextCellValue('ارزش گردش'),
           TextCellValue('موجودی پس از گردش'),
+          TextCellValue('علت اصلاح'), TextCellValue('تعداد شمارش‌شده'),
         ]);
         for (final row in _rows) {
           sheet.appendRow([
@@ -141,6 +142,11 @@ class _ReportsPageState extends State<ReportsPage> {
             IntCellValue((row['unit_cost'] as num).toInt()),
             IntCellValue((row['total_cost'] as num).toInt()),
             DoubleCellValue((row['balance_after'] as num).toDouble()),
+            TextCellValue(row['adjustment_reason']?.toString() ?? ''),
+            if (row['counted_quantity'] is num)
+              DoubleCellValue((row['counted_quantity'] as num).toDouble())
+            else
+              TextCellValue(''),
           ]);
         }
       } else if (_report == 'profit') {
@@ -288,7 +294,7 @@ class _ReportsPageState extends State<ReportsPage> {
         } else if (_report == 'stock_prices') {
           lines.add("${row['product_name']} | موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | فروش: ${_money(row['sale_price'])} تومان");
         } else if (_report == 'stock') {
-          lines.add("${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | مانده: ${row['balance_after']}");
+          lines.add("${row['occurred_at']} | ${row['product_name']} | ${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | مانده: ${row['balance_after']}" "${row['adjustment_reason'] == null ? '' : ' | علت: ${row['adjustment_reason']} | شمارش واقعی: ${row['counted_quantity']}'}");
         } else {
           lines.add("${row['document_date']} | ${_typeName(row['document_type'])} | ${row['document_number']} | ${_money(row['total_amount'])} تومان");
         }
@@ -352,7 +358,8 @@ class _ReportsPageState extends State<ReportsPage> {
           lines.add(
             "${row['occurred_at']} | ${row['product_name']} | "
             "${_typeName(row['movement_type'])} | تغییر: ${row['quantity_delta']} | "
-            "مانده پس از گردش: ${row['balance_after']}",
+            "مانده پس از گردش: ${row['balance_after']}"
+            "${row['adjustment_reason'] == null ? '' : ' | علت اصلاح: ${row['adjustment_reason']} | شمارش واقعی: ${row['counted_quantity']}'}",
           );
         } else if (_report == 'profit') {
           lines.add(
@@ -667,7 +674,8 @@ class _ReportsPageState extends State<ReportsPage> {
               title: Text('${row['product_name']}'),
               subtitle: Text(
                 '${row['occurred_at']} • ${_typeName(row['movement_type'])}'
-                '\\nتغییر: ${row['quantity_delta']} • موجودی پس از گردش: ${row['balance_after']}',
+                '\\nتغییر: ${row['quantity_delta']} • موجودی پس از گردش: ${row['balance_after']}'
+                "${row['adjustment_reason'] == null ? '' : '\\nعلت اصلاح: ${row['adjustment_reason']} • شمارش واقعی: ${row['counted_quantity']}'}",
               ),
               trailing: Text('${(row['quantity_delta'] as num) > 0 ? '+' : ''}${(row['quantity_delta'] as num).toString()}'),
             )),

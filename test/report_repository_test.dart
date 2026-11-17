@@ -83,6 +83,34 @@ void main() {
     expect(product['stock_value'], 6250);
   });
 
+  test('Kardex exposes stock count reason and physical counted quantity', () async {
+    final productId = await database.insert('products', {
+      'نام کالا': 'قطعه انبارگردانی',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '1000',
+    });
+    final accounting = AccountingRepository(database);
+    await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 8,
+      fallbackUnitCost: 1000,
+      occurredAt: '2026-11-17T10:00:00.000',
+      reason: 'کسری دو عدد در شمارش قفسه',
+      idempotencyKey: 'kardex-stock-count-reason',
+    );
+
+    final rows = await ReportRepository(database).getInventoryMovements(
+      from: DateTime(2026, 11, 17),
+      to: DateTime(2026, 11, 17),
+    );
+    final adjustment = rows.singleWhere(
+      (row) => row['movement_type'] == 'adjustment',
+    );
+    expect(adjustment['quantity_delta'], -2);
+    expect(adjustment['adjustment_reason'], 'کسری دو عدد در شمارش قفسه');
+    expect(adjustment['counted_quantity'], 8);
+  });
+
   test('expense and repair service reports do not double-count settlements', () async {
     final accounting = AccountingRepository(database);
     final repository = ReportRepository(database);
