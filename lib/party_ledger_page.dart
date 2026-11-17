@@ -569,7 +569,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               if (_activityDocuments.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'فاکتورها و برگشت‌ها (${_activityDocuments.length})',
+                  'اسناد مالی، فاکتورها و برگشت‌ها (${_activityDocuments.length})',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
                 ),
                 for (final document in _activityDocuments)
