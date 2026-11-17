@@ -187,10 +187,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: ContactsPage(repository: DemoStore.parties)),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(find.byTooltip('افزودن مخاطب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.enterText(
       find.byType(TextFormField).first,
       'آزمون دفتر مرکزی مخاطبین',
@@ -202,7 +202,7 @@ void main() {
     await tester.tap(find.text('فروشنده'));
     await tester.pump();
     await tester.tap(find.text('ذخیره مخاطب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     final roles = await DemoStore.parties.getPartyRoles(
