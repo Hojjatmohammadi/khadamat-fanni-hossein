@@ -59,6 +59,29 @@ void main() {
     expect(rows.single['total_amount'], 600);
   });
 
+  test('stock price list reports current prices and ledger-derived quantity', () async {
+    final productId = await database.insert('products', {
+      'نام کالا': 'موتور آزمایشی',
+      'گروه اصلی': 'قطعات',
+      'کد کالا': 'M-120',
+      'موجودی': '۵',
+      'قیمت خرید هر واحد': '۱۲۵۰',
+      'قیمت فروش': '۲۴۰۰',
+    });
+
+    final rows = await ReportRepository(database).getStockPriceList();
+    final product = rows.singleWhere(
+      (row) => row['product_id'] == productId,
+    );
+
+    expect(product['product_name'], 'موتور آزمایشی');
+    expect(product['category'], 'قطعات');
+    expect(product['product_code'], 'M-120');
+    expect(product['stock_quantity'], 5);
+    expect(product['purchase_price'], 1250);
+    expect(product['sale_price'], 2400);
+  });
+
   test('expense and repair service reports do not double-count settlements', () async {
     final accounting = AccountingRepository(database);
     final repository = ReportRepository(database);
