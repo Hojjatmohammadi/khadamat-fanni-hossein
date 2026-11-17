@@ -350,7 +350,8 @@ class _ContactsPageState extends State<ContactsPage> {
     final contacts = _visibleContacts;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Column(
+      child: Material(
+        child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
@@ -535,7 +536,8 @@ class _ContactsPageState extends State<ContactsPage> {
                         ),
                       ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
