@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'check_repository.dart';
+import 'check_reminder_service.dart';
 import 'jalali_date_field.dart';
 import 'localized_number.dart';
 import 'numeric_input.dart';
@@ -13,6 +14,7 @@ class CheckPage extends StatefulWidget {
     required this.checks,
     required this.parties,
     required this.trades,
+    required this.reminders,
     required this.onChanged,
     this.initialPartyId,
     this.initialDirection = 'incoming',
@@ -21,6 +23,7 @@ class CheckPage extends StatefulWidget {
   final CheckRepository checks;
   final PartyRepository parties;
   final TradeRepository trades;
+  final CheckReminderService reminders;
   final VoidCallback onChanged;
   final String? initialPartyId;
   final String initialDirection;
@@ -211,6 +214,15 @@ class _CheckPageState extends State<CheckPage> {
           note: _note.text.trim(),
         ),
       );
+      var remindersEnabled = false;
+      try {
+        remindersEnabled = await widget.reminders.synchronize(
+          widget.checks,
+          requestPermission: true,
+        );
+      } catch (_) {
+        // The cheque and its accounting entry are already safely committed.
+      }
       _number.clear();
       _bank.clear();
       _drawer.clear();
@@ -227,7 +239,13 @@ class _CheckPageState extends State<CheckPage> {
       widget.onChanged();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('چک و سند حسابداری آن ثبت شد')),
+          SnackBar(
+            content: Text(
+              remindersEnabled
+                  ? 'چک ثبت شد؛ یادآوری یک‌روز قبل و روزانه از سررسید فعال شد.'
+                  : 'چک ثبت شد؛ برای یادآوری خودکار، مجوز اعلان‌ها را فعال کنید.',
+            ),
+          ),
         );
       }
     } catch (error) {
@@ -282,11 +300,23 @@ class _CheckPageState extends State<CheckPage> {
         reason: reason,
         eventDate: _iso(DateTime.now()),
       );
+      var reminderSyncFailed = false;
+      try {
+        await widget.reminders.synchronize(widget.checks);
+      } catch (_) {
+        reminderSyncFailed = true;
+      }
       await _load();
       widget.onChanged();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('وضعیت چک و ثبت حسابداری به‌روزرسانی شد')),
+          SnackBar(
+            content: Text(
+              reminderSyncFailed
+                  ? 'وضعیت چک ثبت شد؛ به‌روزرسانی یادآوری خودکار ناموفق بود.'
+                  : 'وضعیت چک و یادآوری‌های آن به‌روزرسانی شد.',
+            ),
+          ),
         );
       }
     } catch (error) {
@@ -426,7 +456,7 @@ class _CheckPageState extends State<CheckPage> {
                         '${_dueChecks.length} چک سررسیدشده یا نزدیک به سررسید',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      const Text('این یادآوری داخل برنامه نمایش داده می‌شود؛ برای دریافت اعلان حتی هنگام بسته بودن برنامه، سامانه اعلان زمان‌بندی‌شده هنوز لازم است.'),
+                      const Text('اعلان خودکار در ساعت ۹ صبح: یک‌روز پیش از سررسید و سپس هر روز از تاریخ سررسید تا تعیین وضعیت چک. برای دریافت اعلان، مجوز اعلان‌ها باید فعال باشد.'),
                       for (final check in _dueChecks.take(5))
                         Text(
                           '• ${check['check_number']} — ${check['party_name']} — ${_dueLabel(check['due_date'] as String)}',

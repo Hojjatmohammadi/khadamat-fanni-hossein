@@ -32,10 +32,9 @@ import 'invoice_pdf_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DemoStore.init();
-  final reminders = CheckReminderService();
   try {
-    await reminders.initialize();
-    await reminders.notifyDueChecks(DemoStore.checks);
+    await DemoStore.reminders.initialize();
+    await DemoStore.reminders.synchronize(DemoStore.checks);
   } catch (error) {
     // Notification permission or platform support must never block app startup.
   }
@@ -227,6 +226,7 @@ class DemoStore {
   static final LoanRepository loans = LoanRepository(_database);
   static final PartyRepository parties = PartyRepository(_database);
   static final CheckRepository checks = CheckRepository(_database);
+  static final CheckReminderService reminders = CheckReminderService();
   static final BackupService backups = BackupService(_database);
   static final InvoiceArchiveRepository invoiceArchives = InvoiceArchiveRepository(_database);
   static final InvoiceSettingsRepository invoiceSettings = InvoiceSettingsRepository(_database);
@@ -494,6 +494,7 @@ class _HomePageState extends State<HomePage> {
         checks: DemoStore.checks,
         parties: DemoStore.parties,
         trades: DemoStore.trades,
+        reminders: DemoStore.reminders,
         onChanged: () => setState(() {}),
       ),
       const ReportsPage(),
