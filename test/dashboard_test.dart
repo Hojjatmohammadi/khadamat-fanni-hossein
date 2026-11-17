@@ -11,6 +11,8 @@ import 'package:khadamat_fanni_hosein/check_repository.dart';
 import 'package:khadamat_fanni_hosein/party_repository.dart';
 import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
+void _noop() {}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -312,6 +314,57 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byTooltip('تنظیم نمایش عکس کالا'), findsOneWidget);
+  });
+
+  testWidgets('repair parts dialog offers coordinated display sizes', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await DemoStore.init();
+    await DemoStore.add('products', {
+      'نام کالا': 'قطعه آزمون اندازه فرم',
+      'موجودی': '0',
+    });
+    await DemoStore.add('repairs', {
+      'نام مشتری': 'مشتری آزمون اندازه فرم',
+      'نوع دستگاه': 'دریل',
+    });
+    final productId = int.parse(DemoStore.products.last['__database_id']!);
+    final repairId = int.parse(DemoStore.repairs.last['__database_id']!);
+    addTearDown(() async {
+      await DemoStore.deleteRecord('repairs', repairId);
+      await DemoStore.deleteRecord('products', productId);
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: RepairPage(onChanged: _noop))),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('ثبت مصرف قطعه در تعمیر'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final sizeSelector = find.byKey(const ValueKey('repair-parts-ui-size'));
+    expect(sizeSelector, findsOneWidget);
+    expect(find.text('اندازه نمایش بخش قطعات'), findsOneWidget);
+
+    await tester.tap(sizeSelector);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('ریز'), findsOneWidget);
+    expect(find.text('کوچک'), findsOneWidget);
+    expect(find.text('معمولی'), findsWidgets);
+    expect(find.text('بزرگ'), findsOneWidget);
+    await tester.tap(find.text('ریز'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(sizeSelector);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('بزرگ'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('انصراف'));
+    await tester.pump(const Duration(milliseconds: 150));
   });
 
   testWidgets('logo help can be dismissed and gallery opens only on request',
