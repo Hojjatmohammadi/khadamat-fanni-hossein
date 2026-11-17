@@ -414,6 +414,8 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         'sale' => 'فاکتور فروش',
         'supplier_return' => 'برگشت از خرید',
         'customer_return' => 'برگشت از فروش',
+        'customer_receipt' => 'دریافت از مشتری',
+        'supplier_payment' => 'پرداخت به فروشنده',
         _ => 'سند تجاری',
       };
 
