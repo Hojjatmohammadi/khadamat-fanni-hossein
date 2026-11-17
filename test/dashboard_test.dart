@@ -345,7 +345,8 @@ void main() {
     await tester.tap(find.text('ثبت مصرف قطعه در تعمیر'));
     await tester.pump(const Duration(milliseconds: 200));
 
-    final sizeSelector = find.byKey(const ValueKey('repair-parts-ui-size'));
+    var sizeSelector =
+        find.byKey(const ValueKey('repair-parts-ui-size-معمولی'));
     expect(sizeSelector, findsOneWidget);
     expect(find.text('اندازه نمایش بخش قطعات'), findsOneWidget);
 
@@ -358,10 +359,15 @@ void main() {
     await tester.tap(find.text('ریز'));
     await tester.pump(const Duration(milliseconds: 100));
 
+    sizeSelector = find.byKey(const ValueKey('repair-parts-ui-size-ریز'));
+    expect(sizeSelector, findsOneWidget);
     await tester.tap(sizeSelector);
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(find.text('بزرگ'));
     await tester.pump(const Duration(milliseconds: 100));
+
+    sizeSelector = find.byKey(const ValueKey('repair-parts-ui-size-بزرگ'));
+    expect(sizeSelector, findsOneWidget);
 
     await tester.tap(find.text('انصراف'));
     await tester.pump(const Duration(milliseconds: 150));
