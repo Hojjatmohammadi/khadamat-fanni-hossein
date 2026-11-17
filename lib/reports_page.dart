@@ -310,6 +310,155 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+  Future<void> _exportImage() async {
+    if (_rows.isEmpty) {
+      _message('داده‌ای برای خروجی وجود ندارد');
+      return;
+    }
+    File? imageFile;
+    try {
+      const width = 1240.0;
+      const margin = 64.0;
+      final lines = <String>[];
+      for (final row in _rows.take(30)) {
+        if (_report == 'stock_prices') {
+          lines.add(
+            "${row['product_name']} | کد: ${row['product_code']} | "
+            "موجودی: ${row['stock_quantity']} | خرید: ${_money(row['purchase_price'])} | "
+            "فروش: ${_money(row['sale_price'])} تومان",
+          );
+        } else if (_report == 'stock') {
+          lines.add(
+            "${row['occurred_at']} | ${row['product_name']} | "
+            "${_typeName(row['movement_type'])} | تعداد: ${row['quantity_delta']}",
+          );
+        } else if (_report == 'profit') {
+          lines.add(
+            "${row['account_name']} | ${row['account_type'] == 'income' ? 'درآمد' : 'هزینه'} | "
+            "${_money(row['balance'])} تومان",
+          );
+        } else if (_report == 'item_profit') {
+          lines.add(
+            "${row['product_name']} | فروش: ${_money(row['net_revenue'])} | "
+            "بها: ${_money(row['net_cost'])} | سود: ${_money(row['gross_profit'])}",
+          );
+        } else if (_report == 'expenses' || _report == 'repair_income') {
+          lines.add(
+            "${row['entry_date']} | ${row['description']} | "
+            "${row['account_name']} | ${_money(row['amount'])} تومان",
+          );
+        } else {
+          lines.add(
+            "${row['document_date']} | ${_typeName(row['document_type'])} | "
+            "${row['document_number']} | ${_money(row['total_amount'])} تومان",
+          );
+        }
+      }
+
+      final height = (300 + lines.length * 92).clamp(600, 3600).toInt();
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
+      var y = 64.0;
+
+      double drawText(
+        String value, {
+        double size = 24,
+        bool bold = false,
+      }) {
+        final painter = painting.TextPainter(
+          text: painting.TextSpan(
+            text: value,
+            style: painting.TextStyle(
+              color: const ui.Color(0xFF202124),
+              fontSize: size,
+              fontWeight: bold
+                  ? painting.FontWeight.bold
+                  : painting.FontWeight.normal,
+            ),
+          ),
+          textDirection: painting.TextDirection.rtl,
+          textAlign: painting.TextAlign.right,
+          maxLines: 2,
+        )..layout(maxWidth: width - margin * 2);
+        painter.paint(canvas, ui.Offset(margin, y));
+        return painter.height;
+      }
+
+      final title = switch (_report) {
+        'stock' => 'گزارش کاردکس و گردش انبار',
+        'stock_prices' => 'فهرست قیمت و موجودی کالاها',
+        'profit' => 'گزارش سود و زیان',
+        'item_profit' => 'گزارش سود هر کالا',
+        'expenses' => 'گزارش هزینه‌های ثبت‌شده',
+        'repair_income' => 'گزارش درآمد خدمات تعمیر',
+        _ => 'گزارش فاکتورهای خرید، فروش و برگشت',
+      };
+      y += drawText('خدمات فنی حسین', size: 42, bold: true) + 18;
+      y += drawText(title, size: 32, bold: true) + 12;
+      y += drawText(
+        'از ${_from.toIso8601String().substring(0, 10)} '
+        'تا ${_to.toIso8601String().substring(0, 10)}',
+        size: 21,
+      ) + 22;
+      canvas.drawLine(
+        ui.Offset(margin, y),
+        ui.Offset(width - margin, y),
+        ui.Paint()
+          ..color = const ui.Color(0xFFB8BEC5)
+          ..strokeWidth = 2,
+      );
+      y += 24;
+
+      for (var index = 0; index < lines.length; index++) {
+        y += drawText('${index + 1}. ${lines[index]}', size: 22) + 14;
+        canvas.drawLine(
+          ui.Offset(margin, y),
+          ui.Offset(width - margin, y),
+          ui.Paint()..color = const ui.Color(0xFFE0E3E7),
+        );
+        y += 12;
+      }
+      if (_rows.length > lines.length) {
+        y += drawText(
+          'برای خوانایی تصویر، فقط ${lines.length} ردیف نخست نمایش داده شد.',
+          size: 18,
+        );
+      }
+
+      final picture = recorder.endRecording();
+      final raster = await picture.toImage(width.toInt(), height);
+      final png = await raster.toByteData(format: ui.ImageByteFormat.png);
+      raster.dispose();
+      picture.dispose();
+      if (png == null) throw StateError('ساخت تصویر گزارش ناموفق بود');
+
+      final directory = await getTemporaryDirectory();
+      imageFile = File(
+        '${directory.path}/report_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await imageFile.writeAsBytes(
+        png.buffer.asUint8List(),
+        flush: true,
+      );
+      await Share.shareXFiles(
+        [XFile(imageFile.path, mimeType: 'image/png')],
+        text: 'تصویر گزارش نرم‌افزار خدمات فنی حسین',
+      );
+    } catch (error) {
+      _message('ساخت یا اشتراک تصویر گزارش ناموفق بود: $error');
+    } finally {
+      try {
+        if (imageFile != null && await imageFile.exists()) {
+          await imageFile.delete();
+        }
+      } catch (_) {
+        // A temporary image may be retained if the sharing extension still
+        // has the file open; the app cache can clean it later.
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _reportSearchController.text.trim().toLowerCase();
@@ -404,6 +553,15 @@ class _ReportsPageState extends State<ReportsPage> {
               label: const Text('PDF'),
             )),
           ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _loading ? null : _exportImage,
+            icon: const Icon(Icons.image_outlined),
+            label: const Text('خروجی تصویر PNG'),
+          ),
         ),
         const SizedBox(height: 8),
         Card(child: ListTile(
