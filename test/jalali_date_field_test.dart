@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:khadamat_fanni_hossein/jalali_date_field.dart';
+import 'package:khadamat_fanni_hosein/jalali_date_field.dart';
 
 void main() {
   group('Solar Hijri date formatting and parsing', () {
