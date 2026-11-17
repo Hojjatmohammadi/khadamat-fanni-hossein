@@ -234,6 +234,8 @@ class _ReportsPageState extends State<ReportsPage> {
           TextCellValue('بانک'), TextCellValue('مبلغ'),
           TextCellValue('سررسید'), TextCellValue('وضعیت قبلی'),
           TextCellValue('وضعیت جدید'), TextCellValue('شرح'),
+          TextCellValue('شماره سند حسابداری'), TextCellValue('تاریخ سند'),
+          TextCellValue('شرح سند حسابداری'),
         ]);
         for (final row in exportRows) {
           sheet.appendRow([
@@ -247,6 +249,9 @@ class _ReportsPageState extends State<ReportsPage> {
             TextCellValue(_checkStatusName(row['old_status'])),
             TextCellValue(_checkStatusName(row['new_status'])),
             TextCellValue(row['description']?.toString() ?? ''),
+            TextCellValue(row['journal_entry_id']?.toString() ?? '—'),
+            TextCellValue(row['journal_entry_date']?.toString() ?? ''),
+            TextCellValue(row['journal_entry_description']?.toString() ?? ''),
           ]);
         }
       } else {
@@ -314,7 +319,10 @@ class _ReportsPageState extends State<ReportsPage> {
         final oldStatus = row['old_status'] == null
             ? '—'
             : _checkStatusName(row['old_status']);
-        return "${row['event_date']} | چک $direction شماره ${row['check_number']} | ${row['party_name']} | $oldStatus ← ${_checkStatusName(row['new_status'])} | ${_money(row['amount'])} تومان | ${row['description']}";
+        final journal = row['journal_entry_id'] == null
+            ? 'بدون سند حسابداری'
+            : 'سند حسابداری ${row['journal_entry_id']} در تاریخ ${row['journal_entry_date'] ?? '—'}';
+        return "${row['event_date']} | چک $direction شماره ${row['check_number']} | ${row['party_name']} | $oldStatus ← ${_checkStatusName(row['new_status'])} | ${_money(row['amount'])} تومان | $journal | ${row['description']}";
       }
       if (_report == 'expenses' || _report == 'repair_income') {
         return "${row['entry_date']} | ${row['description']} | ${row['account_name']} | ${_money(row['amount'])} تومان";
@@ -635,7 +643,9 @@ class _ReportsPageState extends State<ReportsPage> {
               subtitle: Text(
                 '${row['event_date']} • ${row['party_name']} • بانک: ${row['bank_name']}'
                 '\nسررسید: ${row['due_date']} • ${row['old_status'] == null ? 'ثبت اولیه' : _checkStatusName(row['old_status'])}'
-                '\nشرح: ${row['description']}',
+                '\nسند حسابداری: ${row['journal_entry_id'] ?? 'ثبت مالی جداگانه ندارد'} • تاریخ سند: ${row['journal_entry_date'] ?? '—'}'
+                '\nشرح سند: ${row['journal_entry_description'] ?? '—'}'
+                '\nشرح رویداد: ${row['description']}',
               ),
               trailing: Text('${_money(row['amount'])} تومان'),
             )),

@@ -336,9 +336,25 @@ class ReportRepository {
         e.old_status, e.new_status, e.description,
         c.direction, c.check_number, c.bank_name, c.drawer_name,
         c.party_name, c.amount, c.issue_date, c.due_date,
-        c.status AS current_status
+        c.status AS current_status,
+        CASE
+          WHEN e.new_status IN ('received', 'issued', 'deposited')
+            THEN c.acceptance_journal_id
+          WHEN e.new_status = 'cleared' THEN c.settlement_journal_id
+          WHEN e.new_status IN ('bounced', 'cancelled') THEN c.reversal_journal_id
+          ELSE NULL
+        END AS journal_entry_id,
+        j.entry_date AS journal_entry_date,
+        j.description AS journal_entry_description
       FROM check_events e
       JOIN check_records c ON c.id = e.check_id
+      LEFT JOIN journal_entries j ON j.id = CASE
+        WHEN e.new_status IN ('received', 'issued', 'deposited')
+          THEN c.acceptance_journal_id
+        WHEN e.new_status = 'cleared' THEN c.settlement_journal_id
+        WHEN e.new_status IN ('bounced', 'cancelled') THEN c.reversal_journal_id
+        ELSE NULL
+      END
       WHERE e.event_date >= ? AND e.event_date < ?
       ORDER BY e.event_date ASC, e.id ASC
     ''', [

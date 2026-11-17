@@ -304,6 +304,39 @@ void main() {
     expect(allEvents.first['old_status'], isNull);
     expect(allEvents.last['current_status'], 'cleared');
 
+    final check = await checks.getCheck(checkId);
+    final acceptanceId = check['acceptance_journal_id'];
+    final settlementId = check['settlement_journal_id'];
+    expect(acceptanceId, isNotNull);
+    expect(settlementId, isNotNull);
+    expect(
+      allEvents.firstWhere((row) => row['new_status'] == 'received')
+          ['journal_entry_id'],
+      acceptanceId,
+    );
+    expect(
+      allEvents.firstWhere((row) => row['new_status'] == 'deposited')
+          ['journal_entry_id'],
+      acceptanceId,
+    );
+    expect(
+      allEvents.firstWhere((row) => row['new_status'] == 'cleared')
+          ['journal_entry_id'],
+      settlementId,
+    );
+
+    final journalIds = {acceptanceId as int, settlementId as int};
+    for (final journalId in journalIds) {
+      final totals = await database.rawQuery(
+        'SELECT COALESCE(SUM(debit), 0) AS debit_total, '
+        'COALESCE(SUM(credit), 0) AS credit_total '
+        'FROM journal_lines WHERE journal_entry_id = ?',
+        [journalId],
+      );
+      expect(totals.single['debit_total'], 750000);
+      expect(totals.single['credit_total'], 750000);
+    }
+
     final singleDay = await repository.getCheckMovements(
       from: DateTime(2026, 11, 17),
       to: DateTime(2026, 11, 17),
