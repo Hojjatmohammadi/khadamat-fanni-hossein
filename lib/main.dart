@@ -486,6 +486,7 @@ class _HomePageState extends State<HomePage> {
       SalesPage(onChanged: () => setState(() {})),
       PartyLedgerPage(
         repository: DemoStore.parties,
+        reminders: DemoStore.reminders,
         trades: DemoStore.trades,
         checks: DemoStore.checks,
         onChanged: () => setState(() {}),

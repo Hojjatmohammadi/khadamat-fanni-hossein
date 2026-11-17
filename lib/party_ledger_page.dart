@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'check_repository.dart';
 import 'checks_page.dart';
+import 'check_reminder_service.dart';
 import 'jalali_date_field.dart';
 import 'localized_number.dart';
 import 'numeric_input.dart';
@@ -12,6 +13,7 @@ class PartyLedgerPage extends StatefulWidget {
   const PartyLedgerPage({
     super.key,
     required this.repository,
+    required this.reminders,
     this.trades,
     this.checks,
     this.onChanged,
@@ -19,6 +21,7 @@ class PartyLedgerPage extends StatefulWidget {
   });
 
   final PartyRepository repository;
+  final CheckReminderService reminders;
   final TradeRepository? trades;
   final CheckRepository? checks;
   final VoidCallback? onChanged;
@@ -317,6 +320,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
             checks: checks,
             parties: widget.repository,
             trades: trades,
+            reminders: widget.reminders,
             onChanged: widget.onChanged ?? () {},
             initialPartyId: partyId,
             initialDirection: incoming ? 'incoming' : 'outgoing',
