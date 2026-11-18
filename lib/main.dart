@@ -615,11 +615,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   icon: const Icon(Icons.add_circle_outline),
                 ),
                 PopupMenuButton<String>(
-                  // The app is RTL and this action sits at the left edge of
-                  // the AppBar. Anchor the menu to the left edge so its
-                  // entries open into the available screen area instead of
-                  // being laid out beyond the viewport.
-                  alignment: Alignment.centerLeft,
                   tooltip: 'تنظیم نمایش عکس کالا',
                   onSelected: (option) =>
                       _productPageKey.currentState?.setProductImageDisplay(option),
