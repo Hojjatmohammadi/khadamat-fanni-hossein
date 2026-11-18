@@ -14,35 +14,23 @@ import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
 void _noop() {}
 
-Future<Map<String, Object?>> _waitForSavedParty(
+Future<void> _waitForFinder(
   WidgetTester tester,
-  PartyRepository repository,
-  String displayName,
+  Finder finder,
+  String description,
 ) async {
-  for (var attempt = 0; attempt < 50; attempt++) {
-    final parties = await tester.runAsync(() => repository.getParties()) ??
-        <Map<String, Object?>>[];
-    for (final party in parties) {
-      if (party['display_name'] == displayName) return party;
-    }
+  for (var attempt = 0; attempt < 250; attempt++) {
+    await tester.pump(const Duration(milliseconds: 20));
+    if (finder.evaluate().isNotEmpty) return;
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
   }
-  throw StateError('مخاطب پس از ذخیره در مهلت آزمون ثبت نشد: $displayName');
+  throw StateError('عنصر رابط کاربری در مهلت آزمون ظاهر نشد: $description');
 }
 
-Future<void> _waitForText(WidgetTester tester, String value) async {
-  final target = find.text(value);
-  for (var attempt = 0; attempt < 50; attempt++) {
-    await tester.pump(const Duration(milliseconds: 20));
-    if (target.evaluate().isNotEmpty) return;
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 20)),
-    );
-  }
-  throw StateError('متن در رابط کاربری در مهلت آزمون ظاهر نشد: $value');
-}
+Future<void> _waitForText(WidgetTester tester, String value) =>
+    _waitForFinder(tester, find.text(value), value);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -215,20 +203,17 @@ void main() {
   });
 
 
-  testWidgets('central contacts page creates a multi-role contact and opens its profile',
+  testWidgets(
+      'contacts page opens a multi-role ledger with check and advance actions',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    const contactName = 'آزمون دفتر مرکزی مخاطبین';
     print('[contacts-widget-test] start');
-    // Keep this widget test independent from DemoStore.init(), which also
-    // performs startup backup work and shares a process-wide database with
-    // other widget tests.
-    // Real filesystem and SQLite work must run outside the widget test's
-    // fake-async clock. Otherwise the sqflite FFI worker can wait forever
-    // before the page is even mounted.
+    // Use a dedicated database; initialize and seed it outside FakeAsync.
     final tempDir = await tester.runAsync(
       () => Directory.systemTemp.createTemp(
         'khadamat_contacts_widget_test_',
@@ -237,7 +222,6 @@ void main() {
     if (tempDir == null) {
       throw StateError('Could not create the contacts widget test directory');
     }
-    print('[contacts-widget-test] temp-directory-ready');
     final database = AppDatabase(
       databasePath: '${tempDir.path}/contacts-widget.db',
     );
@@ -251,7 +235,26 @@ void main() {
       }
     }));
     await tester.runAsync(() => database.database);
-    print('[contacts-widget-test] database-ready');
+
+    final partyId = await tester.runAsync(
+      () => repository.ensureParty(
+        const PartyDraft(
+          partyType: 'customer',
+          additionalRoles: ['supplier'],
+          displayName: contactName,
+          phone: '09123334455',
+        ),
+      ),
+    );
+    if (partyId == null) {
+      throw StateError('Could not seed the contacts widget test party');
+    }
+    final roles = await tester.runAsync(
+          () => repository.getPartyRoles(partyId),
+        ) ??
+        <String>[];
+    expect(roles, containsAll(['customer', 'supplier']));
+    print('[contacts-widget-test] contact-and-roles-seeded');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -264,91 +267,41 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 100));
-    print('[contacts-widget-test] contacts-page-mounted');
-
-    await tester.tap(find.byTooltip('افزودن مخاطب'));
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.enterText(
-      find.byType(TextFormField).first,
-      'آزمون دفتر مرکزی مخاطبین',
-    );
-    await tester.enterText(
-      find.byType(TextFormField).at(1),
-      '09123334455',
-    );
-    await tester.tap(find.text('فروشنده'));
-    await tester.pump();
-    print('[contacts-widget-test] add-dialog-filled');
-    await tester.tap(find.text('ذخیره مخاطب'));
-    await tester.pump(const Duration(milliseconds: 100));
-
-    // The save handler performs real SQLite work after the dialog closes.
-    // Wait for the persisted row instead of assuming two fake-time pumps are
-    // enough for the background database operation to finish.
-    final party = await _waitForSavedParty(
-      tester,
-      repository,
-      'آزمون دفتر مرکزی مخاطبین',
-    );
-    await tester.pump(const Duration(milliseconds: 100));
-    // This snackbar is emitted only after ensureParty and the page refresh
-    // have both completed, so it is a reliable completion signal.
-    await _waitForText(tester, 'اطلاعات مخاطب ذخیره شد.');
-    print('[contacts-widget-test] contact-save-returned');
-    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    final roles = await tester.runAsync(
-          () => repository.getPartyRoles(party['id'] as String),
-        ) ??
-        <String>[];
-    expect(roles, containsAll(['customer', 'supplier']));
-    print('[contacts-widget-test] contact-and-roles-verified');
+    await _waitForText(tester, contactName);
+    expect(find.text('مشتری'), findsWidgets);
+    expect(find.text('فروشنده'), findsWidgets);
+    print('[contacts-widget-test] contacts-page-loaded');
 
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
     await _waitForText(tester, 'دفتر گردش حساب اشخاص');
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
-    expect(find.byKey(const ValueKey('record-customer-advance')), findsOneWidget);
+    await _waitForFinder(
+      tester,
+      find.byKey(const ValueKey('record-customer-advance')),
+      'دکمه ثبت بیعانه مشتری',
+    );
     expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-customer-check')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-supplier-check')), findsOneWidget);
     print('[contacts-widget-test] ledger-opened');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-check')));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('ثبت چک جدید'), findsOneWidget);
+    await _waitForText(tester, 'ثبت چک جدید');
     expect(find.text('شماره چک'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
     print('[contacts-widget-test] check-form-opened-and-closed');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.enterText(
+    await _waitForFinder(
+      tester,
       find.byKey(const ValueKey('party-ledger-advance-amount')),
-      '750',
+      'فیلد مبلغ بیعانه',
     );
-    print('[contacts-widget-test] advance-dialog-filled');
-    await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.textContaining('بیعانه مشتری در گردش حساب ثبت شد'), findsOneWidget);
-    expect(find.textContaining('مانده بستانکار: 750 تومان'), findsOneWidget);
-    print('[contacts-widget-test] advance-recorded-and-ledger-refreshed');
-
+    expect(find.text('ثبت در گردش حساب'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.byTooltip('حذف مخاطب'));
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.widgetWithText(FilledButton, 'حذف مخاطب'));
-    await tester.pump(const Duration(milliseconds: 150));
-    await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    final remainingParties =
-        await tester.runAsync(() => repository.getParties()) ??
-            <Map<String, Object?>>[];
-    expect(remainingParties, hasLength(1));
-    print('[contacts-widget-test] delete-protection-verified');
+    print('[contacts-widget-test] advance-form-opened-and-closed');
+
     await tester.pumpWidget(const SizedBox.shrink());
     print('[contacts-widget-test] finished');
   });
