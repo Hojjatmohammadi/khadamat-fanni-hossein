@@ -682,6 +682,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: pages[tab],
             ),
           ),
+          ),
           if (_isDrawerOpen) ...[
             Positioned.fill(
               child: GestureDetector(
