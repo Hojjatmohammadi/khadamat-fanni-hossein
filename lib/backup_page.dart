@@ -78,6 +78,35 @@ class _BackupPageState extends State<BackupPage> {
     }
   }
 
+  Future<void> _runRestore() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final restored = await widget.service.restoreFromFile();
+      if (!restored) {
+        if (mounted) {
+          setState(() => _message = 'بازیابی لغو شد؛ اطلاعات فعلی بدون تغییر باقی ماند.');
+        }
+        return;
+      }
+      await widget.onRestored?.call();
+      await _refreshBackups();
+      if (mounted) {
+        setState(() => _message = widget.service.lastBackupWarning ??
+            (widget.onRestored == null
+                ? 'بازیابی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.'
+                : 'بازیابی انجام شد و اطلاعات برنامه تازه‌سازی شد.'));
+      }
+    } catch (error) {
+      if (mounted) setState(() => _message = 'عملیات انجام نشد: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _restore() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -100,15 +129,7 @@ class _BackupPageState extends State<BackupPage> {
       ),
     );
     if (confirmed != true) return;
-    await _run(
-      () async {
-        await widget.service.restoreFromFile();
-        await widget.onRestored?.call();
-      },
-      widget.onRestored == null
-          ? 'بازیابی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.'
-          : 'بازیابی انجام شد و اطلاعات برنامه تازه‌سازی شد.',
-    );
+    await _runRestore();
   }
 
   Future<void> _deleteBackup(File file) async {
