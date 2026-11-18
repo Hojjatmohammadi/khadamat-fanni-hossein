@@ -28,6 +28,8 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Test Android application identity guard
+        run: python3 tool/test_android_identity.py
       - name: Install dependencies
         run: flutter pub get
       - name: Analyze
