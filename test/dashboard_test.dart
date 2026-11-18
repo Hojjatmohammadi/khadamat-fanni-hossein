@@ -292,7 +292,9 @@ void main() {
       'آزمون دفتر مرکزی مخاطبین',
     );
     await tester.pump(const Duration(milliseconds: 100));
-    await _waitForText(tester, 'آزمون دفتر مرکزی مخاطبین');
+    // This snackbar is emitted only after ensureParty and the page refresh
+    // have both completed, so it is a reliable completion signal.
+    await _waitForText(tester, 'اطلاعات مخاطب ذخیره شد.');
     print('[contacts-widget-test] contact-save-returned');
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     final roles = await tester.runAsync(
@@ -303,7 +305,8 @@ void main() {
     print('[contacts-widget-test] contact-and-roles-verified');
 
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
-    await tester.pump(const Duration(milliseconds: 300));
+    await _waitForText(tester, 'دفتر گردش حساب اشخاص');
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('دفتر گردش حساب اشخاص'), findsOneWidget);
     expect(find.byKey(const ValueKey('record-customer-advance')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
