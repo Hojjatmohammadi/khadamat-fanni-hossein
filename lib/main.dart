@@ -898,8 +898,8 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
-    final dialogWidth = (screenSize.width - 80).clamp(200.0, 460.0);
-    final dialogHeight = (screenSize.height * 0.42).clamp(150.0, 360.0);
+    final dialogWidth = (screenSize.width - 80).clamp(200.0, 460.0).toDouble();
+    final dialogHeight = (screenSize.height * 0.42).clamp(150.0, 360.0).toDouble();
     final query = ProductDuplicateChecker.normalize(_controller.text);
     final results = query.isEmpty
         ? <Map<String, Object>>[]
