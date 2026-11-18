@@ -597,10 +597,16 @@ void main() {
       tester.widget<TextField>(customerNameField).controller?.text,
       customerName,
     );
-    expect(
-      await tester.runAsync(() => DemoStore.parties.getParties(partyType: 'customer')),
-      isNotNull,
+    final savedParties = await tester.runAsync(
+      () => DemoStore.parties.getParties(partyType: 'customer'),
     );
+    expect(
+      savedParties!.where((party) => party['id'] == partyId).length,
+      1,
+      reason: 'Selecting a saved customer must reuse that party rather than create a duplicate',
+    );
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('inventory, contacts, and repair cards each expose one direct add action',
