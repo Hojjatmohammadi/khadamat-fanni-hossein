@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'numeric_input.dart';
 
 import 'check_repository.dart';
