@@ -1,0 +1,20 @@
+# Flutter / Dart generated files
+.dart_tool/
+.packages
+.pub-cache/
+build/
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android local SDK and Gradle state
+android/local.properties
+android/.gradle/
+
+# Never commit private Android release-signing material
+android/key.properties
+android/upload-keystore.jks
+android/upload-keystore.keystore
+*.jks
+*.keystore
+*.base64.txt
