@@ -694,14 +694,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Flexible(
-                        child: Text(
-                          'خدمات فنی حسین',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                      Flexible(
+                        child: ValueListenableBuilder<String>(
+                          valueListenable: DemoStore.appName,
+                          builder: (context, appName, _) => Text(
+                            appName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
