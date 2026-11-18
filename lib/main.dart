@@ -759,12 +759,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     selected: tab == i,
                     onTap: () {
                       _selectTab(i);
-                      Navigator.pop(context);
+                      _closeNavigationDrawer();
                     },
                   ),
               ],
+                ),
+              ),
             ),
-          ),
           ],
         ),
       ),
