@@ -28,11 +28,11 @@ class FilePickerCompileSdkTests(unittest.TestCase):
     def test_updates_numeric_groovy_and_flutter_kotlin_declarations(self) -> None:
         groovy = self._write(
             "build.gradle",
-            "android {\\n    compileSdkVersion 34\\n}\\n",
+            "android {\n    compileSdkVersion 34\n}\n",
         )
         kotlin = self._write(
             "build.gradle.kts",
-            "android {\\n    compileSdk = flutter.compileSdkVersion\\n}\\n",
+            "android {\n    compileSdk = flutter.compileSdkVersion\n}\n",
         )
 
         with patch("android_compile_sdk.Path.home", return_value=self.home):
@@ -45,7 +45,7 @@ class FilePickerCompileSdkTests(unittest.TestCase):
     def test_is_idempotent_when_already_api_36(self) -> None:
         gradle = self._write(
             "build.gradle",
-            "android {\\n    compileSdkVersion 36\\n}\\n",
+            "android {\n    compileSdkVersion 36\n}\n",
         )
         original = gradle.read_text(encoding="utf-8")
         with patch("android_compile_sdk.Path.home", return_value=self.home):
@@ -55,7 +55,7 @@ class FilePickerCompileSdkTests(unittest.TestCase):
     def test_rejects_unknown_or_ambiguous_gradle_layout(self) -> None:
         gradle = self._write(
             "build.gradle",
-            "android {\\n    compileSdk = 34\\n    compileSdk = 35\\n}\\n",
+            "android {\n    compileSdk = 34\n    compileSdk = 35\n}\n",
         )
         with patch("android_compile_sdk.Path.home", return_value=self.home):
             with self.assertRaises(AndroidCompileSdkError):
