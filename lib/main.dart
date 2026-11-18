@@ -727,7 +727,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             key: const ValueKey('drawer-settings-button'),
                             tooltip: 'تنظیمات برنامه',
                             onPressed: () {
-                              scaffoldKey.currentState?.closeDrawer();
+                              _closeNavigationDrawer();
                               Navigator.of(context).push(MaterialPageRoute<void>(
                                 builder: (_) => const AppSettingsPage(),
                               ));
