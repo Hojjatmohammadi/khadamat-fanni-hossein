@@ -147,6 +147,69 @@ jobs:
       - name: Resolve Flutter packages
         run: flutter pub get
 
+      - name: Align flutter_timezone Java and Kotlin JVM targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(
+              Path.home().joinpath(".pub-cache/hosted/pub.dev").glob(
+                  "flutter_timezone-*/android/build.gradle*"
+              )
+          )
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(
+                  rf"(?ms)^([ \\t]*){re.escape(block_name)}\\s*\\{{.*?^([ \\t]*)\\}}"
+              )
+              match = pattern.search(content)
+              if match:
+                  indent = match.group(1)
+                  close_indent = match.group(2)
+                  body_indent = indent + "    "
+                  replacement = (
+                      indent + block_name + " {\\n"
+                      + "".join(body_indent + line + "\\n" for line in lines)
+                      + close_indent + "}"
+                  )
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ \\t]*)android\\s*\\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = (
+                  "\\n" + indent + block_name + " {\\n"
+                  + "".join(indent + "    " + line + "\\n" for line in lines)
+                  + indent + "}\\n"
+              )
+              pos = android.end()
+              return content[:pos] + insertion + content[pos:]
+
+          updated = []
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content = replace_or_add_block(
+                  content,
+                  "compileOptions",
+                  [
+                      "sourceCompatibility = JavaVersion.VERSION_11",
+                      "targetCompatibility = JavaVersion.VERSION_11",
+                  ],
+              )
+              content = replace_or_add_block(
+                  content,
+                  "kotlinOptions",
+                  ["jvmTarget = JavaVersion.VERSION_11.toString()"],
+              )
+              gradle.write_text(content, encoding="utf-8")
+              updated.append(str(gradle))
+
+          print("Aligned flutter_timezone Java/Kotlin targets to JVM 11: " + ", ".join(updated))
+          PY
+
       - name: Align file_picker Android compile SDK to 36
         run: |
           python3 - <<'PY'
