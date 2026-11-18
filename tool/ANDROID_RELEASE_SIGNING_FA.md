@@ -17,13 +17,13 @@ keytool -genkeypair -v -keystore upload-keystore.jks -storetype JKS -keyalg RSA 
 در Windows PowerShell:
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\\upload-keystore.jks")) | Set-Content -NoNewline ".\\upload-keystore.base64.txt"
+[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\upload-keystore.jks")) | Set-Content -NoNewline ".\upload-keystore.base64.txt"
 ```
 
 در Linux یا macOS:
 
 ```bash
-base64 upload-keystore.jks | tr -d '\\r\\n' > upload-keystore.base64.txt
+base64 upload-keystore.jks | tr -d '\r\n' > upload-keystore.base64.txt
 ```
 
 محتوای فایل متنی Base64 را کپی کنید. خود فایل JKS و فایل Base64 را در مخزن کد یا چت ارسال نکنید.
