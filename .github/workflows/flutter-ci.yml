@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Test stable Android application identity
+        run: python3 tool/test_android_identity.py
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
