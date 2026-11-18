@@ -18,7 +18,7 @@ void main() {
         home: Scaffold(
           body: BackupPage(
             service: service,
-            onRestored: () async => refreshCount++,
+            onRestored: () async { refreshCount++; },
           ),
         ),
       ),
@@ -49,7 +49,7 @@ void main() {
         home: Scaffold(
           body: BackupPage(
             service: service,
-            onRestored: () async => refreshCount++,
+            onRestored: () async { refreshCount++; },
           ),
         ),
       ),
