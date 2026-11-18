@@ -20,7 +20,7 @@ COMPILE_SDK_PATTERN = re.compile(
 )
 
 
-def configure_file_picker_compile_sdk(project_root: Path) -> list[Path]:
+def configure_file_picker_compile_sdk() -> list[Path]:
     """Set every resolved file_picker Android Gradle declaration to API 36.
 
     Accepts numeric versions and Flutter's compileSdkVersion variable so a
@@ -63,8 +63,7 @@ def configure_file_picker_compile_sdk(project_root: Path) -> list[Path]:
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[1]
-    files = configure_file_picker_compile_sdk(root)
+    files = configure_file_picker_compile_sdk()
     print(
         f"file_picker Android compile SDK verified at API {COMPILE_SDK}: "
         + ", ".join(str(path) for path in files)
