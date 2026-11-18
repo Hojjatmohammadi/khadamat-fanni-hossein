@@ -3,7 +3,10 @@ workflows:
     name: Build Khadamat Fanni Hossein Release APK
     max_build_duration: 60
     environment:
+      groups:
+        - android-release-signing
       flutter: stable
+      java: 17
     scripts:
       - name: Prepare Android project
         script: |
@@ -21,8 +24,6 @@ workflows:
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           content = manifest.read_text(encoding="utf-8")
           permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
-          if "android.permission.POST_NOTIFICATIONS" not in content:
-              content = content.replace("<application", permission + "\n\n    <application", 1)
           contacts_permission = '    <uses-permission android:name="android.permission.READ_CONTACTS" />'
           if "android.permission.READ_CONTACTS" not in content:
               content = content.replace("<application", contacts_permission + "\n\n    <application", 1)
