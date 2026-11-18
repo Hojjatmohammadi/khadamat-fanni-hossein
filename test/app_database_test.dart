@@ -185,6 +185,101 @@ void main() {
     await migrated.close();
   });
 
+  test('version 14 upgrade preserves documents and installs immutable payment allocations', () async {
+    final legacyPath = '\${tempDir.path}/legacy-v14.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 14,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE business_documents (
+              id INTEGER PRIMARY KEY,
+              document_type TEXT NOT NULL
+            )
+          ''');
+          await db.insert('business_documents', {
+            'id': 201,
+            'document_type': 'payment',
+          });
+          await db.insert('business_documents', {
+            'id': 202,
+            'document_type': 'sale',
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final upgraded = AppDatabase(databasePath: legacyPath);
+    final db = await upgraded.database;
+
+    final documents = await db.query(
+      'business_documents',
+      orderBy: 'id ASC',
+    );
+    expect(
+      documents.map((row) => row['id']),
+      [201, 202],
+    );
+
+    final allocationTables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invoice_payment_allocations'",
+    );
+    expect(allocationTables, hasLength(1));
+
+    final allocationIndexes = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_payment_allocations_%'",
+    );
+    expect(
+      allocationIndexes.map((row) => row['name']),
+      containsAll([
+        'idx_payment_allocations_invoice',
+        'idx_payment_allocations_payment',
+      ]),
+    );
+
+    final allocationId = await db.insert('invoice_payment_allocations', {
+      'payment_document_id': 201,
+      'invoice_document_id': 202,
+      'amount': 1250,
+      'created_at': '2026-11-18T12:00:00.000',
+    });
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'id = ?',
+      whereArgs: [allocationId],
+    );
+    expect(allocations.single['amount'], 1250);
+
+    await expectLater(
+      db.update(
+        'invoice_payment_allocations',
+        {'amount': 1200},
+        where: 'id = ?',
+        whereArgs: [allocationId],
+      ),
+      throwsA(isA<Exception>()),
+    );
+    await expectLater(
+      db.delete(
+        'invoice_payment_allocations',
+        where: 'id = ?',
+        whereArgs: [allocationId],
+      ),
+      throwsA(isA<Exception>()),
+    );
+
+    final unchanged = await db.query(
+      'invoice_payment_allocations',
+      where: 'id = ?',
+      whereArgs: [allocationId],
+    );
+    expect(unchanged.single['amount'], 1250);
+
+    await upgraded.close();
+  });
+
   test('version 4 migration normalizes whitespace in migrated party names', () async {
     final legacyPath = '${tempDir.path}/legacy-v4.db';
     final legacyDb = await databaseFactory.openDatabase(
