@@ -276,6 +276,21 @@ class DemoStore {
       }));
   }
 
+  /// Reloads all in-memory data after a database restore without restarting the app.
+  static Future<void> refreshAfterRestore() async {
+    final settings = await invoiceSettings.getSettings();
+    appLogo.value = settings['appLogoBase64'];
+    appName.value = settings['appName']?.trim().isNotEmpty == true
+        ? settings['appName']!.trim()
+        : 'خدمات فنی حسین';
+    await Future.wait<void>([
+      refreshProducts(),
+      refreshCustomers(),
+      refreshRepairs(),
+      refreshSales(),
+    ]);
+  }
+
   static Future<void> _loadCategory(
     String category,
     List<Map<String, String>> target,
@@ -616,6 +631,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       BackupPage(
         service: DemoStore.backups,
         initialMessage: DemoStore.backupStartupNotice,
+        onRestored: () async {
+          await DemoStore.refreshAfterRestore();
+          if (!mounted) return;
+          setState(() {
+            tab = 0;
+            _tabHistory.clear();
+            _isDrawerOpen = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('اطلاعات بازیابی شد و همه بخش‌ها تازه‌سازی شدند.')),
+          );
+        },
       ),
       LoanManagementPage(repository: DemoStore.loans),
       ContactsPage(
