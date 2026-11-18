@@ -546,6 +546,63 @@ void main() {
     expect(find.text('انبار کالا'), findsOneWidget);
   });
 
+  testWidgets('repair intake selects an existing customer without creating a duplicate',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.runAsync(DemoStore.init);
+    final unique = DateTime.now().microsecondsSinceEpoch.toString();
+    final customerName = 'مشتری ذخیره‌شده آزمون $unique';
+    final customerPhone = '0912' + unique.substring(unique.length - 7);
+    final partyId = await tester.runAsync(
+      () => DemoStore.parties.ensureParty(
+        PartyDraft(
+          partyType: 'customer',
+          displayName: customerName,
+          phone: customerPhone,
+        ),
+      ),
+    );
+    expect(partyId, isNotNull);
+    addTearDown(() => tester.runAsync(
+          () => DemoStore.parties.deleteParty(partyId!),
+        ));
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.text('پذیرش دستگاه'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.byTooltip('ثبت پذیرش تعمیر'));
+    await _waitForText(tester, 'ثبت پذیرش تعمیر جدید');
+
+    final customerSelector =
+        find.byKey(const ValueKey('repair-existing-customer-selector'));
+    expect(customerSelector, findsOneWidget);
+    await tester.tap(customerSelector);
+    await tester.pumpAndSettle();
+
+    final savedCustomerOption = find.textContaining(customerName);
+    expect(savedCustomerOption, findsOneWidget);
+    await tester.tap(savedCustomerOption);
+    await tester.pumpAndSettle();
+
+    final customerNameField = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.labelText == 'نام مشتری',
+    );
+    expect(customerNameField, findsOneWidget);
+    expect(
+      tester.widget<TextField>(customerNameField).controller?.text,
+      customerName,
+    );
+    expect(
+      await tester.runAsync(() => DemoStore.parties.getParties(partyType: 'customer')),
+      isNotNull,
+    );
+  });
+
   testWidgets('inventory, contacts, and repair cards each expose one direct add action',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
