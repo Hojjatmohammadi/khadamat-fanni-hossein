@@ -214,12 +214,12 @@ void main() {
     final repository = PartyRepository(database);
     final trades = TradeRepository(database);
     final checks = CheckRepository(database);
-    addTearDown(() async {
+    addTearDown(() => tester.runAsync(() async {
       await database.close();
       if (await tempDir.exists()) {
         await tempDir.delete(recursive: true);
       }
-    });
+    }));
     await tester.runAsync(() => database.database);
     print('[contacts-widget-test] database-ready');
 
@@ -256,10 +256,16 @@ void main() {
 
     print('[contacts-widget-test] contact-save-returned');
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    final party = (await repository.getParties()).singleWhere(
+    final savedParties =
+        await tester.runAsync(() => repository.getParties()) ??
+            <Map<String, Object?>>[];
+    final party = savedParties.singleWhere(
       (item) => item['display_name'] == 'آزمون دفتر مرکزی مخاطبین',
     );
-    final roles = await repository.getPartyRoles(party['id'] as String);
+    final roles = await tester.runAsync(
+          () => repository.getPartyRoles(party['id'] as String),
+        ) ??
+        <String>[];
     expect(roles, containsAll(['customer', 'supplier']));
     print('[contacts-widget-test] contact-and-roles-verified');
 
@@ -302,7 +308,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    expect(await repository.getParties(), hasLength(1));
+    final remainingParties =
+        await tester.runAsync(() => repository.getParties()) ??
+            <Map<String, Object?>>[];
+    expect(remainingParties, hasLength(1));
     print('[contacts-widget-test] delete-protection-verified');
     await tester.pumpWidget(const SizedBox.shrink());
     print('[contacts-widget-test] finished');
@@ -346,21 +355,23 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await DemoStore.init();
-    await DemoStore.add('products', {
+    // DemoStore uses the real SQLite/file system, so keep these operations
+    // outside the widget test's fake-async zone as well.
+    await tester.runAsync(DemoStore.init);
+    await tester.runAsync(() => DemoStore.add('products', {
       'نام کالا': 'قطعه آزمون اندازه فرم',
       'موجودی': '0',
-    });
-    await DemoStore.add('repairs', {
+    }));
+    await tester.runAsync(() => DemoStore.add('repairs', {
       'نام مشتری': 'مشتری آزمون اندازه فرم',
       'نوع دستگاه': 'دریل',
-    });
+    }));
     final productId = int.parse(DemoStore.products.last['__database_id']!);
     final repairId = int.parse(DemoStore.repairs.last['__database_id']!);
-    addTearDown(() async {
+    addTearDown(() => tester.runAsync(() async {
       await DemoStore.deleteRecord('repairs', repairId);
       await DemoStore.deleteRecord('products', productId);
-    });
+    }));
 
     await tester.pumpWidget(
       const MaterialApp(home: Scaffold(body: RepairPage(onChanged: _noop))),
@@ -416,7 +427,7 @@ void main() {
           .setMockMethodCallHandler(imagePickerChannel, null);
     });
 
-    await DemoStore.init();
+    await tester.runAsync(DemoStore.init);
     await tester.pumpWidget(const MaterialApp(home: AppSettingsPage()));
     await tester.pump(const Duration(seconds: 1));
 
