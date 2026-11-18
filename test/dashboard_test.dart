@@ -289,6 +289,11 @@ void main() {
     expect(find.text('شماره چک'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
+    await _waitForFinder(
+      tester,
+      find.byKey(const ValueKey('record-customer-advance')),
+      'بازگشت به دفتر گردش حساب پس از فرم چک',
+    );
     print('[contacts-widget-test] check-form-opened-and-closed');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
