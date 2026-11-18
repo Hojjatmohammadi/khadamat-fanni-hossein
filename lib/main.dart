@@ -476,6 +476,48 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final searchable = [...entry.values.where((v) => v is! List).map((v) => v?.toString() ?? ''), ...lines.expand((line) => line is Map ? line.values.map((v) => v?.toString() ?? '') : const <String>[])].join(' ');
       entries.add({'tab': 9, 'category': 'سند حسابداری', 'label': entry['description']?.toString() ?? 'سند حسابداری', 'details': entry['entry_date']?.toString() ?? '', 'searchText': ProductDuplicateChecker.normalize(searchable)});
     }
+
+    // Loans and their installments are separate records from journal entries.
+    final loans = await DemoStore.loans.getLoans();
+    addRows(
+      tab: 11,
+      category: 'قرض و قسط',
+      rows: loans,
+      labels: const ['party_name', 'note'],
+    );
+    for (final loan in loans) {
+      final loanId = int.tryParse(loan['id']?.toString() ?? '');
+      if (loanId == null) continue;
+      final installments = await DemoStore.loans.getInstallments(loanId);
+      for (final installment in installments) {
+        final searchable = [
+          ...loan.values.map((value) => value?.toString() ?? ''),
+          ...installment.values.map((value) => value?.toString() ?? ''),
+        ].join(' ');
+        entries.add({
+          'tab': 11,
+          'category': 'قسط قرض',
+          'label': 'قسط ${installment['installment_number'] ?? ''} - ${loan['party_name'] ?? ''}',
+          'details': '${installment['due_date'] ?? ''} • ${installment['amount'] ?? ''}',
+          'searchText': ProductDuplicateChecker.normalize(searchable),
+        });
+      }
+    }
+
+    // Search the immutable invoice snapshot as well as the current document,
+    // so historical invoices remain findable after shop settings are changed.
+    for (final archive in await DemoStore.invoiceArchives.getArchives()) {
+      final searchable = archive.entries
+          .map((entry) => '${entry.key}: ${entry.value}')
+          .join(' ');
+      entries.add({
+        'tab': 5,
+        'category': 'فاکتور بایگانی‌شده',
+        'label': 'فاکتور بایگانی‌شده #${archive['business_document_id'] ?? ''}',
+        'details': archive['archived_at']?.toString() ?? '',
+        'searchText': ProductDuplicateChecker.normalize(searchable),
+      });
+    }
     return entries;
   }
 
