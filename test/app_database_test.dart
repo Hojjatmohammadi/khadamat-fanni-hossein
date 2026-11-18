@@ -186,7 +186,7 @@ void main() {
   });
 
   test('version 14 upgrade preserves documents and installs immutable payment allocations', () async {
-    final legacyPath = '\${tempDir.path}/legacy-v14.db';
+    final legacyPath = '${tempDir.path}/legacy-v14.db';
     final legacyDb = await databaseFactory.openDatabase(
       legacyPath,
       options: OpenDatabaseOptions(
