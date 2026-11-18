@@ -36,7 +36,5 @@ jobs:
         timeout-minutes: 20
         run: flutter test --no-pub --reporter expanded
 
-  build-android:
-    name: Build installable Android APK
-    needs: analyze-and-test
-    uses: ./.github/workflows/android-apk.yml
+
+# APK creation is intentionally kept separate and requires an explicit manual request.
