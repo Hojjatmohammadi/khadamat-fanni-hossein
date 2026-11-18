@@ -463,6 +463,8 @@ void main() {
     await tester.runAsync(DemoStore.init);
     await tester.pumpWidget(const MaterialApp(home: AppSettingsPage()));
     await tester.pump(const Duration(seconds: 1));
+    // AppSettingsPage loads its settings from SQLite before building the form.
+    await _waitForText(tester, 'لوگوی فروشگاه');
 
     expect(find.text('تنظیمات برنامه'), findsOneWidget);
     expect(find.textContaining('محل ذخیره‌سازی:'), findsNothing);
