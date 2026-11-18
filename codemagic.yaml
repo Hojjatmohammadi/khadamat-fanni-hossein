@@ -213,6 +213,26 @@ workflows:
       - name: Build optimized universal release APK
         script: |
           flutter build apk --release --obfuscate --split-debug-info=build/symbols
+      - name: Verify release APK signature
+        script: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -s "$APK" ]; then
+            echo "Release APK was not created"
+            exit 1
+          fi
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK root was not found"
+            exit 1
+          fi
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "Android apksigner was not found"
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose "$APK"
+          "$APKSIGNER" verify --print-certs "$APK"
+
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
       - build/symbols/**
