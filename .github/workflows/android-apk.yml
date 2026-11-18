@@ -296,7 +296,7 @@ jobs:
               "storePassword=" + store_password + "\n"
               + "keyPassword=" + key_password + "\n"
               + "keyAlias=" + key_alias + "\n"
-              + "storeFile=upload-keystore.jks\n",
+              + "storeFile=../upload-keystore.jks\n",
               encoding="utf-8",
           )
 
