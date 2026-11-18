@@ -99,9 +99,9 @@ android {
     def test_missing_signing_secrets_fail_before_writing_files(self) -> None:
         self._write_gradle(
             "build.gradle",
-            "android {\\n    buildTypes {\\n        release {\\n"
-            "            signingConfig = signingConfigs.debug\\n"
-            "        }\\n    }\\n}\\n",
+            "android {\n    buildTypes {\n        release {\n"
+            "            signingConfig = signingConfigs.debug\n"
+            "        }\n    }\n}\n",
         )
         with self.assertRaises(AndroidSigningError):
             configure_release_signing(self.root, {}, keytool_path="/usr/bin/keytool")
@@ -110,9 +110,9 @@ android {
     def test_invalid_base64_is_rejected(self) -> None:
         self._write_gradle(
             "build.gradle",
-            "android {\\n    buildTypes {\\n        release {\\n"
-            "            signingConfig = signingConfigs.debug\\n"
-            "        }\\n    }\\n}\\n",
+            "android {\n    buildTypes {\n        release {\n"
+            "            signingConfig = signingConfigs.debug\n"
+            "        }\n    }\n}\n",
         )
         environment = dict(self.environment)
         environment["ANDROID_KEYSTORE_BASE64"] = "%%%invalid%%%"
@@ -123,9 +123,9 @@ android {
     def test_invalid_keystore_is_removed_and_not_configured(self, run) -> None:
         gradle = self._write_gradle(
             "build.gradle",
-            "android {\\n    buildTypes {\\n        release {\\n"
-            "            signingConfig = signingConfigs.debug\\n"
-            "        }\\n    }\\n}\\n",
+            "android {\n    buildTypes {\n        release {\n"
+            "            signingConfig = signingConfigs.debug\n"
+            "        }\n    }\n}\n",
         )
         original = gradle.read_text(encoding="utf-8")
         with self.assertRaises(AndroidSigningError):
