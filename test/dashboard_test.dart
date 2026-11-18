@@ -501,7 +501,9 @@ void main() {
     await tester.runAsync(() => DemoStore.add('products', {
           'نام کالا': searchableName,
           'کد کالا': 'SEARCH-7319',
-          'موجودی': '1',
+          // Keep the fixture free of stock movements so it can be deleted
+          // safely after the search widget test.
+          'موجودی': '0',
         }));
     final productId = int.parse(DemoStore.products.last['__database_id']!);
     addTearDown(() => tester.runAsync(
