@@ -34,10 +34,10 @@ void main() {
 
     expect(service.restoreCalled, isTrue);
     expect(refreshCount, 1);
-    expect(
-      find.text('بازیابی انجام شد و اطلاعات برنامه تازه‌سازی شد.'),
-      findsOneWidget,
-    );
+    final successMessage =
+        find.text('بازیابی انجام شد و اطلاعات برنامه تازه‌سازی شد.');
+    await tester.scrollUntilVisible(successMessage, 240);
+    expect(successMessage, findsOneWidget);
   });
 
   testWidgets('cancelling restore does not refresh app state', (tester) async {
