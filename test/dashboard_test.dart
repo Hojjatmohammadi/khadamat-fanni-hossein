@@ -32,6 +32,18 @@ Future<Map<String, Object?>> _waitForSavedParty(
   throw StateError('مخاطب پس از ذخیره در مهلت آزمون ثبت نشد: $displayName');
 }
 
+Future<void> _waitForText(WidgetTester tester, String value) async {
+  final target = find.text(value);
+  for (var attempt = 0; attempt < 50; attempt++) {
+    await tester.pump(const Duration(milliseconds: 20));
+    if (target.evaluate().isNotEmpty) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  }
+  throw StateError('متن در رابط کاربری در مهلت آزمون ظاهر نشد: $value');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -280,6 +292,7 @@ void main() {
       'آزمون دفتر مرکزی مخاطبین',
     );
     await tester.pump(const Duration(milliseconds: 100));
+    await _waitForText(tester, 'آزمون دفتر مرکزی مخاطبین');
     print('[contacts-widget-test] contact-save-returned');
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
     final roles = await tester.runAsync(
@@ -499,6 +512,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    // Repair intake loads the saved-customer list from SQLite before opening
+    // its form; initialize that store outside the widget test's fake clock.
+    await tester.runAsync(DemoStore.init);
     await tester.pumpWidget(const HoseinApp());
 
     await tester.tap(find.text('انبار'));
@@ -528,6 +544,7 @@ void main() {
     expect(find.byTooltip('ثبت پذیرش تعمیر'), findsOneWidget);
     expect(find.byTooltip('افزودن مورد جدید'), findsNothing);
     await tester.tap(find.byTooltip('ثبت پذیرش تعمیر'));
+    await _waitForText(tester, 'ثبت پذیرش تعمیر جدید');
     await tester.pumpAndSettle();
     expect(find.text('ثبت پذیرش تعمیر جدید'), findsOneWidget);
     expect(find.text('ثبت مصرف قطعه در تعمیر'), findsOneWidget);
