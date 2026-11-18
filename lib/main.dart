@@ -415,6 +415,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  void _handleQuickAdd(int destinationTab) {
+    if (destinationTab < 1 || destinationTab > 5) return;
+
+    void openForm() {
+      if (!mounted || tab != destinationTab) return;
+      switch (destinationTab) {
+        case 1:
+          _productPageKey.currentState?.addProduct();
+          break;
+        case 2:
+        case 5:
+          // Purchase and sales pages keep their new-invoice form ready at
+          // the top of the page; selecting them opens that form directly.
+          break;
+        case 3:
+          _customerPageKey.currentState?.addItem();
+          break;
+        case 4:
+          _repairPageKey.currentState?.addRepair();
+          break;
+      }
+    }
+
+    if (destinationTab == tab) {
+      openForm();
+      return;
+    }
+
+    _selectTab(destinationTab);
+    WidgetsBinding.instance.addPostFrameCallback((_) => openForm());
+  }
+
   Future<List<Map<String, Object>>> _globalSearchEntries() async {
     final entries = <Map<String, Object>>[];
     void addRows({required int tab, required String category, required Iterable<Map<String, Object?>> rows, required List<String> labels}) {
@@ -661,9 +693,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 )
               else
                 PopupMenuButton<int>(
+                  key: const ValueKey('global-quick-add'),
+                  // Keep the RTL popup inside the screen when the action bar
+                  // is anchored to the left edge.
+                  offset: const Offset(180, 0),
                   tooltip: 'افزودن مورد جدید',
                   icon: const Icon(Icons.add_circle_outline),
-                  onSelected: _selectTab,
+                  onSelected: _handleQuickAdd,
                   itemBuilder: (context) => const [
                     PopupMenuItem(value: 1, child: Text('ثبت کالا')),
                     PopupMenuItem(value: 2, child: Text('ثبت خرید')),
