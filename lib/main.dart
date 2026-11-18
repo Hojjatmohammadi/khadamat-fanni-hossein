@@ -2432,7 +2432,7 @@ class _RepairPageState extends State<RepairPage> {
                     ),
                     SizedBox(height: 12 * uiScale()),
                     DropdownButtonFormField<int>(
-                      key: ValueKey(selectedRepairId),
+                      key: ValueKey('repair-parts-repair-$selectedRepairId'),
                       initialValue: selectedRepairId,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -2458,7 +2458,7 @@ class _RepairPageState extends State<RepairPage> {
                     ),
                     SizedBox(height: 12 * uiScale()),
                     DropdownButtonFormField<int>(
-                      key: ValueKey(selectedProductId),
+                      key: ValueKey('repair-parts-product-$selectedProductId'),
                       initialValue: selectedProductId,
                       isExpanded: true,
                       decoration: InputDecoration(
