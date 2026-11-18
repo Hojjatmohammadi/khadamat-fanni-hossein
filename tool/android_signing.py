@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -29,18 +30,16 @@ def _escape_property(value: str) -> str:
 
 
 def _find_debug_signing_assignment(source: str, is_kotlin: bool) -> tuple[int, int, str]:
-    import re
-
     if is_kotlin:
         pattern = re.compile(
-            r'(?m)^(?P<indent>[ \\t]*)signingConfig[ \\t]*=[ \\t]*'
-            r'signingConfigs\\.getByName\\("debug"\\)[ \\t]*$'
+            r'(?m)^(?P<indent>[ \t]*)signingConfig[ \t]*=[ \t]*'
+            r'signingConfigs\.getByName\("debug"\)[ \t]*$'
         )
         replacement = 'signingConfig = signingConfigs.getByName("release")'
     else:
         pattern = re.compile(
-            r"(?m)^(?P<indent>[ \\t]*)signingConfig[ \\t]*=?[ \\t]*"
-            r"signingConfigs\\.debug[ \\t]*$"
+            r"(?m)^(?P<indent>[ \t]*)signingConfig[ \t]*=?[ \t]*"
+            r"signingConfigs\.debug[ \t]*$"
         )
         replacement = "signingConfig = signingConfigs.release"
 
@@ -102,14 +101,20 @@ def configure_release_signing(
         raise AndroidSigningError(
             "An existing signingConfigs block needs explicit reconciliation."
         )
+    if "keystoreProperties" in source:
+        raise AndroidSigningError(
+            "Gradle already loads keystore properties; refusing a duplicate configuration."
+        )
+
+    android_marker = "android {"
+    android_position = source.find(android_marker)
+    if android_position < 0:
+        raise AndroidSigningError("Could not locate the Android Gradle block.")
     build_types_position = source.find("buildTypes {")
     if build_types_position < 0:
         raise AndroidSigningError("Could not locate the Android buildTypes block.")
-    line_start = source.rfind("\n", 0, build_types_position) + 1
-    indent = source[line_start:build_types_position]
-    assignment_start, assignment_end, release_assignment = (
-        _find_debug_signing_assignment(source, is_kotlin)
-    )
+    build_types_line_start = source.rfind("\n", 0, build_types_position) + 1
+    indent = source[build_types_line_start:build_types_position]
 
     if is_kotlin:
         signing_config = (
@@ -148,6 +153,9 @@ def configure_release_signing(
             "keystoreProperties.load(new java.io.FileInputStream(keystorePropertiesFile))\n\n"
         )
 
+    assignment_start, assignment_end, release_assignment = (
+        _find_debug_signing_assignment(source, is_kotlin)
+    )
     keytool = keytool_path or shutil.which("keytool")
     if not keytool:
         raise AndroidSigningError("keytool was not found; Java is required for release signing.")
@@ -197,9 +205,18 @@ def configure_release_signing(
     except OSError:
         pass
 
+    # Gradle properties are loaded at top level, before the android DSL block.
+    android_line_start = source.rfind("\n", 0, android_position) + 1
+    source = source[:android_line_start] + properties_loader + source[android_line_start:]
+    assignment_start, assignment_end, release_assignment = (
+        _find_debug_signing_assignment(source, is_kotlin)
+    )
     source = source[:assignment_start] + release_assignment + source[assignment_end:]
-    source = source[:line_start] + properties_loader + source[line_start:]
-    source = source[:line_start] + signing_config + source[line_start:]
+
+    build_types_position = source.find("buildTypes {")
+    build_types_line_start = source.rfind("\n", 0, build_types_position) + 1
+    source = source[:build_types_line_start] + signing_config + source[build_types_line_start:]
+
     if "signingConfigs.release" not in source and 'getByName("release")' not in source:
         raise AndroidSigningError("Release signing assignment verification failed.")
 
