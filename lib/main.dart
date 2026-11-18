@@ -615,6 +615,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   icon: const Icon(Icons.add_circle_outline),
                 ),
                 PopupMenuButton<String>(
+                  // In RTL the actions row is on the left edge. Shift this
+                  // menu into the viewport so all three choices can be tapped.
+                  offset: const Offset(180, 0),
                   tooltip: 'تنظیم نمایش عکس کالا',
                   onSelected: (option) =>
                       _productPageKey.currentState?.setProductImageDisplay(option),
