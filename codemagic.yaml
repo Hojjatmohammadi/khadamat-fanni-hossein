@@ -23,6 +23,11 @@ workflows:
           permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
           if "android.permission.POST_NOTIFICATIONS" not in content:
               content = content.replace("<application", permission + "\n\n    <application", 1)
+          contacts_permission = '    <uses-permission android:name="android.permission.READ_CONTACTS" />'
+          if "android.permission.READ_CONTACTS" not in content:
+              content = content.replace("<application", contacts_permission + "\n\n    <application", 1)
+          if "android.permission.POST_NOTIFICATIONS" not in content:
+              content = content.replace("<application", permission + "\n\n    <application", 1)
           boot_permission = '    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />'
           if "android.permission.RECEIVE_BOOT_COMPLETED" not in content:
               content = content.replace("<application", boot_permission + "\n\n    <application", 1)
@@ -40,9 +45,11 @@ workflows:
           if "com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" not in content:
               if "</application>" not in content:
                   raise SystemExit("Could not find the Android application closing tag")
-              content = content.replace("</application>", "\\n".join(receiver_lines) + "\\n    </application>", 1)
+              content = content.replace("</application>", "\n".join(receiver_lines) + "\n    </application>", 1)
           content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
           manifest.write_text(content, encoding="utf-8")
+          import xml.etree.ElementTree as ET
+          ET.parse(manifest)
           PY
       - name: Set Android compile SDK to 36
         script: |
@@ -115,6 +122,66 @@ workflows:
 
       - name: Get packages
         script: flutter pub get
+      - name: Align flutter_timezone Java and Kotlin JVM targets
+        script: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(
+              Path.home().joinpath(".pub-cache/hosted/pub.dev").glob(
+                  "flutter_timezone-*/android/build.gradle*"
+              )
+          )
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(
+                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\{.*?^([ ]*)\}"
+              )
+              match = pattern.search(content)
+              if match:
+                  indent = match.group(1)
+                  close_indent = match.group(2)
+                  body_indent = indent + "    "
+                  replacement = (
+                      f"{indent}{block_name} {{\n"
+                      + "".join(f"{body_indent}{line}\n" for line in lines)
+                      + f"{close_indent}}}"
+                  )
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ ]*)android[ ]*\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = (
+                  "\n" + indent + block_name + " {\n"
+                  + "".join(indent + "    " + line + "\n" for line in lines)
+                  + indent + "}\n"
+              )
+              position = android.end()
+              return content[:position] + insertion + content[position:]
+
+          for gradle in packages:
+              source = gradle.read_text(encoding="utf-8")
+              source = replace_or_add_block(
+                  source,
+                  "compileOptions",
+                  [
+                      "sourceCompatibility = JavaVersion.VERSION_11",
+                      "targetCompatibility = JavaVersion.VERSION_11",
+                  ],
+              )
+              source = replace_or_add_block(
+                  source,
+                  "kotlinOptions",
+                  ["jvmTarget = JavaVersion.VERSION_11.toString()"],
+              )
+              gradle.write_text(source, encoding="utf-8")
+              print(f"Aligned {gradle} to Java/Kotlin JVM 11")
+          PY
+
       - name: Align file_picker Android compile SDK to 36
         script: |
           python3 - <<'PY'
@@ -140,9 +207,13 @@ workflows:
               raise SystemExit("file_picker compileSdk was not the expected API 34; refusing an unsafe patch")
           print("Updated file_picker Android compile SDK to 36: " + ", ".join(updated))
           PY
-      - name: Build ABI-specific optimized release APKs
+      - name: Configure permanent release signing
+        script: python3 tool/android_signing.py
+      - name: Build optimized universal release APK
+        script: |
+          flutter build apk --release --obfuscate --split-debug-info=build/symbols
         script: |
           flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
     artifacts:
-      - build/app/outputs/flutter-apk/*-release.apk
+      - build/app/outputs/flutter-apk/app-release.apk
       - build/symbols/**
