@@ -388,7 +388,12 @@ jobs:
             echo "Release APK was not created"
             exit 1
           fi
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK root was not found"
+            exit 1
+          fi
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then
             echo "Android apksigner was not found"
             exit 1
