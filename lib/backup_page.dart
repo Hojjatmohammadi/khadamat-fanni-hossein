@@ -10,10 +10,12 @@ class BackupPage extends StatefulWidget {
     super.key,
     required this.service,
     this.initialMessage,
+    this.onRestored,
   });
 
   final BackupService service;
   final String? initialMessage;
+  final Future<void> Function()? onRestored;
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -99,8 +101,13 @@ class _BackupPageState extends State<BackupPage> {
     );
     if (confirmed != true) return;
     await _run(
-      widget.service.restoreFromFile,
-      'بازیابی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.',
+      () async {
+        await widget.service.restoreFromFile();
+        await widget.onRestored?.call();
+      },
+      widget.onRestored == null
+          ? 'بازیابی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.'
+          : 'بازیابی انجام شد و اطلاعات برنامه تازه‌سازی شد.',
     );
   }
 
@@ -183,8 +190,13 @@ class _BackupPageState extends State<BackupPage> {
     );
     if (confirmed != true) return;
     await _run(
-      () => widget.service.restoreFromExternalBackup(file),
-      'بازیابی از پوشهٔ بیرونی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.',
+      () async {
+        await widget.service.restoreFromExternalBackup(file);
+        await widget.onRestored?.call();
+      },
+      widget.onRestored == null
+          ? 'بازیابی از پوشهٔ بیرونی انجام شد. برای تازه‌سازی همه بخش‌ها برنامه را یک‌بار ببندید و دوباره باز کنید.'
+          : 'بازیابی از پوشهٔ بیرونی انجام شد و اطلاعات برنامه تازه‌سازی شد.',
     );
   }
 
