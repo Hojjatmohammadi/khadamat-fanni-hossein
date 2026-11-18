@@ -31,6 +31,9 @@ jobs:
             flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
 
+      - name: Enforce stable Android application ID
+        run: python3 tool/android_identity.py
+
       - name: Declare read-only contact picker permission
         run: |
           python3 - <<'PY'
