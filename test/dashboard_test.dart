@@ -136,6 +136,24 @@ void main() {
     );
   });
 
+  testWidgets('global add menu opens the selected creation form', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.byKey(const ValueKey('global-quick-add')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ثبت کالا'), findsOneWidget);
+    await tester.tap(find.text('ثبت کالا'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ثبت کالا'), findsOneWidget);
+    expect(find.text('نام کالا'), findsOneWidget);
+  });
+
   testWidgets('every home card opens its mapped section', (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
