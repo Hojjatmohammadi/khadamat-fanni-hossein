@@ -488,6 +488,44 @@ void main() {
     expect(filterCategoryRecords(records, 'ناموجود'), isEmpty);
   });
 
+  testWidgets('global magnifier opens immediately and finds saved inventory',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const searchableName = 'کالای آزمون جست‌وجوی سراسری ۷۳۱۹';
+    await tester.runAsync(DemoStore.init);
+    await tester.runAsync(() => DemoStore.add('products', {
+          'نام کالا': searchableName,
+          'کد کالا': 'SEARCH-7319',
+          'موجودی': '1',
+        }));
+    final productId = int.parse(DemoStore.products.last['__database_id']!);
+    addTearDown(() => tester.runAsync(
+          () => DemoStore.deleteRecord('products', productId),
+        ));
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.byTooltip('جست‌وجوی سراسری'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // The dialog and input must appear before the database search completes.
+    expect(find.text('جست‌وجوی سراسری'), findsOneWidget);
+    final searchField = find.byKey(const ValueKey('global-search-field'));
+    expect(searchField, findsOneWidget);
+
+    await tester.enterText(searchField, 'SEARCH-7319');
+    await _waitForText(tester, searchableName);
+    expect(find.text('کالا •'), findsNothing);
+    expect(find.textContaining('کالا'), findsWidgets);
+
+    await tester.tap(find.text(searchableName));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('انبار کالا'), findsOneWidget);
+  });
+
   testWidgets('inventory, contacts, and repair cards each expose one direct add action',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
