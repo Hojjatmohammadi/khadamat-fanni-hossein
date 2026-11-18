@@ -481,123 +481,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _showGlobalSearch() async {
     if (!mounted) return;
-    final controller = TextEditingController();
-    List<Map<String, Object>> entries = [];
-    var loading = true;
-    var loadError = false;
-    var loadStarted = false;
-
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: StatefulBuilder(
-            builder: (context, refresh) {
-              // Show the search window immediately. Database reads happen
-              // after the first frame so a slow ledger cannot make the
-              // magnifier appear unresponsive.
-              if (!loadStarted) {
-                loadStarted = true;
-                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  try {
-                    entries = await _globalSearchEntries();
-                  } catch (_) {
-                    loadError = true;
-                  }
-                  if (dialogContext.mounted) {
-                    refresh(() => loading = false);
-                  }
-                });
-              }
-
-              final query = ProductDuplicateChecker.normalize(controller.text);
-              final results = query.isEmpty
-                  ? <Map<String, Object>>[]
-                  : entries
-                      .where((entry) =>
-                          (entry['searchText']! as String).contains(query))
-                      .take(50)
-                      .toList();
-
-              return AlertDialog(
-                title: const Text('جست‌وجوی سراسری'),
-                content: SizedBox(
-                  width: 460,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        key: const ValueKey('global-search-field'),
-                        autofocus: true,
-                        controller: controller,
-                        onChanged: (_) => refresh(() {}),
-                        textInputAction: TextInputAction.search,
-                        decoration: const InputDecoration(
-                          hintText: 'کالا، خرید، فروش، اشخاص، چک و حسابداری',
-                          prefixIcon: Icon(Icons.search),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 360),
-                        child: loading
-                            ? const Padding(
-                                padding: EdgeInsets.all(20),
-                                child: CircularProgressIndicator(),
-                              )
-                            : loadError
-                                ? const Text(
-                                    'بارگذاری اطلاعات جست‌وجو ناموفق بود.',
-                                  )
-                                : query.isEmpty
-                                    ? const Text('عبارت موردنظر را وارد کنید.')
-                                    : results.isEmpty
-                                        ? const Text('نتیجه‌ای پیدا نشد.')
-                                        : ListView.builder(
-                                            shrinkWrap: true,
-                                            itemCount: results.length,
-                                            itemBuilder: (context, index) {
-                                              final item = results[index];
-                                              return ListTile(
-                                                dense: true,
-                                                title: Text(
-                                                  item['label']! as String,
-                                                ),
-                                                subtitle: Text(
-                                                  '${item['category']} • ${item['details']}',
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                onTap: () {
-                                                  Navigator.pop(dialogContext);
-                                                  _selectTab(
-                                                    item['tab']! as int,
-                                                  );
-                                                },
-                                              );
-                                            },
-                                          ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('بستن'),
-                  ),
-                ],
-              );
-            },
-          ),
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: _GlobalSearchDialog(
+          loadEntries: _globalSearchEntries,
+          onOpenTab: _selectTab,
         ),
-      );
-    } finally {
-      controller.dispose();
-    }
+      ),
+    );
   }
+
   void _openNavigationDrawer() {
     if (mounted) setState(() => _isDrawerOpen = true);
   }
@@ -906,6 +801,140 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _GlobalSearchDialog extends StatefulWidget {
+  final Future<List<Map<String, Object>>> Function() loadEntries;
+  final ValueChanged<int> onOpenTab;
+
+  const _GlobalSearchDialog({
+    required this.loadEntries,
+    required this.onOpenTab,
+  });
+
+  @override
+  State<_GlobalSearchDialog> createState() => _GlobalSearchDialogState();
+}
+
+class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
+  final TextEditingController _controller = TextEditingController();
+  List<Map<String, Object>> _entries = [];
+  bool _loading = true;
+  bool _loadError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEntries());
+  }
+
+  Future<void> _loadEntries() async {
+    try {
+      final entries = await widget.loadEntries();
+      if (!mounted) return;
+      setState(() {
+        _entries = entries;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = true;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final dialogWidth = (screenSize.width - 80).clamp(200.0, 460.0);
+    final dialogHeight = (screenSize.height * 0.42).clamp(150.0, 360.0);
+    final query = ProductDuplicateChecker.normalize(_controller.text);
+    final results = query.isEmpty
+        ? <Map<String, Object>>[]
+        : _entries
+            .where((entry) =>
+                (entry['searchText']! as String).contains(query))
+            .take(50)
+            .toList();
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      title: const Text('جست‌وجوی سراسری'),
+      content: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
+        child: Column(
+          children: [
+            TextField(
+              key: const ValueKey('global-search-field'),
+              autofocus: true,
+              controller: _controller,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: 'کالا، خرید، فروش، اشخاص، چک و حسابداری',
+                prefixIcon: Icon(Icons.search),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _loadError
+                      ? const Center(
+                          child: Text('بارگذاری اطلاعات جست‌وجو ناموفق بود.'),
+                        )
+                      : query.isEmpty
+                          ? const Center(
+                              child: Text('عبارت موردنظر را وارد کنید.'),
+                            )
+                          : results.isEmpty
+                              ? const Center(
+                                  child: Text('نتیجه‌ای پیدا نشد.'),
+                                )
+                              : ListView.builder(
+                                  keyboardDismissBehavior:
+                                      ScrollViewKeyboardDismissBehavior.onDrag,
+                                  itemCount: results.length,
+                                  itemBuilder: (context, index) {
+                                    final item = results[index];
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(item['label']! as String),
+                                      subtitle: Text(
+                                        '${item['category']} • ${item['details']}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onTap: () {
+                                        final destination =
+                                            item['tab']! as int;
+                                        Navigator.of(context).pop();
+                                        widget.onOpenTab(destination);
+                                      },
+                                    );
+                                  },
+                                ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('بستن'),
+        ),
+      ],
     );
   }
 }
