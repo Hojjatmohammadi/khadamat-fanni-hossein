@@ -14,6 +14,24 @@ import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
 void _noop() {}
 
+Future<Map<String, Object?>> _waitForSavedParty(
+  WidgetTester tester,
+  PartyRepository repository,
+  String displayName,
+) async {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    final parties = await tester.runAsync(() => repository.getParties()) ??
+        <Map<String, Object?>>[];
+    for (final party in parties) {
+      if (party['display_name'] == displayName) return party;
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  }
+  throw StateError('مخاطب پس از ذخیره در مهلت آزمون ثبت نشد: $displayName');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -252,16 +270,18 @@ void main() {
     print('[contacts-widget-test] add-dialog-filled');
     await tester.tap(find.text('ذخیره مخاطب'));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.pump(const Duration(milliseconds: 100));
 
+    // The save handler performs real SQLite work after the dialog closes.
+    // Wait for the persisted row instead of assuming two fake-time pumps are
+    // enough for the background database operation to finish.
+    final party = await _waitForSavedParty(
+      tester,
+      repository,
+      'آزمون دفتر مرکزی مخاطبین',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
     print('[contacts-widget-test] contact-save-returned');
     expect(find.text('آزمون دفتر مرکزی مخاطبین'), findsOneWidget);
-    final savedParties =
-        await tester.runAsync(() => repository.getParties()) ??
-            <Map<String, Object?>>[];
-    final party = savedParties.singleWhere(
-      (item) => item['display_name'] == 'آزمون دفتر مرکزی مخاطبین',
-    );
     final roles = await tester.runAsync(
           () => repository.getPartyRoles(party['id'] as String),
         ) ??
