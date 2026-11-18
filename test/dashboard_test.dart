@@ -490,7 +490,8 @@ void main() {
 
   testWidgets('global magnifier opens immediately and finds saved inventory',
       (tester) async {
-    tester.view.physicalSize = const Size(1000, 1600);
+    // Use a phone-sized viewport to catch dialog overflow on real devices.
+    tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -516,7 +517,7 @@ void main() {
     final searchField = find.byKey(const ValueKey('global-search-field'));
     expect(searchField, findsOneWidget);
 
-    await tester.enterText(searchField, 'SEARCH-7319');
+    await tester.enterText(searchField, 'SEARCH-۷۳۱۹');
     await _waitForText(tester, searchableName);
     expect(find.text('کالا •'), findsNothing);
     expect(find.textContaining('کالا'), findsWidgets);
