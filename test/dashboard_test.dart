@@ -99,6 +99,11 @@ void main() {
       (tester) async {
     DemoStore.appName.value = 'خدمات فنی حسین';
     addTearDown(() => DemoStore.appName.value = 'خدمات فنی حسین');
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(const HoseinApp());
 
     expect(
@@ -149,7 +154,7 @@ void main() {
   });
 
   testWidgets('global add menu opens the selected creation form', (tester) async {
-    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -344,7 +349,7 @@ void main() {
   });
 
   testWidgets('inventory app bar exposes product image display options', (tester) async {
-    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
