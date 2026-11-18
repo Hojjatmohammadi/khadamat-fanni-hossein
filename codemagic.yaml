@@ -212,8 +212,6 @@ workflows:
       - name: Build optimized universal release APK
         script: |
           flutter build apk --release --obfuscate --split-debug-info=build/symbols
-        script: |
-          flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
       - build/symbols/**
