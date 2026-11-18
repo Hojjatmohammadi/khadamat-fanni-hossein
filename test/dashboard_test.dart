@@ -366,21 +366,21 @@ void main() {
     final menu = find.byTooltip('تنظیم نمایش عکس کالا');
     expect(menu, findsOneWidget);
     await tester.tap(menu);
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     expect(find.text('عدم نمایش عکس کالا'), findsOneWidget);
     expect(find.text('پیش‌فرض عکس کالا'), findsOneWidget);
     expect(find.text('کوچک کردن عکس کالا'), findsOneWidget);
 
     await tester.tap(find.text('عدم نمایش عکس کالا'));
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     await tester.tap(menu);
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('کوچک کردن عکس کالا'));
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     await tester.tap(menu);
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('پیش‌فرض عکس کالا'));
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
 
     expect(find.byTooltip('تنظیم نمایش عکس کالا'), findsOneWidget);
   });
