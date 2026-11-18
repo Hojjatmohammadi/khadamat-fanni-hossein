@@ -95,8 +95,10 @@ void main() {
     expect(find.text('گزارش‌ها'), findsWidgets);
   });
 
-  testWidgets('home app bar shows shop branding and exposes search and add',
+  testWidgets('home app bar shows the configured app name and exposes search and add',
       (tester) async {
+    DemoStore.appName.value = 'خدمات فنی حسین';
+    addTearDown(() => DemoStore.appName.value = 'خدمات فنی حسین');
     await tester.pumpWidget(const HoseinApp());
 
     expect(
@@ -105,6 +107,16 @@ void main() {
         matching: find.text('خدمات فنی حسین'),
       ),
       findsOneWidget,
+    );
+    DemoStore.appName.value = 'مدیریت فنی من';
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('home-brand-title')),
+        matching: find.text('مدیریت فنی من'),
+      ),
+      findsOneWidget,
+      reason: 'Home app bar must update when the configured app name changes',
     );
     expect(
       find.descendant(
