@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configure a private, persistent JKS signing key for the Android release build."""
+"""Configure a private, persistent JKS signing key for Android release builds."""
 
 from __future__ import annotations
 
@@ -29,7 +29,10 @@ def _escape_property(value: str) -> str:
     return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
 
 
-def _find_debug_signing_assignment(source: str, is_kotlin: bool) -> tuple[int, int, str]:
+def _find_debug_signing_assignment(
+    source: str,
+    is_kotlin: bool,
+) -> tuple[int, int, str]:
     if is_kotlin:
         pattern = re.compile(
             r'(?m)^(?P<indent>[ \t]*)signingConfig[ \t]*=[ \t]*'
@@ -63,14 +66,17 @@ def configure_release_signing(
     missing = [name for name in REQUIRED_SECRETS if not env.get(name)]
     if missing:
         raise AndroidSigningError(
-            "Release signing is not configured. Missing GitHub Actions secrets: "
+            "Release signing is not configured. Missing environment variables: "
             + ", ".join(missing)
         )
 
     store_password = env["ANDROID_KEYSTORE_PASSWORD"]
     key_password = env["ANDROID_KEY_PASSWORD"]
     key_alias = env["ANDROID_KEY_ALIAS"]
-    if any("\n" in value or "\r" in value for value in (store_password, key_password, key_alias)):
+    if any(
+        "\n" in value or "\r" in value
+        for value in (store_password, key_password, key_alias)
+    ):
         raise AndroidSigningError("Signing secrets must not contain line breaks.")
 
     try:
@@ -79,7 +85,9 @@ def configure_release_signing(
             validate=True,
         )
     except (ValueError, TypeError) as error:
-        raise AndroidSigningError("ANDROID_KEYSTORE_BASE64 is not valid base64.") from error
+        raise AndroidSigningError(
+            "ANDROID_KEYSTORE_BASE64 is not valid base64."
+        ) from error
     if len(keystore_bytes) < 256:
         raise AndroidSigningError("The decoded keystore file is unexpectedly small.")
 
@@ -97,24 +105,33 @@ def configure_release_signing(
         raise AndroidSigningError("The Android app Gradle file is missing.")
 
     source = gradle_path.read_text(encoding="utf-8")
-    if "signingConfigs {" in source:
+    if "signingConfigs {" in source or "keystoreProperties" in source:
         raise AndroidSigningError(
-            "An existing signingConfigs block needs explicit reconciliation."
-        )
-    if "keystoreProperties" in source:
-        raise AndroidSigningError(
-            "Gradle already loads keystore properties; refusing a duplicate configuration."
+            "The Gradle file already contains release-signing configuration; "
+            "refusing to overwrite it."
         )
 
-    android_marker = "android {"
-    android_position = source.find(android_marker)
-    if android_position < 0:
-        raise AndroidSigningError("Could not locate the Android Gradle block.")
+    android_position = source.find("android {")
     build_types_position = source.find("buildTypes {")
-    if build_types_position < 0:
+    if android_position < 0 or build_types_position < android_position:
         raise AndroidSigningError("Could not locate the Android buildTypes block.")
-    build_types_line_start = source.rfind("\n", 0, build_types_position) + 1
-    indent = source[build_types_line_start:build_types_position]
+
+    assignment_start, assignment_end, release_assignment = (
+        _find_debug_signing_assignment(source, is_kotlin)
+    )
+    source = (
+        source[:assignment_start]
+        + release_assignment
+        + source[assignment_end:]
+    )
+
+    # Recalculate all insertion positions after changing the signing assignment.
+    build_types_position = source.find("buildTypes {", android_position)
+    if build_types_position < 0:
+        raise AndroidSigningError("Could not locate buildTypes after updating signing.")
+
+    line_start = source.rfind("\n", 0, build_types_position) + 1
+    indent = source[line_start:build_types_position]
 
     if is_kotlin:
         signing_config = (
@@ -153,12 +170,11 @@ def configure_release_signing(
             "keystoreProperties.load(new java.io.FileInputStream(keystorePropertiesFile))\n\n"
         )
 
-    assignment_start, assignment_end, release_assignment = (
-        _find_debug_signing_assignment(source, is_kotlin)
-    )
     keytool = keytool_path or shutil.which("keytool")
     if not keytool:
-        raise AndroidSigningError("keytool was not found; Java is required for release signing.")
+        raise AndroidSigningError(
+            "keytool was not found; Java is required for release signing."
+        )
 
     keystore_path = android_dir / "upload-keystore.jks"
     keystore_path.write_bytes(keystore_bytes)
@@ -185,7 +201,7 @@ def configure_release_signing(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except subprocess.CalledProcessError as error:
+    except (subprocess.CalledProcessError, OSError) as error:
         keystore_path.unlink(missing_ok=True)
         raise AndroidSigningError(
             "The JKS keystore, password, or alias is invalid."
@@ -205,20 +221,20 @@ def configure_release_signing(
     except OSError:
         pass
 
-    # Gradle properties are loaded at top level, before the android DSL block.
-    android_line_start = source.rfind("\n", 0, android_position) + 1
-    source = source[:android_line_start] + properties_loader + source[android_line_start:]
-    assignment_start, assignment_end, release_assignment = (
-        _find_debug_signing_assignment(source, is_kotlin)
-    )
-    source = source[:assignment_start] + release_assignment + source[assignment_end:]
+    # Insert the signing block inside android {}, immediately before buildTypes.
+    source = source[:line_start] + signing_config + source[line_start:]
 
-    build_types_position = source.find("buildTypes {")
-    build_types_line_start = source.rfind("\n", 0, build_types_position) + 1
-    source = source[:build_types_line_start] + signing_config + source[build_types_line_start:]
+    # Insert the Properties loader at top-level, immediately before android {}.
+    android_position = source.find("android {")
+    source = source[:android_position] + properties_loader + source[android_position:]
 
-    if "signingConfigs.release" not in source and 'getByName("release")' not in source:
-        raise AndroidSigningError("Release signing assignment verification failed.")
+    if (
+        release_assignment not in source
+        or "signingConfigs {" not in source
+        or "keystoreProperties" not in source
+        or "signingConfigs.debug" in source
+    ):
+        raise AndroidSigningError("Release signing configuration verification failed.")
 
     gradle_path.write_text(source, encoding="utf-8")
     return keystore_path
