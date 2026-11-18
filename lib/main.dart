@@ -364,6 +364,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   bool _dailyBackupCheckRunning = false;
+  bool _isDrawerOpen = false;
 
   @override
   void initState() {
@@ -466,9 +467,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     })));
     controller.dispose();
   }
+  void _openNavigationDrawer() {
+    if (mounted) setState(() => _isDrawerOpen = true);
+  }
+
+  void _closeNavigationDrawer() {
+    if (mounted && _isDrawerOpen) setState(() => _isDrawerOpen = false);
+  }
+
   Future<void> _handleBack() async {
-    if (scaffoldKey.currentState?.isDrawerOpen == true) {
-      scaffoldKey.currentState?.closeDrawer();
+    if (_isDrawerOpen) {
+      _closeNavigationDrawer();
       return;
     }
 
@@ -564,14 +573,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _handleBack();
           }
         },
-        child: Scaffold(
+        child: Stack(
+          children: [
+          Scaffold(
           key: scaffoldKey,
           appBar: AppBar(
             leading: IconButton(
               key: const ValueKey('open-navigation-drawer'),
               tooltip: 'باز کردن فهرست',
               icon: const Icon(Icons.menu),
-              onPressed: () => scaffoldKey.currentState?.openDrawer(),
+              onPressed: _openNavigationDrawer,
             ),
             title: tab == 0
                 ? Row(
@@ -671,8 +682,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: pages[tab],
             ),
           ),
-          drawer: Drawer(
-            child: ListView(
+          if (_isDrawerOpen) ...[
+            Positioned.fill(
+              child: GestureDetector(
+                key: const ValueKey('navigation-drawer-scrim'),
+                onTap: _closeNavigationDrawer,
+                child: const ColoredBox(color: Color(0x66000000)),
+              ),
+            ),
+            Positioned(
+              key: const ValueKey('navigation-drawer-panel'),
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: MediaQuery.sizeOf(context).width < 360
+                  ? MediaQuery.sizeOf(context).width * 0.86
+                  : 304,
+              child: Material(
+                color: Colors.white,
+                elevation: 16,
+                child: ListView(
               children: [
                 DrawerHeader(
                   decoration: const BoxDecoration(color: black),
@@ -736,6 +765,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ],
             ),
           ),
+          ],
         ),
       ),
     );
