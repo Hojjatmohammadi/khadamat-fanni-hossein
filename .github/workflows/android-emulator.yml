@@ -72,7 +72,7 @@ jobs:
               raise SystemExit("Android app Gradle file is missing")
           text = gradle.read_text(encoding="utf-8")
           text, count = re.subn(
-              r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)(?:flutter\.compileSdkVersion|\d+)(\s*(?://.*)?$)",
+              r"(?m)^(\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?)(?:flutter\\.compileSdkVersion|\\d+)(\\s*(?://.*)?$)",
               lambda m: m.group(1) + "36" + m.group(2),
               text,
               count=1,
@@ -83,14 +83,14 @@ jobs:
           enable = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
           dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
           if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
-              text, n = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enable, text, count=1)
+              text, n = re.subn(r"(compileOptions\\s*\\{)", r"\\1\\n        " + enable, text, count=1)
               if n != 1:
                   raise SystemExit("Could not find compileOptions block")
           if "desugar_jdk_libs" not in text:
-              if re.search(r"dependencies\s*\{", text):
-                  text = re.sub(r"(dependencies\s*\{)", r"\1\n    " + dependency, text, count=1)
+              if re.search(r"dependencies\\s*\\{", text):
+                  text = re.sub(r"(dependencies\\s*\\{)", r"\\1\\n    " + dependency, text, count=1)
               else:
-                  text += "\n\ndependencies {\n    " + dependency + "\n}\n"
+                  text += "\\n\\ndependencies {\\n    " + dependency + "\\n}\\n"
           gradle.write_text(text, encoding="utf-8")
           print(f"Configured {gradle} for API 36 and desugaring")
           PY
@@ -104,6 +104,69 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null
           "$SDKMANAGER" "platforms;android-36"
 
+      - name: Align flutter_timezone Java and Kotlin JVM targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(
+              Path.home().joinpath(".pub-cache/hosted/pub.dev").glob(
+                  "flutter_timezone-*/android/build.gradle*"
+              )
+          )
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(
+                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\\{.*?^([ ]*)\\}"
+              )
+              match = pattern.search(content)
+              if match:
+                  indent = match.group(1)
+                  close_indent = match.group(2)
+                  body_indent = indent + "    "
+                  replacement = (
+                      f"{indent}{block_name} {{\\n"
+                      + "".join(f"{body_indent}{line}\\n" for line in lines)
+                      + f"{close_indent}}}"
+                  )
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ ]*)android[ ]*\\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = (
+                  "\\n" + indent + block_name + " {\\n"
+                  + "".join(indent + "    " + line + "\\n" for line in lines)
+                  + indent + "}\\n"
+              )
+              pos = android.end()
+              return content[:pos] + insertion + content[pos:]
+
+          updated = []
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content = replace_or_add_block(
+                  content,
+                  "compileOptions",
+                  [
+                      "sourceCompatibility = JavaVersion.VERSION_11",
+                      "targetCompatibility = JavaVersion.VERSION_11",
+                  ],
+              )
+              content = replace_or_add_block(
+                  content,
+                  "kotlinOptions",
+                  ["jvmTarget = JavaVersion.VERSION_11.toString()"],
+              )
+              gradle.write_text(content, encoding="utf-8")
+              updated.append(str(gradle))
+
+          print("Aligned flutter_timezone Java/Kotlin targets to JVM 11: " + ", ".join(updated))
+          PY
+
       - name: Align file_picker Android compile SDK
         run: |
           python3 - <<'PY'
@@ -114,7 +177,7 @@ jobs:
           for path in packages:
               source = path.read_text(encoding="utf-8")
               updated, count = re.subn(
-                  r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)34(\s*(?://.*)?$)",
+                  r"(?m)^(\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?)34(\\s*(?://.*)?$)",
                   lambda m: m.group(1) + "36" + m.group(2),
                   source,
                   count=1,
