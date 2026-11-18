@@ -196,9 +196,18 @@ void main() {
     // Keep this widget test independent from DemoStore.init(), which also
     // performs startup backup work and shares a process-wide database with
     // other widget tests.
-    final tempDir = await Directory.systemTemp.createTemp(
-      'khadamat_contacts_widget_test_',
+    // Real filesystem and SQLite work must run outside the widget test's
+    // fake-async clock. Otherwise the sqflite FFI worker can wait forever
+    // before the page is even mounted.
+    final tempDir = await tester.runAsync(
+      () => Directory.systemTemp.createTemp(
+        'khadamat_contacts_widget_test_',
+      ),
     );
+    if (tempDir == null) {
+      throw StateError('Could not create the contacts widget test directory');
+    }
+    print('[contacts-widget-test] temp-directory-ready');
     final database = AppDatabase(
       databasePath: '${tempDir.path}/contacts-widget.db',
     );
@@ -211,7 +220,7 @@ void main() {
         await tempDir.delete(recursive: true);
       }
     });
-    await database.database;
+    await tester.runAsync(() => database.database);
     print('[contacts-widget-test] database-ready');
 
     await tester.pumpWidget(
