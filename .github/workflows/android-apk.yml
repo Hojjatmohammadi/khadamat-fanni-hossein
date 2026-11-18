@@ -163,7 +163,7 @@ jobs:
 
           def replace_or_add_block(content, block_name, lines):
               pattern = re.compile(
-                  rf"(?ms)^([ \\t]*){re.escape(block_name)}\\s*\\{{.*?^([ \\t]*)\\}}"
+                  r"(?ms)^([ \\t]*)" + re.escape(block_name) + r"\\s*\\{.*?^([ \\t]*)\\}"
               )
               match = pattern.search(content)
               if match:
@@ -171,9 +171,9 @@ jobs:
                   close_indent = match.group(2)
                   body_indent = indent + "    "
                   replacement = (
-                      indent + block_name + " {\\n"
-                      + "".join(body_indent + line + "\\n" for line in lines)
-                      + close_indent + "}"
+                      f"{indent}{block_name} {{\\n"
+                      + "".join(f"{body_indent}{line}\\n" for line in lines)
+                      + f"{close_indent}}}"
                   )
                   return content[:match.start()] + replacement + content[match.end():]
               android = re.search(r"(?m)^([ \\t]*)android\\s*\\{", content)
