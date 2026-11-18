@@ -306,19 +306,21 @@ class BackupService {
     );
   }
 
-  Future<void> restoreFromFile() async {
+  /// Returns false when the user cancels the file picker; true only after restore succeeds.
+  Future<bool> restoreFromFile() async {
     final selection = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['db', 'sqlite', 'sqlite3'],
       allowMultiple: false,
       withData: false,
     );
-    if (selection == null || selection.files.isEmpty) return;
+    if (selection == null || selection.files.isEmpty) return false;
     final selectedPath = selection.files.single.path;
     if (selectedPath == null) {
       throw StateError('دسترسی به فایل انتخاب‌شده ممکن نیست.');
     }
     await restoreFromPath(selectedPath);
+    return true;
   }
 
   /// Public path-based restore method also allows deterministic automated tests.
