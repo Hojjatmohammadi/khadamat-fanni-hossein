@@ -119,6 +119,8 @@ void main() {
     expect(find.byTooltip('باز کردن فهرست'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('open-navigation-drawer')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('navigation-drawer-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('navigation-drawer-scrim')), findsOneWidget);
     expect(find.byKey(const ValueKey('drawer-settings-button')), findsOneWidget);
     expect(find.byTooltip('تنظیمات برنامه'), findsOneWidget);
     expect(find.byKey(const ValueKey('drawer-logo')), findsOneWidget);
