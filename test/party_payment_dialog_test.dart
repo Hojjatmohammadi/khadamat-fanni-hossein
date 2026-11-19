@@ -68,7 +68,7 @@ void main() {
       'amount': 3500,
       'referenceId': '42',
       'paymentMethod': 'card_to_card',
-    }, timeout: const Timeout(Duration(seconds: 30)));
+    });
   });
 
   testWidgets('supplier prepayment can remain free and use bank transfer',
@@ -127,7 +127,7 @@ void main() {
       'amount': 8400,
       'referenceId': null,
       'paymentMethod': 'bank_transfer',
-    }, timeout: const Timeout(Duration(seconds: 30)));
+    });
   });
 
   testWidgets('empty or zero amount does not close the payment dialog',
@@ -169,5 +169,5 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('ثبت بیعانه / دریافت از مشتری'), findsOneWidget);
-  }, timeout: const Timeout(Duration(seconds: 30)));
+  });
 }
