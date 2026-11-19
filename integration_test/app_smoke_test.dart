@@ -17,6 +17,16 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expect(find.text('خدمات فنی حسین'), findsWidgets);
+    final homeAppBar = find.byType(AppBar);
+    expect(
+      find.descendant(of: homeAppBar, matching: find.byTooltip('جست‌وجوی سراسری')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: homeAppBar, matching: find.byTooltip('افزودن مورد جدید')),
+      findsOneWidget,
+      reason: 'Global add must stay in the top app bar next to global search',
+    );
 
     // Exercise every home card on the Android emulator and verify its destination.
     const homeCardDestinations = <String, String>{
@@ -66,6 +76,27 @@ void main() {
     await tester.tap(find.text('ثبت کالا'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('انبار کالا'), findsWidgets);
+
+    final inventoryAppBar = find.byType(AppBar);
+    expect(
+      find.descendant(of: inventoryAppBar, matching: find.byTooltip('ثبت کالا')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: inventoryAppBar, matching: find.byTooltip('تنظیم نمایش عکس کالا')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byTooltip('تنظیم نمایش عکس کالا'));
+    await tester.pumpAndSettle();
+    for (final option in const [
+      'عدم نمایش عکس کالا',
+      'پیش‌فرض عکس کالا',
+      'کوچک کردن عکس کالا',
+    ]) {
+      expect(find.text(option), findsOneWidget);
+    }
+    await tester.tap(find.text('پیش‌فرض عکس کالا'));
+    await tester.pumpAndSettle();
 
     const sections = <String>[
       'انبار کالا',
@@ -129,7 +160,7 @@ void main() {
 
     // Create one customer and reuse the same customer in repair and sales.
     await openSection('مشتریان');
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('ثبت مشتری'));
     await tester.pumpAndSettle();
     await fillField('نام مشتری', 'مشتری آزمایشی شبیه‌ساز');
     await fillField('شماره تماس', '09120000001');
@@ -138,7 +169,7 @@ void main() {
     expect(find.text('مشتری آزمایشی شبیه‌ساز'), findsWidgets);
 
     // A same-name customer with a different phone must remain independently selectable.
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('ثبت مشتری'));
     await tester.pumpAndSettle();
     await fillField('نام مشتری', 'مشتری آزمایشی شبیه‌ساز');
     await fillField('شماره تماس', '09130000002');
@@ -148,7 +179,7 @@ void main() {
 
     // Create a product in inventory.
     await openSection('انبار کالا');
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('ثبت کالا'));
     await tester.pumpAndSettle();
     await fillField('نام کالا', 'قطعه آزمایشی شبیه‌ساز');
     await fillField('گروه اصلی', 'قطعات');
@@ -176,7 +207,7 @@ void main() {
 
     // Register a repair using the already-saved customer from the dropdown.
     await openSection('تعمیرات');
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byTooltip('ثبت پذیرش تعمیر'));
     await tester.pumpAndSettle();
     final customerDropdown = find.byKey(
       const ValueKey('repair-existing-customer-selector'),
