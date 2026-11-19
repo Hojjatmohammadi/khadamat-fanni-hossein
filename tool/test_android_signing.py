@@ -59,7 +59,10 @@ android {
         self.assertNotIn("signingConfigs.debug", result)
         self.assertEqual(keystore.read_bytes(), base64.b64decode(self.environment["ANDROID_KEYSTORE_BASE64"]))
         self.assertIn("storeFile=../upload-keystore.jks", (self.root / "android" / "key.properties").read_text())
+        self.assertIn("-certreq", run.call_args.args[0])
         self.assertIn("-storetype", run.call_args.args[0])
+        self.assertIn("-keypass", run.call_args.args[0])
+        self.assertIn("key-secret", run.call_args.args[0])
         self.assertEqual(run.call_args.kwargs["check"], True)
 
     @patch("android_signing.subprocess.run")
@@ -120,7 +123,7 @@ android {
             configure_release_signing(self.root, environment, keytool_path="/usr/bin/keytool")
 
     @patch("android_signing.subprocess.run", side_effect=__import__("subprocess").CalledProcessError(1, "keytool"))
-    def test_invalid_keystore_is_removed_and_not_configured(self, run) -> None:
+    def test_invalid_private_key_password_is_rejected_before_configuration(self, run) -> None:
         gradle = self._write_gradle(
             "build.gradle",
             "android {\n    buildTypes {\n        release {\n"
