@@ -6,8 +6,7 @@ import 'check_repository.dart';
 import 'checks_page.dart';
 import 'check_reminder_service.dart';
 import 'jalali_date_field.dart';
-import 'localized_number.dart';
-import 'numeric_input.dart';
+import 'party_payment_dialog.dart';
 import 'party_repository.dart';
 import 'trade_repository.dart';
 
@@ -171,101 +170,13 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       }
     }
 
-    final amountController = TextEditingController();
-    var paymentMethod = 'cash';
-    int? selectedInvoiceId;
     final payment = await showDialog<Map<String, Object?>?>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, refresh) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: Text(
-              isCustomerReceipt ? 'ثبت بیعانه / دریافت از مشتری' : 'ثبت پیش‌پرداخت به فروشنده',
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  isCustomerReceipt
-                      ? 'دریافت را می‌توانید به یک فاکتور باز متصل کنید یا به‌عنوان بیعانه آزاد ثبت کنید.'
-                      : 'پرداخت را می‌توانید به یک فاکتور باز متصل کنید یا به‌عنوان پیش‌پرداخت آزاد ثبت کنید.',
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int?>(
-                  key: const ValueKey('party-ledger-invoice-link'),
-                  initialValue: selectedInvoiceId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'اتصال به فاکتور (اختیاری)'),
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('بیعانه / پیش‌پرداخت آزاد'),
-                    ),
-                    ...openInvoices.map((invoice) {
-                      final id = invoice['id'] as int;
-                      final number = invoice['document_number']?.toString() ?? id.toString();
-                      final remaining = (invoice['remaining_amount'] as num).toInt();
-                      return DropdownMenuItem<int?>(
-                        value: id,
-                        child: Text('$number • مانده: $remaining'),
-                      );
-                    }),
-                  ],
-                  onChanged: (value) => refresh(() => selectedInvoiceId = value),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey('party-ledger-advance-amount'),
-                  controller: amountController,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: numericInputFormattersForField('مبلغ'),
-                  decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  key: const ValueKey('party-ledger-advance-method'),
-                  initialValue: paymentMethod,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'روش دریافت / پرداخت'),
-                  items: const [
-                    DropdownMenuItem(value: 'cash', child: Text('نقدی')),
-                    DropdownMenuItem(value: 'bank_transfer', child: Text('انتقال بانکی')),
-                    DropdownMenuItem(value: 'card_to_card', child: Text('کارت‌به‌کارت')),
-                  ],
-                  onChanged: (value) => refresh(() => paymentMethod = value ?? 'cash'),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('انصراف'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final parsed = LocalizedNumber.tryParseInt(amountController.text);
-                  if (parsed == null || parsed <= 0) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(content: Text('مبلغ باید عدد معتبر و بیشتر از صفر باشد')),
-                    );
-                    return;
-                  }
-                  Navigator.pop(dialogContext, {
-                    'amount': parsed,
-                    'referenceId': selectedInvoiceId?.toString(),
-                    'paymentMethod': paymentMethod,
-                  });
-                },
-                child: const Text('ثبت در گردش حساب'),
-              ),
-            ],
-          ),
-        ),
+      builder: (_) => PartyPaymentDialog(
+        isCustomerReceipt: isCustomerReceipt,
+        openInvoices: openInvoices,
       ),
     );
-    amountController.dispose();
     if (payment == null || !mounted) return;
     final amount = payment['amount'] as int;
     final referenceId = payment['referenceId'] as String?;
