@@ -429,7 +429,7 @@ class InvoicePdfService {
           ),
         );
       }
-      return document.save();
+      return await document.save();
     } finally {
       sourceImage.dispose();
       codec.dispose();
