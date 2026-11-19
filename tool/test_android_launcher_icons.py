@@ -3,12 +3,12 @@ from __future__ import annotations
 import struct
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from android_launcher_icons import (
     AndroidLauncherIconError,
     DENSITIES,
+    PNG_SIGNATURE,
     validate_android_launcher_icons,
 )
 
@@ -29,12 +29,12 @@ class AndroidLauncherIconTests(unittest.TestCase):
             target = res / folder / "ic_launcher.png"
             target.parent.mkdir(parents=True, exist_ok=True)
             header = (
-                b"\\x89PNG\\r\\n\\x1a\\n"
+                PNG_SIGNATURE
                 + struct.pack(">I", 13)
                 + b"IHDR"
                 + struct.pack(">II", size, size)
             )
-            target.write_bytes(header + b"\\x00" * 5)
+            target.write_bytes(header + bytes(5))
         adaptive = res / "mipmap-anydpi-v26/ic_launcher.xml"
         adaptive.parent.mkdir(parents=True)
         adaptive.write_text(
