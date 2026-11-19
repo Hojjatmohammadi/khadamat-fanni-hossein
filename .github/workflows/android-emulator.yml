@@ -84,6 +84,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Generate and verify branded Android launcher icons
+        run: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+
       - name: Configure Android API 36 and core library desugaring
         run: |
           python3 - <<'PY'
