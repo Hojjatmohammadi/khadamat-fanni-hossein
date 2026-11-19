@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -184,27 +185,39 @@ def configure_release_signing(
         pass
 
     try:
-        subprocess.run(
-            [
-                keytool,
-                "-list",
-                "-keystore",
-                str(keystore_path),
-                "-storetype",
-                "JKS",
-                "-storepass",
-                store_password,
-                "-alias",
-                key_alias,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # A certificate request requires access to the private key. Unlike
+        # keytool -list, this validates the key password as well as the
+        # keystore password and alias without modifying the original JKS.
+        with tempfile.TemporaryDirectory(
+            prefix="khadamat-signing-check-",
+            dir=android_dir,
+        ) as validation_directory:
+            certificate_request = Path(validation_directory) / "release-key.csr"
+            subprocess.run(
+                [
+                    keytool,
+                    "-certreq",
+                    "-keystore",
+                    str(keystore_path),
+                    "-storetype",
+                    "JKS",
+                    "-storepass",
+                    store_password,
+                    "-alias",
+                    key_alias,
+                    "-keypass",
+                    key_password,
+                    "-file",
+                    str(certificate_request),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     except (subprocess.CalledProcessError, OSError) as error:
         keystore_path.unlink(missing_ok=True)
         raise AndroidSigningError(
-            "The JKS keystore, password, or alias is invalid."
+            "The JKS, store password, key password, alias, or private key is invalid."
         ) from error
 
     properties = (
