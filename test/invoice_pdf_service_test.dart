@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:khadamat_fanni_hosein/invoice_pdf_service.dart';
@@ -61,6 +62,54 @@ void main() {
 
     expect(bytes, isNotEmpty);
     expect(bytes.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test('long invoices keep every item in the PNG and span multiple PDF pages', () async {
+    final snapshot = <String, dynamic>{
+      'shopName': 'خدمات فنی حسین',
+      'documentNumber': 'SAL-LONG-0040',
+      'documentDate': '1405/09/01',
+      'counterpartyName': 'مشتری فاکتور بلند',
+      'subtotal': 400000,
+      'discountAmount': 0,
+      'chargesAmount': 0,
+      'vatAmount': 0,
+      'totalAmount': 400000,
+      'paidAmount': 0,
+      'outstandingAmount': 400000,
+      'items': List.generate(
+        40,
+        (index) => {
+          'productName': 'قطعه شماره ${index + 1}',
+          'quantity': 1,
+          'unitPrice': 10000,
+          'lineTotal': 10000,
+        },
+      ),
+    };
+
+    final service = InvoicePdfService();
+    final imageBytes = await service.buildImage(snapshot);
+    final imageCodec = await ui.instantiateImageCodec(imageBytes);
+    final imageFrame = await imageCodec.getNextFrame();
+    expect(imageFrame.image.width, 1240);
+    expect(
+      imageFrame.image.height,
+      greaterThan(1754),
+      reason: 'Long invoice images must grow instead of silently dropping product rows',
+    );
+    imageFrame.image.dispose();
+    imageCodec.dispose();
+
+    final pdfBytes = await service.build(snapshot);
+    expect(utf8.decode(pdfBytes.take(4).toList()), '%PDF');
+    final pdfSource = String.fromCharCodes(pdfBytes);
+    final pageCount = RegExp(r'/Type\\s*/Page\\b').allMatches(pdfSource).length;
+    expect(
+      pageCount,
+      greaterThan(1),
+      reason: 'Long invoice PDFs must be split into multiple A4 pages',
+    );
   });
 
   test('rejects an empty snapshot', () async {
