@@ -69,11 +69,11 @@ class AndroidLauncherIconTests(unittest.TestCase):
     def test_rejects_wrong_png_dimensions(self) -> None:
         icon = self.root / "android/app/src/main/res/mipmap-mdpi/ic_launcher.png"
         icon.write_bytes(
-            b"\\x89PNG\\r\\n\\x1a\\n"
+            PNG_SIGNATURE
             + struct.pack(">I", 13)
             + b"IHDR"
             + struct.pack(">II", 47, 48)
-            + b"\\x00" * 5
+            + bytes(5)
         )
         with self.assertRaisesRegex(AndroidLauncherIconError, "Wrong dimensions"):
             validate_android_launcher_icons(self.root)
