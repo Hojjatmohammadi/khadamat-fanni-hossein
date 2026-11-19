@@ -104,7 +104,7 @@ void main() {
     final pdfBytes = await service.build(snapshot);
     expect(utf8.decode(pdfBytes.take(4).toList()), '%PDF');
     final pdfSource = String.fromCharCodes(pdfBytes);
-    final pageCount = RegExp(r'/Type\\s*/Page\\b').allMatches(pdfSource).length;
+    final pageCount = RegExp(r'/Type\s*/Page\b').allMatches(pdfSource).length;
     expect(
       pageCount,
       greaterThan(1),
