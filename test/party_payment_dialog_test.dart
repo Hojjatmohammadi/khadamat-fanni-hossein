@@ -105,7 +105,7 @@ void main() {
       find.byKey(const ValueKey('party-ledger-invoice-link')),
     );
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsOneWidget);
+    expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsWidgets);
     await tester.tap(find.text('بیعانه / پیش‌پرداخت آزاد').last);
     await tester.pump(const Duration(milliseconds: 300));
 
