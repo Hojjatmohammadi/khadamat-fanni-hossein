@@ -1,4 +1,6 @@
 import base64
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +24,42 @@ class AndroidSigningTests(unittest.TestCase):
             "ANDROID_KEY_ALIAS": "upload",
             "ANDROID_KEY_PASSWORD": "key-secret",
         }
+
+    def _create_real_keystore(self) -> tuple[str, bytes]:
+        keytool = shutil.which("keytool")
+        if keytool is None:
+            self.skipTest("keytool is not installed in this environment")
+
+        source_keystore = self.root / "source-test-keystore.jks"
+        subprocess.run(
+            [
+                keytool,
+                "-genkeypair",
+                "-noprompt",
+                "-keystore",
+                str(source_keystore),
+                "-storetype",
+                "JKS",
+                "-storepass",
+                "store-secret",
+                "-keypass",
+                "key-secret",
+                "-alias",
+                "upload",
+                "-keyalg",
+                "RSA",
+                "-keysize",
+                "2048",
+                "-validity",
+                "30",
+                "-dname",
+                "CN=Khadamat Fanni Test, OU=QA, O=Local, L=Test, ST=Test, C=IR",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return keytool, source_keystore.read_bytes()
 
     def _write_gradle(self, filename: str, source: str) -> Path:
         path = self.root / "android" / "app" / filename
@@ -98,6 +136,67 @@ android {
         self.assertIn('storeType = keystoreProperties.getProperty("storeType")', result)
         self.assertNotIn('getByName("debug")', result)
         self.assertTrue(run.called)
+
+    def test_real_jks_key_and_password_are_validated_before_gradle_configuration(self) -> None:
+        keytool, keystore_bytes = self._create_real_keystore()
+        gradle = self._write_gradle(
+            "build.gradle",
+            "android {\n    buildTypes {\n        release {\n"
+            "            signingConfig = signingConfigs.debug\n"
+            "        }\n    }\n}\n",
+        )
+        environment = dict(self.environment)
+        environment["ANDROID_KEYSTORE_BASE64"] = base64.b64encode(
+            keystore_bytes
+        ).decode("ascii")
+
+        configured_keystore = configure_release_signing(
+            self.root,
+            environment,
+            keytool_path=keytool,
+        )
+
+        self.assertEqual(configured_keystore.read_bytes(), keystore_bytes)
+        self.assertTrue((self.root / "android" / "key.properties").is_file())
+        self.assertIn(
+            "signingConfig = signingConfigs.release",
+            gradle.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            sorted(path.name for path in (self.root / "android").iterdir()),
+            ["app", "key.properties", "upload-keystore.jks"],
+        )
+
+    def test_real_jks_rejects_wrong_private_key_password_and_cleans_up(self) -> None:
+        keytool, keystore_bytes = self._create_real_keystore()
+        gradle = self._write_gradle(
+            "build.gradle",
+            "android {\n    buildTypes {\n        release {\n"
+            "            signingConfig = signingConfigs.debug\n"
+            "        }\n    }\n}\n",
+        )
+        original_gradle = gradle.read_text(encoding="utf-8")
+        environment = dict(self.environment)
+        environment["ANDROID_KEYSTORE_BASE64"] = base64.b64encode(
+            keystore_bytes
+        ).decode("ascii")
+        environment["ANDROID_KEY_PASSWORD"] = "wrong-private-key-password"
+
+        with self.assertRaisesRegex(
+            AndroidSigningError,
+            "private key is invalid",
+        ):
+            configure_release_signing(
+                self.root,
+                environment,
+                keytool_path=keytool,
+            )
+
+        self.assertFalse(
+            (self.root / "android" / "upload-keystore.jks").exists()
+        )
+        self.assertFalse((self.root / "android" / "key.properties").exists())
+        self.assertEqual(gradle.read_text(encoding="utf-8"), original_gradle)
 
     def test_missing_signing_secrets_fail_before_writing_files(self) -> None:
         self._write_gradle(
