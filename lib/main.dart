@@ -1086,7 +1086,8 @@ class Dashboard extends StatelessWidget {
             itemCount: _homeCards.length + 1,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
-              childAspectRatio: 1.35,
+              // Give cards extra vertical room on compact phones so two-line Persian labels never overflow.
+              childAspectRatio: constraints.maxWidth < 400 ? 1.2 : 1.35,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
             ),
