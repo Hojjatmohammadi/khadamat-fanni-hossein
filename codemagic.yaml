@@ -15,6 +15,8 @@ workflows:
           fi
       - name: Enforce stable Android application ID
         script: python3 tool/android_identity.py
+      - name: Validate Android update version
+        script: python3 tool/android_version.py
       - name: Configure app label and notification permission
         script: |
           python3 - <<'PY'
@@ -123,6 +125,10 @@ workflows:
 
       - name: Get packages
         script: flutter pub get
+      - name: Generate and verify branded Android launcher icons
+        script: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
       - name: Align flutter_timezone Java and Kotlin JVM targets
         script: |
           python3 - <<'PY'
