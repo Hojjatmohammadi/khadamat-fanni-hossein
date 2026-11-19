@@ -5,39 +5,6 @@ import 'package:khadamat_fanni_hossein/party_payment_dialog.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<Map<String, Object?>?> openDialog(
-    WidgetTester tester, {
-    required bool isCustomerReceipt,
-    required List<Map<String, Object?>> invoices,
-  }) async {
-    Map<String, Object?>? result;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Center(
-              child: FilledButton(
-                onPressed: () async {
-                  result = await showDialog<Map<String, Object?>?>(
-                    context: context,
-                    builder: (_) => PartyPaymentDialog(
-                      isCustomerReceipt: isCustomerReceipt,
-                      openInvoices: invoices,
-                    ),
-                  );
-                },
-                child: const Text('باز کردن فرم دریافت / پرداخت'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('باز کردن فرم دریافت / پرداخت'));
-    await tester.pumpAndSettle();
-    return result;
-  }
-
   testWidgets('customer receipt can be linked to an open invoice and paid card-to-card',
       (tester) async {
     Map<String, Object?>? result;
