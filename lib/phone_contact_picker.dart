@@ -41,11 +41,34 @@ Future<PhoneContactSelection?> pickDevicePhoneContact() async {
     contactId,
     properties: {ContactProperty.phone},
   );
-  final phone = selectedContact?.phones
-      .map((entry) => entry.number.trim())
-      .firstWhere((number) => number.isNotEmpty, orElse: () => '') ?? '';
+  final phone = preferredMobilePhoneNumber(selectedContact?.phones ?? const []);
 
   return PhoneContactSelection(name: name, phone: phone);
+}
+
+/// Returns a contact's mobile number first, then work-mobile, then the first
+/// available number when the contact has no mobile-labelled phone.
+String preferredMobilePhoneNumber(Iterable<Phone> phones) {
+  String? firstAvailable;
+  String? mobile;
+  String? workMobile;
+
+  for (final entry in phones) {
+    final number = entry.number.trim();
+    if (number.isEmpty) continue;
+    firstAvailable ??= number;
+
+    switch (entry.label.label) {
+      case PhoneLabel.mobile:
+        mobile ??= number;
+      case PhoneLabel.workMobile:
+        workMobile ??= number;
+      default:
+        break;
+    }
+  }
+
+  return mobile ?? workMobile ?? firstAvailable ?? '';
 }
 
 typedef PhoneContactLoader = Future<PhoneContactSelection?> Function();
