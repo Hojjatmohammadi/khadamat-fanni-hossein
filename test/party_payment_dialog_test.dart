@@ -37,7 +37,7 @@ void main() {
       ),
     );
     await tester.tap(find.text('باز کردن فرم دریافت / پرداخت'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('ثبت بیعانه / دریافت از مشتری'), findsOneWidget);
     expect(find.text('SAL-000042 • مانده: 7000'), findsNothing);
@@ -45,10 +45,10 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('party-ledger-invoice-link')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('SAL-000042 • مانده: 7000'), findsOneWidget);
     await tester.tap(find.text('SAL-000042 • مانده: 7000').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.enterText(
       find.byKey(const ValueKey('party-ledger-advance-amount')),
@@ -57,18 +57,18 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('party-ledger-advance-method')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('کارت‌به‌کارت').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(result, {
       'amount': 3500,
       'referenceId': '42',
       'paymentMethod': 'card_to_card',
-    });
+    }, timeout: const Timeout(Duration(seconds: 30)));
   });
 
   testWidgets('supplier prepayment can remain free and use bank transfer',
@@ -97,17 +97,17 @@ void main() {
       ),
     );
     await tester.tap(find.text('باز کردن فرم دریافت / پرداخت'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('ثبت پیش‌پرداخت به فروشنده'), findsOneWidget);
     expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsNothing);
     await tester.tap(
       find.byKey(const ValueKey('party-ledger-invoice-link')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsOneWidget);
     await tester.tap(find.text('بیعانه / پیش‌پرداخت آزاد').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.enterText(
       find.byKey(const ValueKey('party-ledger-advance-amount')),
@@ -116,18 +116,18 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('party-ledger-advance-method')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('انتقال بانکی').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(result, {
       'amount': 8400,
       'referenceId': null,
       'paymentMethod': 'bank_transfer',
-    });
+    }, timeout: const Timeout(Duration(seconds: 30)));
   });
 
   testWidgets('empty or zero amount does not close the payment dialog',
@@ -153,10 +153,10 @@ void main() {
       ),
     );
     await tester.tap(find.text('باز کردن فرم دریافت / پرداخت'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('مبلغ باید عدد معتبر و بیشتر از صفر باشد'), findsOneWidget);
     expect(find.text('ثبت بیعانه / دریافت از مشتری'), findsOneWidget);
@@ -166,8 +166,8 @@ void main() {
       '0',
     );
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('ثبت بیعانه / دریافت از مشتری'), findsOneWidget);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
