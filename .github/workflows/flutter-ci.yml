@@ -40,6 +40,11 @@ jobs:
           python3 tool/android_identity.py
           dart run flutter_launcher_icons
           python3 tool/android_launcher_icons.py
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
       - name: Analyze
         run: flutter analyze --no-pub --no-fatal-infos
       - name: Run tests
