@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
-ANDROID_URI = "http://schemas.android.com/apk/res/android"
 APP_LABEL = "خدمات فنی حسین"
 
 PERMISSIONS = (
@@ -70,27 +69,27 @@ def configure_android_manifest(project_root: Path) -> Path:
         name for name in PERMISSIONS if name not in existing_permissions
     ]
     if missing_permissions:
-        application_match = re.search(r"<application\\b", content)
+        application_match = re.search(r"<application\b", content)
         if application_match is None:
             raise AndroidManifestError("Could not locate the <application> opening tag.")
         permission_xml = "".join(
-            f'    <uses-permission android:name="{name}" />\\n'
+            f'    <uses-permission android:name="{name}" />\n'
             for name in missing_permissions
         )
         content = (
             content[:application_match.start()]
             + permission_xml
-            + "\\n"
+            + "\n"
             + content[application_match.start():]
         )
 
-    application_match = re.search(r"<application\\b[^>]*>", content)
+    application_match = re.search(r"<application\b[^>]*>", content)
     if application_match is None:
         raise AndroidManifestError("Could not locate the <application> opening tag.")
 
     opening_tag = application_match.group(0)
     label_pattern = re.compile(
-        r"""android:label\\s*=\\s*(?P<quote>["'])[^"']*(?P=quote)"""
+        r"""android:label\s*=\s*(?P<quote>["'])[^"']*(?P=quote)"""
     )
     if label_pattern.search(opening_tag):
         updated_tag = label_pattern.sub(
@@ -140,8 +139,8 @@ def configure_android_manifest(project_root: Path) -> Path:
             raise AndroidManifestError("Could not locate </application> in Android manifest.")
         content = (
             content[:closing_tag]
-            + "\\n".join(receiver_xml)
-            + "\\n"
+            + "\n".join(receiver_xml)
+            + "\n"
             + content[closing_tag:]
         )
 
