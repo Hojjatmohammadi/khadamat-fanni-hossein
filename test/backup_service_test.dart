@@ -117,6 +117,77 @@ void main() {
     }
   });
 
+  test('restores a supported v14 backup and runs the v15 schema migration', () async {
+    final legacyFile = File('${root.path}/legacy-v14.db');
+    final legacyTables = <String>[
+      'products',
+      'customers',
+      'repairs',
+      'sales',
+      'legacy_records',
+      'accounts',
+      'journal_entries',
+      'journal_lines',
+      'inventory_movements',
+      'business_documents',
+      'business_document_lines',
+      'parties',
+      'check_records',
+      'check_events',
+      'bank_reconciliations',
+      'invoice_archives',
+      'invoice_settings',
+      'loan_records',
+      'loan_installments',
+      'loan_transactions',
+      'party_roles',
+    ];
+
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyFile.path,
+      options: OpenDatabaseOptions(
+        version: 14,
+        onCreate: (db, version) async {
+          for (final table in legacyTables) {
+            final dataColumn = table == 'customers' ? ', data_json TEXT' : '';
+            await db.execute(
+              'CREATE TABLE $table (id INTEGER PRIMARY KEY$dataColumn)',
+            );
+          }
+          await db.insert('customers', {
+            'id': 41,
+            'data_json': jsonEncode({'نام مشتری': 'مشتری نسخه قدیمی'}),
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    await database.insert('customers', {'نام مشتری': 'اطلاعات فعلی که جایگزین می‌شود'});
+    await service.restoreFromPath(legacyFile.path);
+
+    final restoredDb = await database.database;
+    final versionRows = await restoredDb.rawQuery('PRAGMA user_version');
+    expect((versionRows.single.values.single as num).toInt(), AppDatabase.schemaVersion);
+
+    final allocationTable = await restoredDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invoice_payment_allocations'",
+    );
+    expect(allocationTable, hasLength(1));
+
+    final restoredCustomers = await restoredDb.query(
+      'customers',
+      columns: ['id', 'data_json'],
+    );
+    expect(restoredCustomers, hasLength(1));
+    expect(restoredCustomers.single['id'], 41);
+    expect(
+      (jsonDecode(restoredCustomers.single['data_json']! as String)
+          as Map<String, dynamic>)['نام مشتری'],
+      'مشتری نسخه قدیمی',
+    );
+  });
+
   test('rejects a malformed backup without changing current data', () async {
     await database.insert('customers', {'نام مشتری': 'باقی بماند'});
     final malformed = File('${root.path}/broken.db');
