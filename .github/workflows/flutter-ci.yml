@@ -40,6 +40,7 @@ jobs:
             flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
           fi
           python3 tool/android_identity.py
+          python3 tool/android_manifest.py
           dart run flutter_launcher_icons
           python3 tool/android_launcher_icons.py
           for generated_file in test/widget_test.dart analysis_options.yaml; do
