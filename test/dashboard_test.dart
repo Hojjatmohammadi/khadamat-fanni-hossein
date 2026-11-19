@@ -384,18 +384,32 @@ void main() {
     print('[contacts-widget-test] finished');
   });
 
-  testWidgets('inventory app bar exposes product image display options', (tester) async {
+  testWidgets('inventory image menu changes the actual product list display', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    await tester.runAsync(DemoStore.init);
+    await tester.runAsync(() => DemoStore.add('products', {
+      'نام کالا': 'کالای آزمایشی نمایش تصویر',
+      'موجودی': '0',
+    }));
+    final productId = int.parse(DemoStore.products.last['__database_id']!);
+    addTearDown(() => tester.runAsync(
+          () => DemoStore.deleteRecord('products', productId),
+        ));
+
     await tester.pumpWidget(const HoseinApp());
     await tester.tap(find.text('انبار'));
     await tester.pump(const Duration(milliseconds: 350));
+    await _waitForText(tester, 'کالای آزمایشی نمایش تصویر');
 
     final menu = find.byTooltip('تنظیم نمایش عکس کالا');
     expect(menu, findsOneWidget);
+    expect(find.byType(CircleAvatar), findsOneWidget);
+    expect(tester.widget<CircleAvatar>(find.byType(CircleAvatar)).radius, 24);
+
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('عدم نمایش عکس کالا'), findsOneWidget);
@@ -404,16 +418,24 @@ void main() {
 
     await tester.tap(find.text('عدم نمایش عکس کالا'));
     await tester.pumpAndSettle();
+    expect(find.byType(CircleAvatar), findsNothing,
+        reason: 'Hide mode must remove the product image/avatar from the list');
+
     await tester.tap(menu);
     await tester.pumpAndSettle();
     await tester.tap(find.text('کوچک کردن عکس کالا'));
     await tester.pumpAndSettle();
+    expect(find.byType(CircleAvatar), findsOneWidget);
+    expect(tester.widget<CircleAvatar>(find.byType(CircleAvatar)).radius, 13,
+        reason: 'Small mode must reduce the product avatar size');
+
     await tester.tap(menu);
     await tester.pumpAndSettle();
     await tester.tap(find.text('پیش‌فرض عکس کالا'));
     await tester.pumpAndSettle();
-
-    expect(find.byTooltip('تنظیم نمایش عکس کالا'), findsOneWidget);
+    expect(find.byType(CircleAvatar), findsOneWidget);
+    expect(tester.widget<CircleAvatar>(find.byType(CircleAvatar)).radius, 24,
+        reason: 'Default mode must restore the original product avatar size');
   });
 
   testWidgets('repair parts dialog offers coordinated display sizes', (tester) async {
