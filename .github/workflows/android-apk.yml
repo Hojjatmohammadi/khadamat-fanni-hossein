@@ -214,7 +214,7 @@ jobs:
           data = apk.read_bytes()
           digest = hashlib.sha256(data).hexdigest()
           checksum = apk.with_suffix(apk.suffix + ".sha256")
-          checksum.write_text(f"{digest}  {apk.name}\\n", encoding="utf-8")
+          checksum.write_text(f"{digest}  {apk.name}" + chr(10), encoding="utf-8")
           print(f"ARM64 APK size: {len(data):,} bytes ({len(data) / 1024 / 1024:.2f} MiB)")
           print(f"SHA-256: {digest}")
           PY
