@@ -100,7 +100,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ثبت پیش‌پرداخت به فروشنده'), findsOneWidget);
+    expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('party-ledger-invoice-link')),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsOneWidget);
+    await tester.tap(find.text('بیعانه / پیش‌پرداخت آزاد').last);
+    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const ValueKey('party-ledger-advance-amount')),
