@@ -521,6 +521,28 @@ void main() {
     expect(item['productName'], 'خازن 100 میکرو');
     expect(item['lineTotal'], 5000);
     expect(item['netLineTotal'], 4500);
+
+    // Later shop-header changes must not rewrite the invoice issued above.
+    await db.rawInsert(
+      'INSERT OR REPLACE INTO invoice_settings (id, data_json, updated_at) VALUES (1, ?, ?)',
+      [
+        jsonEncode({
+          'shopName': 'فروشگاه با نام جدید',
+          'appLogoBase64': 'new-logo-after-issue',
+        }),
+        DateTime.now().toIso8601String(),
+      ],
+    );
+    final preservedArchive = await db.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [saleId],
+    );
+    final preservedSnapshot = jsonDecode(
+      preservedArchive.single['snapshot_json'] as String,
+    ) as Map<String, dynamic>;
+    expect(preservedSnapshot['shopName'], 'خدمات فنی حسین');
+    expect(preservedSnapshot['appLogoBase64'], 'logo-fixed-at-issue');
   });
 
   test('sale with insufficient stock leaves no invoice, journal or stock movement', () async {
