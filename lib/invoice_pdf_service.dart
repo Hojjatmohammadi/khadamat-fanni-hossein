@@ -74,7 +74,7 @@ class InvoicePdfService {
       final qty = item['quantity']?.toString() ?? '0';
       final price = item['unitPrice']?.toString() ?? '0';
       final total = item['lineTotal']?.toString() ?? '0';
-      return '\${index + 1}. $name   |   تعداد: $qty   |   فی: $price $currency   |   جمع: $total $currency';
+      return '${index + 1}. $name   |   تعداد: $qty   |   فی: $price $currency   |   جمع: $total $currency';
     }).toList(growable: false);
     final totals = <(String, Object?)>[
       ('جمع کالاها', snapshot['subtotal']),
@@ -97,29 +97,29 @@ class InvoicePdfService {
         ) +
         12;
     measuredY += _measureTextHeight(
-          'مسئول: \${snapshot['ownerName'] ?? ''}    تلفن: \${snapshot['phone'] ?? ''}',
+          'مسئول: ${snapshot['ownerName'] ?? ''}    تلفن: ${snapshot['phone'] ?? ''}',
           fontSize: 24,
         ) +
         8;
     measuredY += _measureTextHeight(
-          'کد پستی: \${snapshot['postalCode'] ?? ''}',
+          'کد پستی: ${snapshot['postalCode'] ?? ''}',
           fontSize: 22,
         ) +
         6;
     measuredY += _measureTextHeight(
-          'نشانی: \${snapshot['address'] ?? ''}',
+          'نشانی: ${snapshot['address'] ?? ''}',
           fontSize: 22,
         ) +
         18;
     measuredY += 2 + 20;
     measuredY += _measureTextHeight(
-          '$documentTitle شماره: \${snapshot['documentNumber'] ?? ''}',
+          '$documentTitle شماره: ${snapshot['documentNumber'] ?? ''}',
           fontSize: 34,
           bold: true,
         ) +
         8;
     measuredY += _measureTextHeight(
-          'تاریخ: \${snapshot['documentDate'] ?? ''}    $partyLabel: \${snapshot['counterpartyName'] ?? ''}',
+          'تاریخ: ${snapshot['documentDate'] ?? ''}    $partyLabel: ${snapshot['counterpartyName'] ?? ''}',
           fontSize: 25,
         ) +
         22;
@@ -130,7 +130,7 @@ class InvoicePdfService {
     measuredY += 12 + 2 + 20;
     for (final entry in totals) {
       measuredY += _measureTextHeight(
-            '\${entry.$1}: \${entry.$2 ?? 0} $currency',
+            '${entry.$1}: ${entry.$2 ?? 0} $currency',
             fontSize: entry.$1 == 'مبلغ نهایی' ? 31 : 25,
             bold: entry.$1 == 'مبلغ نهایی',
           ) +
@@ -231,19 +231,19 @@ class InvoicePdfService {
     );
     y += headerHeight + 12;
     y += drawText(
-      'مسئول: \${snapshot['ownerName'] ?? ''}    تلفن: \${snapshot['phone'] ?? ''}',
+      'مسئول: ${snapshot['ownerName'] ?? ''}    تلفن: ${snapshot['phone'] ?? ''}',
       fontSize: 24,
       top: y,
       color: muted,
     ) + 8;
     y += drawText(
-      'کد پستی: \${snapshot['postalCode'] ?? ''}',
+      'کد پستی: ${snapshot['postalCode'] ?? ''}',
       fontSize: 22,
       top: y,
       color: muted,
     ) + 6;
     y += drawText(
-      'نشانی: \${snapshot['address'] ?? ''}',
+      'نشانی: ${snapshot['address'] ?? ''}',
       fontSize: 22,
       top: y,
       color: muted,
@@ -252,13 +252,13 @@ class InvoicePdfService {
     canvas.drawLine(ui.Offset(_margin, y), ui.Offset(right, y), borderPaint);
     y += 20;
     y += drawText(
-      '$documentTitle شماره: \${snapshot['documentNumber'] ?? ''}',
+      '$documentTitle شماره: ${snapshot['documentNumber'] ?? ''}',
       fontSize: 34,
       bold: true,
       top: y,
     ) + 8;
     y += drawText(
-      'تاریخ: \${snapshot['documentDate'] ?? ''}    $partyLabel: \${snapshot['counterpartyName'] ?? ''}',
+      'تاریخ: ${snapshot['documentDate'] ?? ''}    $partyLabel: ${snapshot['counterpartyName'] ?? ''}',
       fontSize: 25,
       top: y,
     ) + 22;
@@ -294,7 +294,7 @@ class InvoicePdfService {
       (sum, entry) =>
           sum +
           _measureTextHeight(
-            '\${entry.$1}: \${entry.$2 ?? 0} $currency',
+            '${entry.$1}: ${entry.$2 ?? 0} $currency',
             fontSize: entry.$1 == 'مبلغ نهایی' ? 31 : 25,
             bold: entry.$1 == 'مبلغ نهایی',
           ) +
@@ -310,7 +310,7 @@ class InvoicePdfService {
     y += 20;
     for (final entry in totals) {
       final h = drawText(
-        '\${entry.$1}: \${entry.$2 ?? 0} $currency',
+        '${entry.$1}: ${entry.$2 ?? 0} $currency',
         fontSize: entry.$1 == 'مبلغ نهایی' ? 31 : 25,
         bold: entry.$1 == 'مبلغ نهایی',
         top: y,
