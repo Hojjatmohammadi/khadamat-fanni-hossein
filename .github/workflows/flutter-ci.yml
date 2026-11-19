@@ -35,7 +35,7 @@ jobs:
       - name: Generate Android platform and verify launcher icons
         run: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
           fi
           python3 tool/android_identity.py
           dart run flutter_launcher_icons
