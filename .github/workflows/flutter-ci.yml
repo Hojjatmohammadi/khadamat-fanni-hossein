@@ -34,13 +34,6 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
-      - name: Export resolved dependency lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-pubspec-lock
-          path: pubspec.lock
-          if-no-files-found: error
-          retention-days: 1
       - name: Generate Android platform and verify launcher icons
         run: |
           if [ ! -d android ]; then
