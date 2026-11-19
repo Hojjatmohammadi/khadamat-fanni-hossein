@@ -29,6 +29,8 @@ jobs:
 
       - name: Enforce stable Android application ID
         run: python3 tool/android_identity.py
+      - name: Validate Android update version
+        run: python3 tool/android_version.py
 
       - name: Remove untracked Flutter scaffolding
         run: |
