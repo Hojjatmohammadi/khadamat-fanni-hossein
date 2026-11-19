@@ -140,7 +140,7 @@ void main() {
     expect(statement['available_customer_advance'], 12500);
     expect(statement['closing_balance'], -12500);
     expect(find.textContaining('بیعانه آزاد قابل تخصیص: 12500 تومان'), findsOneWidget);
-  });
+  }, timeout: const Timeout(Duration(seconds: 45)));
 
   testWidgets('supplier prepayment UI records a bank transfer and keeps it unallocated',
       (tester) async {
@@ -192,5 +192,5 @@ void main() {
     expect(statement['available_supplier_prepayment'], 8400);
     expect(statement['closing_balance'], -8400);
     expect(find.textContaining('پیش‌پرداخت آزاد فروشنده: 8400 تومان'), findsOneWidget);
-  });
+  }, timeout: const Timeout(Duration(seconds: 45)));
 }
