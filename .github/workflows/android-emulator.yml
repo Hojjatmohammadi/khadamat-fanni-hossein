@@ -50,6 +50,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Verify committed dependency lockfile
+        run: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
+
       - name: Generate and verify branded Android launcher icons
         run: |
           dart run flutter_launcher_icons
