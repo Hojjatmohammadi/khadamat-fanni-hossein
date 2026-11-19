@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+PNG_SIGNATURE = bytes.fromhex("89504e470d0a1a0a")
 DENSITIES = {
     "mipmap-mdpi": 48,
     "mipmap-hdpi": 72,
@@ -29,7 +30,7 @@ def _validate_png(path: Path, expected_size: int) -> None:
     if not path.is_file():
         raise AndroidLauncherIconError(f"Missing launcher icon: {path}")
     data = path.read_bytes()
-    if len(data) < 24 or data[:8] != b"\\x89PNG\\r\\n\\x1a\\n" or data[12:16] != b"IHDR":
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b"IHDR":
         raise AndroidLauncherIconError(f"Invalid PNG launcher icon: {path}")
     width, height = struct.unpack(">II", data[16:24])
     if (width, height) != (expected_size, expected_size):
