@@ -11,7 +11,7 @@ workflows:
       - name: Prepare Android project
         script: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
           fi
       - name: Enforce stable Android application ID
         script: python3 tool/android_identity.py
