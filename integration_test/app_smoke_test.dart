@@ -76,6 +76,11 @@ void main() {
     await tester.tap(find.text('ثبت کالا'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('انبار کالا'), findsWidgets);
+    // The quick-add action opens the product form directly; close it so the
+    // smoke test can inspect the inventory app-bar overflow menu underneath.
+    expect(find.text('انصراف'), findsOneWidget);
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
 
     final inventoryAppBar = find.byType(AppBar);
     expect(
