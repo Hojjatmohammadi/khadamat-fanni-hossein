@@ -171,6 +171,42 @@ void main() {
     expect(find.text('نام کالا'), findsOneWidget);
   });
 
+  testWidgets(
+      'inventory image menu opens fully on a narrow RTL screen',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const HoseinApp());
+    await tester.tap(find.text('انبار'));
+    await tester.pumpAndSettle();
+
+    final imageMenu = find.byTooltip('تنظیم نمایش عکس کالا');
+    expect(imageMenu, findsOneWidget);
+    await tester.tap(imageMenu);
+    await tester.pumpAndSettle();
+
+    for (final label in [
+      'عدم نمایش عکس کالا',
+      'پیش‌فرض عکس کالا',
+      'کوچک کردن عکس کالا',
+    ]) {
+      final option = find.text(label);
+      expect(option, findsOneWidget, reason: 'Inventory image option is missing: $label');
+      final bounds = tester.getRect(option);
+      expect(bounds.left, greaterThanOrEqualTo(0),
+          reason: 'Inventory image option is clipped on the left: $label');
+      expect(bounds.right, lessThanOrEqualTo(360),
+          reason: 'Inventory image option is clipped on the right: $label');
+    }
+
+    await tester.tap(find.text('عدم نمایش عکس کالا'));
+    await tester.pumpAndSettle();
+    expect(find.text('انبار کالا'), findsOneWidget);
+  });
+
   testWidgets('every home card opens its mapped section', (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
