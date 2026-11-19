@@ -36,6 +36,21 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  Future<void> pumpUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    int maxPumps = 50,
+  }) async {
+    for (var i = 0; i < maxPumps && finder.evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(
+      finder,
+      findsOneWidget,
+      reason: 'Expected UI element did not appear within ${maxPumps * 100} ms',
+    );
+  }
+
   Future<void> pumpLedger(
     WidgetTester tester, {
     required String partyId,
@@ -52,7 +67,10 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey('record-customer-advance')),
+    );
   }
 
   testWidgets('customer advance UI records amount and card-to-card method once',
@@ -71,9 +89,7 @@ void main() {
     expect(action, findsOneWidget);
     await tester.ensureVisible(action);
     await tester.tap(action);
-    await tester.pumpAndSettle();
-
-    expect(find.text('ثبت بیعانه / دریافت از مشتری'), findsOneWidget);
+    await pumpUntilFound(tester, find.text('ثبت بیعانه / دریافت از مشتری'));
     expect(find.byKey(const ValueKey('party-ledger-invoice-link')), findsOneWidget);
     expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsOneWidget);
 
@@ -86,13 +102,12 @@ void main() {
       const ValueKey('party-ledger-advance-method'),
     );
     await tester.tap(methodField);
-    await tester.pumpAndSettle();
-    expect(find.text('کارت‌به‌کارت'), findsWidgets);
+    await pumpUntilFound(tester, find.text('کارت‌به‌کارت'));
     await tester.tap(find.text('کارت‌به‌کارت').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
 
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await pumpUntilFound(tester, find.text('بیعانه مشتری در گردش حساب ثبت شد'));
 
     final documents = await trades.getDocuments(
       type: 'customer_receipt',
@@ -143,9 +158,7 @@ void main() {
     expect(action, findsOneWidget);
     await tester.ensureVisible(action);
     await tester.tap(action);
-    await tester.pumpAndSettle();
-
-    expect(find.text('ثبت پیش‌پرداخت به فروشنده'), findsOneWidget);
+    await pumpUntilFound(tester, find.text('ثبت پیش‌پرداخت به فروشنده'));
     expect(find.text('بیعانه / پیش‌پرداخت آزاد'), findsOneWidget);
     await tester.enterText(
       find.byKey(const ValueKey('party-ledger-advance-amount')),
@@ -155,11 +168,11 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('party-ledger-advance-method')),
     );
-    await tester.pumpAndSettle();
+    await pumpUntilFound(tester, find.text('انتقال بانکی'));
     await tester.tap(find.text('انتقال بانکی').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(find.text('ثبت در گردش حساب'));
-    await tester.pumpAndSettle();
+    await pumpUntilFound(tester, find.text('پیش‌پرداخت فروشنده ثبت شد'));
 
     final documents = await trades.getDocuments(
       type: 'supplier_payment',
