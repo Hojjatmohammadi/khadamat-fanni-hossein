@@ -91,6 +91,10 @@ workflows:
 
       - name: Get packages
         script: flutter pub get
+      - name: Verify committed dependency lockfile
+        script: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
       - name: Generate and verify branded Android launcher icons
         script: |
           dart run flutter_launcher_icons
