@@ -34,6 +34,10 @@ jobs:
           cache: true
       - name: Install dependencies
         run: flutter pub get
+      - name: Verify committed dependency lockfile
+        run: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
       - name: Generate Android platform and verify launcher icons
         run: |
           if [ ! -d android ]; then
