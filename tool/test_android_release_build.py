@@ -47,7 +47,7 @@ class AndroidReleaseBuildTests(unittest.TestCase):
             encoding="utf-8"
         )
         header = workflow.split("permissions:", maxsplit=1)[0]
-        self.assertIn("on:\\n  workflow_dispatch:", header)
+        self.assertIn("on:\n  workflow_dispatch:", header)
         self.assertNotIn("  push:", header)
 
     def test_emulator_validation_runs_on_development_branch_without_building_apk(self) -> None:
