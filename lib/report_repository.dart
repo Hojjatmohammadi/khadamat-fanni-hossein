@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'app_database.dart';
+import 'localized_number.dart';
 
 class ReportRepository {
   ReportRepository(this._database);
@@ -38,15 +39,26 @@ class ReportRepository {
   }) async {
     if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
     final db = await _database.database;
-    final movements = await db.query(
-      'inventory_movements',
-      where: 'occurred_at >= ? AND occurred_at < ?',
-      whereArgs: [
-        _date(from),
-        _date(to.add(const Duration(days: 1))),
-      ],
-      orderBy: 'occurred_at ASC, id ASC',
-    );
+    // Calculate the running balance over the complete ledger first, then
+    // apply the requested date range. This keeps the opening balance before
+    // the report period and makes every Kardex row's balance accurate.
+    final movements = await db.rawQuery('''
+      WITH ledger AS (
+        SELECT m.*,
+          SUM(m.quantity_delta) OVER (
+            PARTITION BY m.product_id
+            ORDER BY m.occurred_at ASC, m.id ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS balance_after
+        FROM inventory_movements m
+      )
+      SELECT * FROM ledger
+      WHERE occurred_at >= ? AND occurred_at < ?
+      ORDER BY occurred_at ASC, id ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
     final productRows = await db.query('products');
     final names = <int, String>{};
     for (final row in productRows) {
@@ -61,12 +73,83 @@ class ReportRepository {
         }
       } catch (_) {}
     }
-    return movements.map((row) => <String, Object?>{
-      ...row,
-      'product_name': names[row['product_id']] ?? 'کالای ${row['product_id']}',
+    return movements.map((row) {
+      String? adjustmentReason;
+      double? countedQuantity;
+      if (row['movement_type'] == 'adjustment' &&
+          row['reference_type'] == 'stock_count') {
+        try {
+          final reference = jsonDecode(row['reference_id']?.toString() ?? '{}');
+          if (reference is Map) {
+            adjustmentReason = reference['reason']?.toString();
+            final counted = reference['countedQuantity'];
+            if (counted is num) {
+              countedQuantity = counted.toDouble();
+            } else if (counted != null) {
+              countedQuantity = double.tryParse(counted.toString());
+            }
+          }
+        } catch (_) {
+          // Keep legacy or malformed adjustment references visible.
+        }
+      }
+      return <String, Object?>{
+        ...row,
+        'product_name': names[row['product_id']] ?? 'کالای ${row['product_id']}',
+        'adjustment_reason': adjustmentReason,
+        'counted_quantity': countedQuantity,
+      };
     }).toList();
   }
 
+
+  /// Current catalogue prices and ledger-derived stock balances.
+  /// The quantity comes from immutable inventory movements, never legacy JSON.
+  Future<List<Map<String, Object?>>> getStockPriceList() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery('''
+      SELECT p.id AS product_id, p.data_json,
+        COALESCE(SUM(m.quantity_delta), 0) AS stock_quantity,
+        COALESCE(SUM(CASE
+          WHEN m.quantity_delta > 0 THEN m.total_cost
+          WHEN m.quantity_delta < 0 THEN -m.total_cost
+          ELSE 0
+        END), 0) AS stock_value
+      FROM products p
+      LEFT JOIN inventory_movements m ON m.product_id = p.id
+      GROUP BY p.id, p.data_json
+      ORDER BY p.id ASC
+    ''');
+
+    int amount(Object? value) =>
+        LocalizedNumber.tryParseDouble(value?.toString() ?? '')?.round() ?? 0;
+
+    return rows.map((row) {
+      Map<String, Object?> data = const {};
+      try {
+        final decoded = jsonDecode(row['data_json']?.toString() ?? '{}');
+        if (decoded is Map) {
+          data = Map<String, Object?>.from(decoded);
+        }
+      } catch (_) {
+        // Keep malformed legacy rows visible with their database ID.
+      }
+      final id = (row['product_id'] as num).toInt();
+      return <String, Object?>{
+        'product_id': id,
+        'product_name': (data['نام کالا'] ?? data['نام'] ?? data['name'] ?? 'کالای $id').toString(),
+        'product_code': (data['کد کالا'] ?? data['کد'] ?? '').toString(),
+        'category': (data['گروه اصلی'] ?? data['دسته‌بندی'] ?? '').toString(),
+        'stock_quantity': (row['stock_quantity'] as num).toDouble(),
+        // Value uses signed historical movement costs, not the mutable catalogue price.
+        'stock_value': (row['stock_value'] as num).round(),
+        'purchase_price': amount(
+          data['قیمت خرید هر واحد'] ?? data['بهای تمام‌شده هر واحد'],
+        ),
+        'sale_price': amount(data['قیمت فروش']),
+      };
+    }).toList(growable: false);
+  }
 
   /// Profit and loss balances derived from posted double-entry journal lines.
   /// Reversal entries are naturally included as they carry opposite postings.
@@ -79,6 +162,8 @@ class ReportRepository {
     return db.rawQuery('''
       SELECT a.code AS account_code, a.name AS account_name,
         a.account_type AS account_type,
+        CASE WHEN a.code = '4050' THEN 'sales_return'
+          ELSE a.account_type END AS report_group,
         COALESCE(SUM(l.debit), 0) AS total_debit,
         COALESCE(SUM(l.credit), 0) AS total_credit,
         CASE WHEN a.account_type = 'income'
@@ -99,9 +184,9 @@ class ReportRepository {
     ]);
   }
 
-  /// Net sales margin by item: sales less customer returns, minus the
-  /// corresponding cost of goods sold. Supplier returns do not affect sales.
-  Future<List<Map<String, Object?>>> getItemProfit({
+  /// Net quantity and revenue for each item, with customer returns
+  /// deducted from sales during the selected inclusive date range.
+  Future<List<Map<String, Object?>>> getItemSales({
     required DateTime from,
     required DateTime to,
   }) async {
@@ -113,19 +198,72 @@ class ReportRepository {
         SUM(CASE WHEN d.document_type = 'sale'
           THEN l.line_total ELSE -l.line_total END) AS net_revenue,
         SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.quantity * l.unit_cost
-          ELSE -l.quantity * l.unit_cost END) AS net_cost,
-        SUM(CASE WHEN d.document_type = 'sale'
-          THEN l.line_total - (l.quantity * l.unit_cost)
-          ELSE -(l.line_total - (l.quantity * l.unit_cost)) END) AS gross_profit,
-        SUM(CASE WHEN d.document_type = 'sale'
           THEN l.quantity ELSE -l.quantity END) AS net_quantity
       FROM business_document_lines l
       JOIN business_documents d ON d.id = l.document_id
       WHERE d.document_type IN ('sale', 'customer_return')
         AND d.document_date >= ? AND d.document_date < ?
       GROUP BY l.product_id, l.product_name
-      ORDER BY gross_profit DESC, l.product_name COLLATE NOCASE
+      ORDER BY net_revenue DESC, l.product_name COLLATE NOCASE
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
+  /// Net sales margin by item: sales less customer returns, minus the
+  /// corresponding cost of goods sold. Supplier returns do not affect sales.
+  Future<List<Map<String, Object?>>> getItemProfit({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      WITH line_totals AS (
+        SELECT l.document_id, d.document_type, l.product_id, l.product_name,
+          SUM(l.line_total) AS line_total,
+          SUM(l.quantity) AS quantity,
+          SUM(l.quantity * l.unit_cost) AS fallback_cost
+        FROM business_document_lines l
+        JOIN business_documents d ON d.id = l.document_id
+        WHERE d.document_type IN ('sale', 'customer_return')
+          AND d.document_date >= ? AND d.document_date < ?
+        GROUP BY l.document_id, d.document_type, l.product_id, l.product_name
+      ),
+      movement_totals AS (
+        SELECT reference_id, product_id, movement_type,
+          SUM(total_cost) AS exact_cost
+        FROM inventory_movements
+        WHERE movement_type IN ('sale', 'customer_return')
+        GROUP BY reference_id, product_id, movement_type
+      ),
+      item_totals AS (
+        SELECT lt.product_id, lt.product_name,
+          SUM(CASE WHEN lt.document_type = 'sale'
+            THEN lt.line_total ELSE -lt.line_total END) AS net_revenue,
+          SUM(CASE
+            WHEN lt.document_type = 'sale'
+              THEN COALESCE(sale_movement.exact_cost, lt.fallback_cost)
+            ELSE -COALESCE(return_movement.exact_cost, lt.fallback_cost)
+          END) AS net_cost,
+          SUM(CASE WHEN lt.document_type = 'sale'
+            THEN lt.quantity ELSE -lt.quantity END) AS net_quantity
+        FROM line_totals lt
+        LEFT JOIN movement_totals sale_movement
+          ON sale_movement.reference_id = CAST(lt.document_id AS TEXT)
+          AND sale_movement.product_id = lt.product_id
+          AND sale_movement.movement_type = 'sale'
+        LEFT JOIN movement_totals return_movement
+          ON return_movement.reference_id = CAST(lt.document_id AS TEXT)
+          AND return_movement.product_id = lt.product_id
+          AND return_movement.movement_type = 'customer_return'
+        GROUP BY lt.product_id, lt.product_name
+      )
+      SELECT product_id, product_name, net_revenue, net_cost,
+        net_revenue - net_cost AS gross_profit, net_quantity
+      FROM item_totals
+      ORDER BY gross_profit DESC, product_name COLLATE NOCASE
     ''', [
       _date(from),
       _date(to.add(const Duration(days: 1))),
@@ -178,6 +316,47 @@ class ReportRepository {
         AND l.account_code = '4100'
         AND e.entry_date >= ? AND e.entry_date < ?
       ORDER BY e.entry_date ASC, e.id ASC
+    ''', [
+      _date(from),
+      _date(to.add(const Duration(days: 1))),
+    ]);
+  }
+
+  /// Immutable cheque status history for the inclusive report date range.
+  /// Each row represents one event, so changes of status are never collapsed
+  /// into the cheque's current state or counted as separate cheque amounts.
+  Future<List<Map<String, Object?>>> getCheckMovements({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (to.isBefore(from)) throw ArgumentError('بازه تاریخ نامعتبر است');
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT e.id AS event_id, e.check_id, e.event_date,
+        e.old_status, e.new_status, e.description,
+        c.direction, c.check_number, c.bank_name, c.drawer_name,
+        c.party_name, c.amount, c.issue_date, c.due_date,
+        c.status AS current_status,
+        CASE
+          WHEN e.new_status IN ('received', 'issued', 'deposited')
+            THEN c.acceptance_journal_id
+          WHEN e.new_status = 'cleared' THEN c.settlement_journal_id
+          WHEN e.new_status IN ('bounced', 'cancelled') THEN c.reversal_journal_id
+          ELSE NULL
+        END AS journal_entry_id,
+        j.entry_date AS journal_entry_date,
+        j.description AS journal_entry_description
+      FROM check_events e
+      JOIN check_records c ON c.id = e.check_id
+      LEFT JOIN journal_entries j ON j.id = CASE
+        WHEN e.new_status IN ('received', 'issued', 'deposited')
+          THEN c.acceptance_journal_id
+        WHEN e.new_status = 'cleared' THEN c.settlement_journal_id
+        WHEN e.new_status IN ('bounced', 'cancelled') THEN c.reversal_journal_id
+        ELSE NULL
+      END
+      WHERE e.event_date >= ? AND e.event_date < ?
+      ORDER BY e.event_date ASC, e.id ASC
     ''', [
       _date(from),
       _date(to.add(const Duration(days: 1))),

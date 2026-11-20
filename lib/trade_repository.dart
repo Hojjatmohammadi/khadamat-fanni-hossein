@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'accounting_repository.dart';
 import 'invoice_archive_repository.dart';
+import 'invoice_balance.dart';
 import 'app_database.dart';
 
 class TradeLineDraft {
@@ -125,6 +126,7 @@ class PartyPaymentDraft {
     this.counterpartyId,
     this.cashAccountCode = '1000',
     this.referenceId,
+    this.paymentMethod,
   });
 
   final String documentDate;
@@ -134,6 +136,11 @@ class PartyPaymentDraft {
   final String? counterpartyId;
   final String cashAccountCode;
   final String? referenceId;
+  /// cash, bank_transfer or card_to_card. Checks are recorded in CheckRepository.
+  final String? paymentMethod;
+
+  String get effectivePaymentMethod =>
+      paymentMethod ?? (cashAccountCode == '1000' ? 'cash' : 'bank_transfer');
 
   Map<String, Object?> toPayload(String type) => {
         'type': type,
@@ -144,6 +151,7 @@ class PartyPaymentDraft {
         'counterpartyId': counterpartyId,
         'cashAccountCode': cashAccountCode,
         'referenceId': referenceId,
+        'paymentMethod': effectivePaymentMethod,
       };
 }
 
@@ -159,7 +167,11 @@ class TradeRepository {
 
   static const Set<String> _cashAccounts = {'1000', '1010'};
 
-  Future<int> recordPurchase(TradeDocumentDraft draft) async {
+  Future<int> recordPurchase(
+    TradeDocumentDraft draft, {
+    Map<String, Object?>? invoiceHeaderSnapshot,
+    String? documentPrefix,
+  }) async {
     _validateTradeDraft(draft, type: 'purchase');
     final payload = jsonEncode(draft.toPayload('purchase'));
     final db = await _database.database;
@@ -182,10 +194,15 @@ class TradeRepository {
       }
       final chargeTotal = draft.shippingCost + draft.freightCost + draft.otherCost;
       final netBase = subtotal - draft.discountAmount;
+      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final netBaseShares = List<int>.generate(
+        baseAmounts.length,
+        (i) => baseAmounts[i] - discountShares[i],
+      );
       final vatAmount = draft.vatExempt
           ? 0
           : (netBase * draft.vatRate / 100).round();
-      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final purchaseTaxShares = _allocate(vatAmount, netBaseShares);
       final chargeShares = _allocate(chargeTotal, baseAmounts);
 
       final landedTotals = <int>[];
@@ -194,7 +211,9 @@ class TradeRepository {
         final landed = baseAmounts[i] - discountShares[i] + chargeShares[i];
         final unitCost = (landed / quantities[i]).round();
         landedUnitCosts.add(unitCost);
-        landedTotals.add((quantities[i] * unitCost).round());
+        // Keep the exact line value; the rounded unit cost is only a display/
+        // average-cost hint and must not change the invoice or stock valuation.
+        landedTotals.add(landed);
       }
       final inventoryValue =
           landedTotals.fold<int>(0, (sum, amount) => sum + amount);
@@ -241,7 +260,9 @@ class TradeRepository {
         txn,
         type: 'purchase',
         date: draft.documentDate,
-        prefix: 'PUR',
+        prefix: documentPrefix?.trim().isNotEmpty == true
+            ? documentPrefix!.trim()
+            : 'PUR',
         counterpartyName: draft.counterpartyName,
         counterpartyId: draft.counterpartyId,
         subtotal: subtotal,
@@ -267,7 +288,7 @@ class TradeRepository {
           unitPrice: line.unitPrice,
           unitCost: landedUnitCosts[i],
           lineTotal: landedTotals[i],
-          taxAmount: _allocate(vatAmount, baseAmounts)[i],
+          taxAmount: purchaseTaxShares[i],
         );
         await _accounting.recordStockMovementInTransaction(
           txn,
@@ -276,11 +297,75 @@ class TradeRepository {
             movementType: 'purchase',
             quantityDelta: line.quantity,
             unitCost: landedUnitCosts[i],
+            totalCost: landedTotals[i],
             occurredAt: draft.documentDate,
             idempotencyKey: 'purchase-stock-${draft.idempotencyKey}-$i',
             referenceType: 'purchase',
             referenceId: documentId.toString(),
           ),
+        );
+      }
+      await InvoiceBalance.allocateAvailableAdvances(
+        txn,
+        invoiceDocumentId: documentId,
+        invoiceType: 'purchase',
+        partyId: draft.counterpartyId,
+      );
+      if (invoiceHeaderSnapshot != null) {
+        final documentRows = await txn.query(
+          'business_documents',
+          where: 'id = ?',
+          whereArgs: [documentId],
+          limit: 1,
+        );
+        final lineRows = await txn.query(
+          'business_document_lines',
+          where: 'document_id = ?',
+          whereArgs: [documentId],
+          orderBy: 'id ASC',
+        );
+        final document = documentRows.single;
+        final snapshot = <String, Object?>{
+          ...invoiceHeaderSnapshot,
+          'documentId': documentId,
+          'documentType': 'purchase',
+          'documentNumber': document['document_number'],
+          'documentDate': document['document_date'],
+          'counterpartyName': document['counterparty_name'],
+          'subtotal': document['subtotal'],
+          'discountAmount': document['discount_amount'],
+          'chargesAmount': document['charges_amount'],
+          'vatAmount': document['vat_amount'],
+          'totalAmount': document['total_amount'],
+          'paidAmount': (document['paid_amount'] as num).toInt() +
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'directPaidAmount': document['paid_amount'],
+          'advanceAppliedAmount':
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'outstandingAmount':
+              await InvoiceBalance.getOutstandingAmount(txn, documentId),
+          'items': lineRows.map((row) {
+            final quantity = (row['quantity'] as num).toDouble();
+            final unitPrice = (row['unit_price'] as num).toInt();
+            return <String, Object?>{
+              'productName': row['product_name'],
+              'quantity': row['quantity'],
+              'unitPrice': row['unit_price'],
+              // Invoice rows show the original gross amount. Global discount
+              // and purchase charges are displayed separately in the totals.
+              'lineTotal': (quantity * unitPrice).round(),
+              // Keep the posted net/landed value for audit and accounting.
+              'netLineTotal': row['line_total'],
+              'unitCost': row['unit_cost'],
+              'taxAmount': row['tax_amount'],
+            };
+          }).toList(),
+        };
+        await InvoiceArchiveRepository.insertInTransaction(
+          txn,
+          businessDocumentId: documentId,
+          snapshot: snapshot,
+          idempotencyKey: 'purchase-invoice-archive-${draft.idempotencyKey}',
         );
       }
       return documentId;
@@ -290,6 +375,7 @@ class TradeRepository {
   Future<int> recordSale(
     TradeDocumentDraft draft, {
     Map<String, Object?>? invoiceHeaderSnapshot,
+    String? documentPrefix,
   }) async {
     _validateTradeDraft(draft, type: 'sale');
     if (draft.shippingCost != 0 ||
@@ -314,9 +400,15 @@ class TradeRepository {
         throw ArgumentError('تخفیف فروش نمی‌تواند از مبلغ کالاها بیشتر باشد');
       }
       final netSales = subtotal - draft.discountAmount;
+      final discountShares = _allocate(draft.discountAmount, baseAmounts);
+      final netShares = List<int>.generate(
+        baseAmounts.length,
+        (i) => baseAmounts[i] - discountShares[i],
+      );
       final vatAmount = draft.vatExempt
           ? 0
           : (netSales * draft.vatRate / 100).round();
+      final taxShares = _allocate(vatAmount, netShares);
       final total = netSales + vatAmount;
       _validatePaidAmount(draft.paidAmount, total);
       _validateCashAccount(draft.cashAccountCode);
@@ -360,7 +452,9 @@ class TradeRepository {
         txn,
         type: 'sale',
         date: draft.documentDate,
-        prefix: 'SAL',
+        prefix: documentPrefix?.trim().isNotEmpty == true
+            ? documentPrefix!.trim()
+            : 'SAL',
         counterpartyName: draft.counterpartyName,
         counterpartyId: draft.counterpartyId,
         subtotal: subtotal,
@@ -374,8 +468,6 @@ class TradeRepository {
         payload: payload,
       );
 
-      final taxShares = _allocate(vatAmount, baseAmounts);
-      final netShares = _allocate(netSales, baseAmounts);
       for (var i = 0; i < draft.lines.length; i++) {
         final line = draft.lines[i];
         final valuation = await _stockValuation(txn, line.productId);
@@ -387,7 +479,11 @@ class TradeRepository {
         final unitCost = valuation.quantity <= 0
             ? 0
             : (valuation.value / valuation.quantity).round();
-        final costAmount = (line.quantity * unitCost).round();
+        // Allocate the exact remaining stock value proportionally. Rounding
+        // the average unit cost first can over/understate COGS on partial sales.
+        final costAmount = valuation.quantity <= 0
+            ? 0
+            : (valuation.value * line.quantity / valuation.quantity).round();
         final productName = await _productName(txn, line.productId);
 
         await _insertDocumentLine(
@@ -423,6 +519,7 @@ class TradeRepository {
             movementType: 'sale',
             quantityDelta: -line.quantity,
             unitCost: unitCost,
+            totalCost: costAmount,
             occurredAt: draft.documentDate,
             idempotencyKey: 'sale-stock-${draft.idempotencyKey}-$i',
             referenceType: 'sale',
@@ -432,6 +529,12 @@ class TradeRepository {
         );
       }
 
+      await InvoiceBalance.allocateAvailableAdvances(
+        txn,
+        invoiceDocumentId: documentId,
+        invoiceType: 'sale',
+        partyId: draft.counterpartyId,
+      );
       if (invoiceHeaderSnapshot != null) {
         final documentRows = await txn.query(
           'business_documents',
@@ -449,6 +552,7 @@ class TradeRepository {
         final snapshot = <String, Object?>{
           ...invoiceHeaderSnapshot,
           'documentId': documentId,
+          'documentType': 'sale',
           'documentNumber': document['document_number'],
           'documentDate': document['document_date'],
           'counterpartyName': document['counterparty_name'],
@@ -457,15 +561,28 @@ class TradeRepository {
           'chargesAmount': document['charges_amount'],
           'vatAmount': document['vat_amount'],
           'totalAmount': document['total_amount'],
-          'paidAmount': document['paid_amount'],
-          'outstandingAmount': (document['total_amount'] as int) -
-              (document['paid_amount'] as int),
-          'items': lineRows.map((row) => <String, Object?>{
-            'productName': row['product_name'],
-            'quantity': row['quantity'],
-            'unitPrice': row['unit_price'],
-            'lineTotal': row['line_total'],
-            'taxAmount': row['tax_amount'],
+          'paidAmount': (document['paid_amount'] as num).toInt() +
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'directPaidAmount': document['paid_amount'],
+          'advanceAppliedAmount':
+              await InvoiceBalance.getAllocatedAdvanceAmount(txn, documentId),
+          'outstandingAmount':
+              await InvoiceBalance.getOutstandingAmount(txn, documentId),
+          'items': lineRows.map((row) {
+            final quantity = (row['quantity'] as num).toDouble();
+            final unitPrice = (row['unit_price'] as num).toInt();
+            return <String, Object?>{
+              'productName': row['product_name'],
+              'quantity': row['quantity'],
+              'unitPrice': row['unit_price'],
+              // Invoice rows show the original gross amount. Global discount
+              // and purchase charges are displayed separately in the totals.
+              'lineTotal': (quantity * unitPrice).round(),
+              // Keep the posted net/landed value for audit and accounting.
+              'netLineTotal': row['line_total'],
+              'unitCost': row['unit_cost'],
+              'taxAmount': row['tax_amount'],
+            };
           }).toList(),
         };
         await InvoiceArchiveRepository.insertInTransaction(
@@ -705,10 +822,68 @@ class TradeRepository {
         final lineBase = sourceLine['line_total'] as int;
         final lineTax = sourceLine['tax_amount'] as int;
         final isFinalReturn = (returnLine.quantity - remaining).abs() < 0.0000001;
-        final costAmount = (unitCost * returnLine.quantity).round();
+        final returnedBase =
+            (returnedRows.single['returned_base'] as num).toInt();
+
+        // Supplier returns use the exact landed cost stored on the purchase
+        // line. Customer returns must use the original sale COGS movement:
+        // its rounded unit_cost is not necessarily the exact amount posted.
+        var sourceCostTotal = lineBase;
+        if (isCustomerReturn) {
+          final positionRows = await txn.rawQuery(
+            'SELECT COUNT(*) AS line_index FROM business_document_lines '
+            'WHERE document_id = ? AND id < ?',
+            [draft.sourceDocumentId, returnLine.sourceLineId],
+          );
+          final lineIndex =
+              (positionRows.single['line_index'] as num).toInt();
+          final sourceMovement = await txn.query(
+            'inventory_movements',
+            where: 'idempotency_key = ? AND movement_type = ? AND product_id = ?',
+            whereArgs: [
+              'sale-stock-${source['idempotency_key']}-$lineIndex',
+              'sale',
+              productId,
+            ],
+            limit: 1,
+          );
+          if (sourceMovement.isNotEmpty) {
+            sourceCostTotal =
+                (sourceMovement.single['total_cost'] as num).toInt();
+          } else {
+            // Compatibility for legacy invoices without a linked stock movement.
+            sourceCostTotal = (unitCost * originalQuantity).round();
+          }
+        }
+
+        var returnedCostTotal = returnedBase;
+        if (isCustomerReturn) {
+          final returnedCostRows = await txn.rawQuery('''
+            SELECT COALESCE(SUM(m.total_cost), 0) AS returned_cost
+            FROM inventory_movements m
+            WHERE m.movement_type = 'customer_return'
+              AND m.product_id = ?
+              AND m.reference_id IN (
+                SELECT CAST(return_doc.id AS TEXT)
+                FROM business_documents return_doc
+                INNER JOIN business_document_lines return_line
+                  ON return_line.document_id = return_doc.id
+                WHERE return_doc.document_type = 'customer_return'
+                  AND return_doc.source_document_id = ?
+                  AND return_line.source_line_id = ?
+              )
+          ''', [productId, draft.sourceDocumentId, returnLine.sourceLineId]);
+          returnedCostTotal =
+              (returnedCostRows.single['returned_cost'] as num).toInt();
+        }
+        // The final partial return consumes the exact residual, preventing
+        // rounded unit costs from overstating or understating inventory.
+        final costAmount = isFinalReturn
+            ? sourceCostTotal - returnedCostTotal
+            : (sourceCostTotal * returnLine.quantity / originalQuantity).round();
         final baseAmount = isCustomerReturn
             ? (isFinalReturn
-                ? lineBase - (returnedRows.single['returned_base'] as num).toInt()
+                ? lineBase - returnedBase
                 : (lineBase * returnLine.quantity / originalQuantity).round())
             : costAmount;
         final taxAmount = isFinalReturn
@@ -825,6 +1000,7 @@ class TradeRepository {
               movementType: 'customer_return',
               quantityDelta: quantity,
               unitCost: unitCost,
+              totalCost: costAmount,
               occurredAt: draft.documentDate,
               idempotencyKey: 'customer-return-stock-${draft.idempotencyKey}-$i',
               referenceType: type,
@@ -865,6 +1041,7 @@ class TradeRepository {
               movementType: 'supplier_return',
               quantityDelta: -quantity,
               unitCost: unitCost,
+              totalCost: costAmount,
               occurredAt: draft.documentDate,
               idempotencyKey: 'supplier-return-stock-${draft.idempotencyKey}-$i',
               referenceType: type,
@@ -897,6 +1074,19 @@ class TradeRepository {
       throw ArgumentError('اطلاعات دریافت یا پرداخت معتبر نیست');
     }
     _validateCashAccount(draft.cashAccountCode);
+    const methods = {'cash', 'bank_transfer', 'card_to_card'};
+    final paymentMethod = draft.effectivePaymentMethod;
+    if (!methods.contains(paymentMethod) ||
+        (paymentMethod == 'cash' && draft.cashAccountCode != '1000') ||
+        (paymentMethod != 'cash' && draft.cashAccountCode != '1010')) {
+      throw ArgumentError('روش دریافت یا پرداخت با حساب انتخاب‌شده سازگار نیست');
+    }
+    final paymentMethodLabel = switch (paymentMethod) {
+      'cash' => 'نقدی',
+      'bank_transfer' => 'انتقال بانکی',
+      'card_to_card' => 'کارت‌به‌کارت',
+      _ => 'نامشخص',
+    };
     final type = isCustomerReceipt ? 'customer_receipt' : 'supplier_payment';
     final payload = jsonEncode(draft.toPayload(type));
     final db = await _database.database;
@@ -933,36 +1123,10 @@ class TradeRepository {
         effectiveCounterpartyId ??= source['counterparty_id']?.toString();
         final sourceName = source['counterparty_name']?.toString().trim() ?? '';
         if (sourceName.isNotEmpty) effectiveCounterpartyName = sourceName;
-        final paymentRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [
-            sourceDocumentId,
-            isCustomerReceipt ? 'customer_receipt' : 'supplier_payment',
-          ],
+        final outstanding = await InvoiceBalance.getOutstandingAmount(
+          txn,
+          sourceDocumentId,
         );
-        final returnRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(total_amount), 0) AS returned '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [
-            sourceDocumentId,
-            isCustomerReceipt ? 'customer_return' : 'supplier_return',
-          ],
-        );
-        final checkRows = await txn.rawQuery(
-          "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
-          "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
-          [sourceDocumentId],
-        );
-        final alreadySettled =
-            (source['paid_amount'] as num).toInt() +
-            (paymentRows.single['paid'] as num).toInt() +
-            (checkRows.single['amount'] as num).toInt();
-        final returnedAmount = (returnRows.single['returned'] as num).toInt();
-        final outstanding =
-            (source['total_amount'] as num).toInt() -
-            alreadySettled -
-            returnedAmount;
         if (draft.amount > outstanding) {
           throw StateError('مبلغ دریافت یا پرداخت از مانده فاکتور بیشتر است');
         }
@@ -973,11 +1137,13 @@ class TradeRepository {
               JournalLineDraft(
                 accountCode: draft.cashAccountCode,
                 debit: draft.amount,
+                memo: 'روش دریافت: $paymentMethodLabel',
               ),
               JournalLineDraft(
                 accountCode: '1100',
                 credit: draft.amount,
                 partyId: effectiveCounterpartyId,
+                memo: 'ثبت دریافت از طرف حساب',
               ),
             ]
           : [
@@ -985,10 +1151,12 @@ class TradeRepository {
                 accountCode: '2000',
                 debit: draft.amount,
                 partyId: effectiveCounterpartyId,
+                memo: 'ثبت پرداخت به طرف حساب',
               ),
               JournalLineDraft(
                 accountCode: draft.cashAccountCode,
                 credit: draft.amount,
+                memo: 'روش پرداخت: $paymentMethodLabel',
               ),
             ];
       final journalId = await _accounting.postJournalEntryInTransaction(
@@ -996,8 +1164,8 @@ class TradeRepository {
         JournalEntryDraft(
           entryDate: draft.documentDate,
           description: isCustomerReceipt
-              ? 'دریافت از مشتری ${effectiveCounterpartyName.trim()}'
-              : 'پرداخت به فروشنده ${effectiveCounterpartyName.trim()}',
+              ? 'دریافت از مشتری ${effectiveCounterpartyName.trim()} • $paymentMethodLabel'
+              : 'پرداخت به فروشنده ${effectiveCounterpartyName.trim()} • $paymentMethodLabel',
           idempotencyKey: '${type}-journal-${draft.idempotencyKey}',
           referenceType: type,
           referenceId: draft.referenceId,
@@ -1027,45 +1195,7 @@ class TradeRepository {
 
   Future<int> getOutstandingAmount(int documentId) async {
     final db = await _database.database;
-    final rows = await db.query(
-      'business_documents',
-      where: 'id = ?',
-      whereArgs: [documentId],
-      limit: 1,
-    );
-    if (rows.isEmpty) throw StateError('فاکتور پیدا نشد');
-    final document = rows.single;
-    final type = document['document_type'];
-    final paymentType = type == 'sale'
-        ? 'customer_receipt'
-        : type == 'purchase'
-            ? 'supplier_payment'
-            : null;
-    if (paymentType == null) {
-      throw ArgumentError('این نوع سند تسویه دریافت یا پرداخت ندارد');
-    }
-    final payments = await db.rawQuery(
-      'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
-      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-      [documentId, paymentType],
-    );
-    final returnType = type == 'sale' ? 'customer_return' : 'supplier_return';
-    final returns = await db.rawQuery(
-      'SELECT COALESCE(SUM(total_amount), 0) AS returned '
-      'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-      [documentId, returnType],
-    );
-    final checks = await db.rawQuery(
-      "SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records "
-      "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
-      [documentId],
-    );
-    final totalPaid = (document['paid_amount'] as num).toInt() +
-        (payments.single['paid'] as num).toInt() +
-        (checks.single['amount'] as num).toInt();
-    final totalReturned = (returns.single['returned'] as num).toInt();
-    final total = (document['total_amount'] as num).toInt();
-    return total - totalPaid - totalReturned;
+    return InvoiceBalance.getOutstandingAmount(db, documentId);
   }
 
   Future<List<Map<String, Object?>>> getDocuments({
@@ -1148,28 +1278,51 @@ class TradeRepository {
     }
   }
 
+  /// Splits an integer amount proportionally without creating negative
+  /// residual shares or losing/duplicating even one smallest currency unit.
+  /// Largest remainders are assigned first; ties keep the original line order.
   List<int> _allocate(int amount, List<int> weights) {
     if (weights.isEmpty) return const [];
-    final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
-    if (amount == 0) {
-      return List<int>.filled(weights.length, 0);
+    if (weights.any((weight) => weight < 0)) {
+      throw ArgumentError('وزن تقسیم مبلغ نمی‌تواند منفی باشد');
     }
-    if (weightTotal == 0) {
+    if (amount == 0) return List<int>.filled(weights.length, 0);
+
+    final totalWeight = weights.fold<BigInt>(
+      BigInt.zero,
+      (sum, weight) => sum + BigInt.from(weight),
+    );
+    if (totalWeight == BigInt.zero) {
       final result = List<int>.filled(weights.length, 0);
       result[result.length - 1] = amount;
       return result;
     }
-    final result = List<int>.filled(weights.length, 0);
-    var assigned = 0;
+
+    final sign = amount < 0 ? -1 : 1;
+    final absoluteAmount = BigInt.from(amount.abs());
+    final shares = List<int>.filled(weights.length, 0);
+    final remainders = <({int index, BigInt remainder})>[];
+    var assigned = BigInt.zero;
+
     for (var i = 0; i < weights.length; i++) {
-      if (i == weights.length - 1) {
-        result[i] = amount - assigned;
-      } else {
-        result[i] = (amount * weights[i] / weightTotal).round();
-        assigned += result[i];
-      }
+      final product = absoluteAmount * BigInt.from(weights[i]);
+      final quotient = product ~/ totalWeight;
+      final remainder = product.remainder(totalWeight);
+      shares[i] = quotient.toInt();
+      assigned += quotient;
+      remainders.add((index: i, remainder: remainder));
     }
-    return result;
+
+    final remaining = (absoluteAmount - assigned).toInt();
+    remainders.sort((a, b) {
+      final byRemainder = b.remainder.compareTo(a.remainder);
+      return byRemainder != 0 ? byRemainder : a.index.compareTo(b.index);
+    });
+    for (var i = 0; i < remaining; i++) {
+      shares[remainders[i].index]++;
+    }
+
+    return shares.map((share) => share * sign).toList();
   }
 
   Future<int?> _findDuplicate(
@@ -1257,12 +1410,39 @@ class TradeRepository {
     required String idempotencyKey,
     required String payload,
     int? sourceDocumentId,
-  }) {
+  }) async {
+    final cleanedPrefix = prefix.trim().replaceFirst(RegExp(r'-+$'), '');
+    final effectivePrefix = cleanedPrefix.isEmpty
+        ? (type == 'sale' ? 'SAL' : 'PUR')
+        : cleanedPrefix;
+    final numberPrefix = '$effectivePrefix-';
+
+    // A custom prefix is shared by sale and purchase documents on this device.
+    final countRows = await txn.rawQuery(
+      'SELECT COUNT(*) AS total FROM business_documents '
+      'WHERE substr(document_number, 1, ?) = ?',
+      [numberPrefix.length, numberPrefix],
+    );
+    var sequence = (countRows.single['total'] as num).toInt() + 1;
+    late String documentNumber;
+    while (true) {
+      documentNumber = numberPrefix + sequence.toString().padLeft(6, '0');
+      final existing = await txn.query(
+        'business_documents',
+        columns: ['id'],
+        where: 'document_number = ?',
+        whereArgs: [documentNumber],
+        limit: 1,
+      );
+      if (existing.isEmpty) break;
+      sequence++;
+    }
+
     final now = DateTime.now().toIso8601String();
     return txn.insert('business_documents', {
       'document_type': type,
       'document_date': date,
-      'document_number': '$prefix-${DateTime.now().microsecondsSinceEpoch}',
+      'document_number': documentNumber,
       'counterparty_id': counterpartyId,
       'counterparty_name': counterpartyName.trim(),
       'subtotal': subtotal,

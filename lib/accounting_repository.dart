@@ -74,6 +74,7 @@ class StockMovementDraft {
     this.referenceId,
     this.journalEntry,
     this.allowNegativeStock = false,
+    this.totalCost,
   });
 
   final int productId;
@@ -86,6 +87,8 @@ class StockMovementDraft {
   final String? referenceId;
   final JournalEntryDraft? journalEntry;
   final bool allowNegativeStock;
+  /// Exact movement value when integer unit-cost rounding would lose a unit.
+  final int? totalCost;
 
   Map<String, Object?> toPayload() => {
         'productId': productId,
@@ -97,6 +100,7 @@ class StockMovementDraft {
         'referenceId': referenceId,
         'journalEntry': journalEntry?.toPayload(),
         'allowNegativeStock': allowNegativeStock,
+        if (totalCost != null) 'totalCost': totalCost,
       };
 }
 
@@ -348,6 +352,7 @@ class AccountingRepository {
         !draft.quantityDelta.isFinite ||
         draft.quantityDelta == 0 ||
         draft.unitCost < 0 ||
+        (draft.totalCost != null && draft.totalCost! < 0) ||
         draft.idempotencyKey.trim().isEmpty ||
         DateTime.tryParse(draft.occurredAt) == null) {
       throw ArgumentError('اطلاعات گردش انبار معتبر نیست');
@@ -414,7 +419,8 @@ class AccountingRepository {
       'movement_type': draft.movementType,
       'quantity_delta': draft.quantityDelta,
       'unit_cost': draft.unitCost,
-      'total_cost': (draft.quantityDelta.abs() * draft.unitCost).round(),
+      'total_cost': draft.totalCost ??
+          (draft.quantityDelta.abs() * draft.unitCost).round(),
       'occurred_at': draft.occurredAt,
       'reference_type': draft.referenceType,
       'reference_id': draft.referenceId,
@@ -608,7 +614,6 @@ class AccountingRepository {
       lines.add(JournalLineDraft(
         accountCode: cashAccountCode,
         debit: paidAmount,
-        partyId: customerId,
         memo: description.trim(),
       ));
     }
@@ -621,21 +626,38 @@ class AccountingRepository {
         memo: description.trim(),
       ));
     }
-    // Party ledger entries must represent the full service charge as a debit
-    // (cash paid now plus receivable), never the income credit as a party credit.
+    // Only the unpaid portion is a customer receivable. Cash collected at
+    // registration is settled immediately and must not appear as party debt.
     lines.add(JournalLineDraft(
       accountCode: '4100',
       credit: amount,
       memo: description.trim(),
     ));
-    return postJournalEntry(JournalEntryDraft(
+    final draft = JournalEntryDraft(
       entryDate: serviceDate,
       description: 'درآمد خدمات تعمیر: ${description.trim()}',
       idempotencyKey: idempotencyKey,
       referenceType: 'repair_service',
-      referenceId: repairId,
+      referenceId: repairId.trim(),
       lines: lines,
-    ));
+    );
+    final db = await _database.database;
+    return db.transaction((txn) async {
+      final previousCharge = await txn.query(
+        'journal_entries',
+        columns: ['idempotency_key'],
+        where: 'reference_type = ? AND reference_id = ? AND idempotency_key != ?',
+        whereArgs: ['repair_service', repairId.trim(), idempotencyKey],
+        limit: 1,
+      );
+      if (previousCharge.isNotEmpty) {
+        throw StateError('درآمد اجرت این پذیرش قبلاً ثبت شده است');
+      }
+      // Same-key retries are idempotent; a second key for the same repair
+      // is rejected so a separate invoice/action cannot recognize the labour
+      // revenue twice.
+      return _postJournalEntry(txn, draft);
+    });
   }
 
   /// Collects a later payment against the unpaid labour charge of one repair.
@@ -701,6 +723,7 @@ class AccountingRepository {
     required String expenseAccountCode,
     required String cashAccountCode,
     required String idempotencyKey,
+    String? partyId,
   }) async {
     if (DateTime.tryParse(expenseDate) == null ||
         description.trim().isEmpty ||
@@ -709,6 +732,16 @@ class AccountingRepository {
       throw ArgumentError('تاریخ، شرح، مبلغ و شناسه یکتای هزینه الزامی است');
     }
     final db = await _database.database;
+    if (partyId != null && partyId.trim().isNotEmpty) {
+      final party = await db.query(
+        'parties',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (party.isEmpty) throw ArgumentError('مخاطب انتخاب‌شده پیدا نشد');
+    }
     final accounts = await db.query('accounts',
       columns: ['code', 'account_type'],
       where: 'code IN (?, ?)',
@@ -726,8 +759,18 @@ class AccountingRepository {
       referenceType: 'expense',
       referenceId: idempotencyKey,
       lines: [
-        JournalLineDraft(accountCode: expenseAccountCode, debit: amount, memo: description.trim()),
-        JournalLineDraft(accountCode: cashAccountCode, credit: amount, memo: description.trim()),
+        JournalLineDraft(
+          accountCode: expenseAccountCode,
+          debit: amount,
+          partyId: partyId,
+          memo: description.trim(),
+        ),
+        JournalLineDraft(
+          accountCode: cashAccountCode,
+          credit: amount,
+          partyId: partyId,
+          memo: description.trim(),
+        ),
       ],
     ));
   }
@@ -844,6 +887,77 @@ class AccountingRepository {
       result.add({...entry, 'lines': lines});
     }
     return result;
+  }
+
+
+  /// Compares the current inventory subledger valuation with the general
+  /// ledger balance of the inventory asset account (1200). This is read-only:
+  /// a discrepancy must be investigated before anyone posts an adjustment.
+  Future<Map<String, Object?>> getInventoryReconciliation() async {
+    final db = await _database.database;
+    final movementRows = await db.rawQuery('''
+      SELECT product_id,
+        COALESCE(SUM(quantity_delta), 0) AS quantity,
+        COALESCE(SUM(
+          CASE WHEN quantity_delta > 0 THEN total_cost ELSE -total_cost END
+        ), 0) AS stock_value
+      FROM inventory_movements
+      GROUP BY product_id
+    ''');
+    final movementByProduct = <int, Map<String, Object?>>{
+      for (final row in movementRows)
+        (row['product_id'] as num).toInt(): row,
+    };
+
+    final products = await db.query(
+      'products',
+      columns: ['id', 'data_json'],
+      orderBy: 'id ASC',
+    );
+    final items = <Map<String, Object?>>[];
+    var negativeStockProducts = 0;
+    for (final product in products) {
+      final id = (product['id'] as num).toInt();
+      final decoded = jsonDecode(product['data_json'] as String);
+      final data = decoded is Map ? decoded : const <Object?, Object?>{};
+      final movement = movementByProduct[id];
+      final quantity = (movement?['quantity'] as num?)?.toDouble() ?? 0;
+      final value = (movement?['stock_value'] as num?)?.toInt() ?? 0;
+      if (quantity < -0.0000001) negativeStockProducts++;
+      items.add({
+        'product_id': id,
+        'product_name': data['نام کالا']?.toString().trim().isNotEmpty == true
+            ? data['نام کالا'].toString().trim()
+            : 'کالای شماره $id',
+        'stock_quantity': quantity,
+        'stock_value': value,
+      });
+    }
+    items.sort((left, right) =>
+        ((right['stock_value'] as num).abs())
+            .compareTo((left['stock_value'] as num).abs()));
+
+    final inventoryValue = movementRows.fold<int>(
+      0,
+      (total, row) => total + (row['stock_value'] as num).toInt(),
+    );
+    final ledgerRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(debit - credit), 0) AS balance
+      FROM journal_lines
+      WHERE account_code = ?
+    ''', ['1200']);
+    final ledgerValue =
+        (ledgerRows.single['balance'] as num?)?.toInt() ?? 0;
+    final difference = inventoryValue - ledgerValue;
+
+    return {
+      'inventory_value': inventoryValue,
+      'ledger_value': ledgerValue,
+      'difference': difference,
+      'is_balanced': difference == 0 && negativeStockProducts == 0,
+      'negative_stock_products': negativeStockProducts,
+      'items': items,
+    };
   }
 
   Future<Map<String, Object?>> getAccountLedger(

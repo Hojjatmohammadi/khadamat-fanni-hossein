@@ -1,0 +1,213 @@
+name: Android emulator smoke tests
+
+on:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
+  workflow_dispatch:
+# Pushes to the work branch are the single source of automated validation.
+# Manual dispatch remains available for an intentional rerun.
+concurrency:
+  # Separate the software-emulation runner from older hung hardware-acceleration attempts.
+  group: android-emulator-tcg-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform when absent
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
+          fi
+
+      - name: Enforce stable Android application ID
+        run: python3 tool/android_identity.py
+      - name: Validate Android update version
+        run: python3 tool/android_version.py
+
+      - name: Configure and validate Android manifest
+        run: python3 tool/android_manifest.py
+
+      - name: Remove untracked Flutter scaffolding
+        run: |
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify committed dependency lockfile
+        run: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
+
+      - name: Generate and verify branded Android launcher icons
+        run: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+
+      - name: Configure Android API 36 and core library desugaring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle")
+          if not gradle.exists():
+              gradle = Path("android/app/build.gradle.kts")
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file is missing")
+          text = gradle.read_text(encoding="utf-8")
+          text, count = re.subn(
+              r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)(?:flutter\.compileSdkVersion|\d+)(\s*(?://.*)?$)",
+              lambda m: m.group(1) + "36" + m.group(2),
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not safely configure compileSdk 36")
+          is_kts = gradle.suffix == ".kts"
+          enable = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled true"
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kts else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+          if "isCoreLibraryDesugaringEnabled" not in text and "coreLibraryDesugaringEnabled" not in text:
+              text, n = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enable, text, count=1)
+              if n != 1:
+                  raise SystemExit("Could not find compileOptions block")
+          if "desugar_jdk_libs" not in text:
+              if re.search(r"dependencies\s*\{", text):
+                  text = re.sub(r"(dependencies\s*\{)", r"\1\n    " + dependency, text, count=1)
+              else:
+                  text += "\n\ndependencies {\n    " + dependency + "\n}\n"
+          gradle.write_text(text, encoding="utf-8")
+          print(f"Configured {gradle} for API 36 and desugaring")
+          PY
+
+      - name: Install Android SDK platform 36
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "platforms;android-36"
+
+      - name: Align flutter_timezone Java and Kotlin JVM targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(
+              Path.home().joinpath(".pub-cache/hosted/pub.dev").glob(
+                  "flutter_timezone-*/android/build.gradle*"
+              )
+          )
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(
+                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\{.*?^([ ]*)\}"
+              )
+              match = pattern.search(content)
+              if match:
+                  indent = match.group(1)
+                  close_indent = match.group(2)
+                  body_indent = indent + "    "
+                  replacement = (
+                      f"{indent}{block_name} {{\n"
+                      + "".join(f"{body_indent}{line}\n" for line in lines)
+                      + f"{close_indent}}}"
+                  )
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ ]*)android[ ]*\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = (
+                  "\n" + indent + block_name + " {\n"
+                  + "".join(indent + "    " + line + "\n" for line in lines)
+                  + indent + "}\n"
+              )
+              pos = android.end()
+              return content[:pos] + insertion + content[pos:]
+
+          updated = []
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content = replace_or_add_block(
+                  content,
+                  "compileOptions",
+                  [
+                      "sourceCompatibility = JavaVersion.VERSION_11",
+                      "targetCompatibility = JavaVersion.VERSION_11",
+                  ],
+              )
+              content = replace_or_add_block(
+                  content,
+                  "kotlinOptions",
+                  ["jvmTarget = JavaVersion.VERSION_11.toString()"],
+              )
+              gradle.write_text(content, encoding="utf-8")
+              updated.append(str(gradle))
+
+          print("Aligned flutter_timezone Java/Kotlin targets to JVM 11: " + ", ".join(updated))
+          PY
+
+      - name: Align file_picker Android compile SDK to 36
+        run: python3 tool/android_compile_sdk.py
+
+      - name: Run app on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # GitHub-hosted Ubuntu runners may not expose KVM; force the emulator's TCG fallback.
+          ANDROID_I_WANT_MY_TCG: "yes"
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 1200
+          disable-animations: true
+          script: |
+            flutter test integration_test/material_localizations_test.dart -d emulator-5554 --reporter expanded
+            flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
+
+      - name: Upload emulator test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-diagnostics
+          path: |
+            /home/runner/.android/avd/*.avd/*.log
+            /home/runner/.android/avd/*.avd/*.ini
+          if-no-files-found: ignore
+          retention-days: 7

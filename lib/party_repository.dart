@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:sqflite/sqflite.dart';
+
 import 'app_database.dart';
 
 class PartyDraft {
@@ -10,6 +14,7 @@ class PartyDraft {
     this.notes,
     this.sourceCategory,
     this.sourceId,
+    this.additionalRoles = const [],
   });
 
   final String partyType;
@@ -20,6 +25,7 @@ class PartyDraft {
   final String? notes;
   final String? sourceCategory;
   final String? sourceId;
+  final List<String> additionalRoles;
 }
 
 class PartyRepository {
@@ -27,54 +33,153 @@ class PartyRepository {
 
   final AppDatabase _database;
 
+  static const _validRoles = {'customer', 'supplier', 'other'};
+
+  static String _normalizeName(String value) => value
+      .trim()
+      .replaceAll('ي', 'ی')
+      .replaceAll('ك', 'ک')
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  static String _normalizePhone(String value) {
+    var digits = value
+        .replaceAll('۰', '0')
+        .replaceAll('۱', '1')
+        .replaceAll('۲', '2')
+        .replaceAll('۳', '3')
+        .replaceAll('۴', '4')
+        .replaceAll('۵', '5')
+        .replaceAll('۶', '6')
+        .replaceAll('۷', '7')
+        .replaceAll('۸', '8')
+        .replaceAll('۹', '9')
+        .replaceAll('٠', '0')
+        .replaceAll('١', '1')
+        .replaceAll('٢', '2')
+        .replaceAll('٣', '3')
+        .replaceAll('٤', '4')
+        .replaceAll('٥', '5')
+        .replaceAll('٦', '6')
+        .replaceAll('٧', '7')
+        .replaceAll('٨', '8')
+        .replaceAll('٩', '9')
+        .replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('0098') && digits.length == 14) {
+      digits = '0${digits.substring(4)}';
+    } else if (digits.startsWith('98') && digits.length == 12) {
+      digits = '0${digits.substring(2)}';
+    }
+    return digits;
+  }
+
+  Future<void> _addRoles(
+    DatabaseExecutor executor,
+    String partyId,
+    Iterable<String> roles,
+  ) async {
+    final createdAt = DateTime.now().toIso8601String();
+    for (final role in roles) {
+      await executor.execute(
+        'INSERT OR IGNORE INTO party_roles (party_id, role, created_at) VALUES (?, ?, ?)',
+        [partyId, role, createdAt],
+      );
+    }
+  }
+
   Future<String> ensureParty(PartyDraft draft) async {
     final type = draft.partyType.trim();
     final name = draft.displayName.trim();
-    if (!const {'customer', 'supplier', 'other'}.contains(type) || name.isEmpty) {
-      throw ArgumentError('نوع یا نام طرف حساب معتبر نیست');
+    final roles = <String>{type, ...draft.additionalRoles.map((role) => role.trim())};
+    if (name.isEmpty || roles.any((role) => !_validRoles.contains(role))) {
+      throw ArgumentError('نام یا نقش طرف حساب معتبر نیست');
     }
-    final normalized = name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+    final normalized = _normalizeName(name);
+    final normalizedPhone = _normalizePhone(draft.phone ?? '');
+    if ((draft.phone?.trim().isNotEmpty ?? false) && normalizedPhone.length != 11) {
+      throw ArgumentError('شماره همراه باید دقیقاً ۱۱ رقم باشد.');
+    }
     final db = await _database.database;
 
     return db.transaction((txn) async {
-      if (draft.preferredId != null && draft.preferredId!.trim().isNotEmpty) {
+      Map<String, Object?>? existing;
+
+      final preferredId = draft.preferredId?.trim();
+      if (preferredId != null && preferredId.isNotEmpty) {
         final byId = await txn.query(
           'parties',
           where: 'id = ?',
-          whereArgs: [draft.preferredId],
+          whereArgs: [preferredId],
           limit: 1,
         );
-        if (byId.isNotEmpty) return draft.preferredId!;
+        if (byId.isNotEmpty) existing = byId.single;
       }
 
-      if (draft.preferredId?.trim().isEmpty != false) {
-        final existing = await txn.query(
+      // A matching name and normalized phone identify the same person even
+      // when that person is first registered as a customer and later as a
+      // supplier. Name-only matches remain role-scoped to avoid merging
+      // unrelated people who share a name.
+      if (existing == null &&
+          (preferredId == null || preferredId.isEmpty) &&
+          normalizedPhone.isNotEmpty) {
+        final phoneCandidates = await txn.query(
           'parties',
-          where: 'party_type = ? AND normalized_name = ?',
-          whereArgs: [type, normalized],
-          limit: 1,
+          where: 'phone IS NOT NULL',
         );
-        if (existing.isNotEmpty) {
-          final id = existing.single['id'] as String;
-          await txn.update(
-            'parties',
-            {
-              if (draft.phone != null) 'phone': draft.phone,
-              if (draft.address != null) 'address': draft.address,
-              if (draft.notes != null) 'notes': draft.notes,
-              'updated_at': DateTime.now().toIso8601String(),
-            },
-            where: 'id = ?',
-            whereArgs: [id],
-          );
-          return id;
+        for (final candidate in phoneCandidates) {
+          if (_normalizePhone(candidate['phone']?.toString() ?? '') ==
+                  normalizedPhone &&
+              _normalizeName(candidate['display_name']?.toString() ?? '') ==
+                  normalized) {
+            existing = candidate;
+            break;
+          }
         }
       }
 
-      final id = draft.preferredId?.trim().isNotEmpty == true
-          ? draft.preferredId!.trim()
-          : '${type}_${DateTime.now().microsecondsSinceEpoch}';
+      if (existing == null && (preferredId == null || preferredId.isEmpty)) {
+        final sameRole = await txn.query(
+          'parties',
+          where: 'party_type = ? AND normalized_name = ?',
+          whereArgs: [type, normalized],
+        );
+        for (final candidate in sameRole) {
+          final existingPhone = _normalizePhone(
+            candidate['phone']?.toString() ?? '',
+          );
+          if (normalizedPhone.isNotEmpty &&
+              existingPhone.isNotEmpty &&
+              existingPhone != normalizedPhone) {
+            continue;
+          }
+          existing = candidate;
+          break;
+        }
+      }
+
       final now = DateTime.now().toIso8601String();
+      if (existing != null) {
+        final id = existing['id'] as String;
+        await txn.update(
+          'parties',
+          {
+            if (draft.phone != null && draft.phone!.trim().isNotEmpty)
+              'phone': draft.phone!.trim(),
+            if (draft.address != null) 'address': draft.address,
+            if (draft.notes != null) 'notes': draft.notes,
+            'updated_at': now,
+          },
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        await _addRoles(txn, id, roles);
+        return id;
+      }
+
+      final id = preferredId != null && preferredId.isNotEmpty
+          ? preferredId
+          : '${type}_${DateTime.now().microsecondsSinceEpoch}';
       await txn.insert('parties', {
         'id': id,
         'party_type': type,
@@ -88,18 +193,454 @@ class PartyRepository {
         'created_at': now,
         'updated_at': now,
       });
+      await _addRoles(txn, id, roles);
       return id;
     });
   }
 
+  Future<void> updateParty({
+    required String partyId,
+    required PartyDraft draft,
+  }) async {
+    final name = draft.displayName.trim();
+    final roles = <String>{
+      draft.partyType.trim(),
+      ...draft.additionalRoles.map((role) => role.trim()),
+    };
+    if (partyId.trim().isEmpty ||
+        name.isEmpty ||
+        roles.isEmpty ||
+        roles.any((role) => !_validRoles.contains(role))) {
+      throw ArgumentError('اطلاعات مخاطب یا نقش‌های انتخاب‌شده معتبر نیست');
+    }
+
+    final normalizedPhone = _normalizePhone(draft.phone ?? '');
+    if ((draft.phone?.trim().isNotEmpty ?? false) && normalizedPhone.length != 11) {
+      throw ArgumentError('شماره همراه باید دقیقاً ۱۱ رقم باشد.');
+    }
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      final existing = await txn.query(
+        'parties',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (existing.isEmpty) throw StateError('مخاطب پیدا نشد');
+
+      await txn.update(
+        'parties',
+        {
+          'party_type': roles.first,
+          'display_name': name,
+          'normalized_name': _normalizeName(name),
+          'phone': normalizedPhone.isEmpty ? null : normalizedPhone,
+          'address': draft.address?.trim(),
+          'notes': draft.notes?.trim(),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [partyId],
+      );
+      await txn.delete(
+        'party_roles',
+        where: 'party_id = ?',
+        whereArgs: [partyId],
+      );
+      await _addRoles(txn, partyId, roles);
+    });
+  }
+
+  Future<void> deleteParty(String partyId) async {
+    if (partyId.trim().isEmpty) {
+      throw ArgumentError('شناسه مخاطب معتبر نیست');
+    }
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      final matches = await txn.query(
+        'parties',
+        columns: ['id', 'display_name', 'source_category', 'source_id'],
+        where: 'id = ?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (matches.isEmpty) throw StateError('مخاطب پیدا نشد');
+
+      final linkedChecks = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM check_records WHERE party_id = ?',
+        [partyId],
+      );
+      final linkedDocuments = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM business_documents WHERE counterparty_id = ?',
+        [partyId],
+      );
+      final linkedJournal = await txn.rawQuery(
+        'SELECT COUNT(*) AS total FROM journal_lines WHERE party_id = ?',
+        [partyId],
+      );
+      final record = matches.single;
+      final normalizedPartyName =
+          _normalizeName(record['display_name']?.toString() ?? '');
+      var linkedRepairs = 0;
+      final repairRows = await txn.query(
+        'repairs',
+        columns: ['data_json'],
+      );
+      for (final repairRow in repairRows) {
+        try {
+          final decoded = jsonDecode(repairRow['data_json']?.toString() ?? '{}');
+          if (decoded is! Map) continue;
+          final data = Map<String, Object?>.from(decoded);
+          final linkedPartyId =
+              data['شناسه طرف حساب']?.toString().trim() ?? '';
+          final repairName =
+              _normalizeName(data['نام مشتری']?.toString() ?? '');
+          if (linkedPartyId == partyId ||
+              (linkedPartyId.isEmpty &&
+                  normalizedPartyName.isNotEmpty &&
+                  repairName == normalizedPartyName)) {
+            linkedRepairs++;
+          }
+        } catch (_) {
+          // Ignore malformed historical rows when checking deletion safety.
+        }
+      }
+      final references = [
+        linkedChecks.single['total'],
+        linkedDocuments.single['total'],
+        linkedJournal.single['total'],
+      ].fold<int>(linkedRepairs, (sum, value) => sum + (value as num).toInt());
+
+
+      final sourceCategory = record['source_category']?.toString() ?? '';
+      final sourceId = record['source_id']?.toString() ?? '';
+      final linkedLegacyCustomerId = sourceCategory == 'customers'
+          ? int.tryParse(sourceId)
+          : null;
+      final hasLegacySource =
+          sourceCategory.isNotEmpty || sourceId.isNotEmpty;
+      final hasUnsupportedLegacySource =
+          hasLegacySource && linkedLegacyCustomerId == null;
+      if (references > 0 || hasUnsupportedLegacySource) {
+        throw StateError(
+          'این مخاطب سابقه فاکتور، چک، سند حسابداری یا پذیرش تعمیر دارد؛ '
+          'برای حفظ سوابق امکان حذف مستقیم وجود ندارد.',
+        );
+      }
+
+      // A legacy customer row is owned by this contact. Remove it in the
+      // same transaction only after every financial and repair reference
+      // above has been checked.
+      if (linkedLegacyCustomerId != null) {
+        await txn.delete(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [linkedLegacyCustomerId],
+        );
+      }
+      await txn.delete(
+        'parties',
+        where: 'id = ?',
+        whereArgs: [partyId],
+      );
+    });
+  }
+
+  Future<List<String>> getPartyRoles(String partyId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'party_roles',
+      columns: ['role'],
+      where: 'party_id = ?',
+      whereArgs: [partyId],
+      orderBy: 'role ASC',
+    );
+    return rows.map((row) => row['role'] as String).toList();
+  }
+
+  /// Loads roles for a group of contacts in one query instead of issuing
+  /// one database round-trip per contact.
+  Future<Map<String, List<String>>> getPartyRolesForParties(
+    Iterable<String> partyIds,
+  ) async {
+    final ids = partyIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return {};
+
+    final db = await _database.database;
+    final rolesByParty = <String, List<String>>{};
+    // Stay below SQLite's common bind-parameter limit for large contact books.
+    for (var offset = 0; offset < ids.length; offset += 900) {
+      final chunk = ids.skip(offset).take(900).toList();
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await db.rawQuery(
+        'SELECT party_id, role FROM party_roles '
+        'WHERE party_id IN ($placeholders) ORDER BY party_id, role',
+        chunk,
+      );
+      for (final row in rows) {
+        final partyId = row['party_id'] as String;
+        (rolesByParty[partyId] ??= <String>[])
+            .add(row['role'] as String);
+      }
+    }
+    return rolesByParty;
+  }
+
   Future<List<Map<String, Object?>>> getParties({String? partyType}) async {
     final db = await _database.database;
-    return db.query(
+    if (partyType == null) {
+      return db.query(
+        'parties',
+        orderBy: 'display_name COLLATE NOCASE ASC',
+      );
+    }
+    if (!_validRoles.contains(partyType)) {
+      throw ArgumentError('نقش طرف حساب معتبر نیست');
+    }
+    return db.rawQuery('''
+      SELECT p.*
+      FROM parties p
+      INNER JOIN party_roles r ON r.party_id = p.id
+      WHERE r.role = ?
+      ORDER BY p.display_name COLLATE NOCASE ASC
+    ''', [partyType]);
+  }
+
+
+  /// Compares document-derived receivables/payables with their control-account
+  /// balances. Linked receipts, payments and checks are counted against their
+  /// invoices; free advances and unlinked active checks are deducted once.
+  Future<Map<String, Object?>> getPartyBalanceReconciliation(
+    String partyId, {
+    Map<String, int>? advanceBalances,
+  }) async {
+    if (partyId.trim().isEmpty) {
+      throw ArgumentError('شناسه طرف حساب معتبر نیست');
+    }
+    final db = await _database.database;
+    final partyRows = await db.query(
       'parties',
-      where: partyType == null ? null : 'party_type = ?',
-      whereArgs: partyType == null ? null : [partyType],
-      orderBy: 'display_name COLLATE NOCASE ASC',
+      where: 'id = ?',
+      whereArgs: [partyId],
+      limit: 1,
     );
+    if (partyRows.isEmpty) throw StateError('طرف حساب پیدا نشد');
+
+    final party = partyRows.single;
+    final storedRoles = await getPartyRoles(partyId);
+    final roles = storedRoles.isEmpty
+        ? [party['party_type']?.toString() ?? 'other']
+        : storedRoles;
+    final advances = advanceBalances ??
+        await _getUnallocatedAdvanceBalances(db, partyId);
+
+    Future<Map<String, Object?>> reconcileRole({
+      required String invoiceType,
+      required String paymentType,
+      required String returnType,
+      required String checkDirection,
+      required String controlAccountCode,
+      required String advanceKey,
+      required bool isSupplier,
+    }) async {
+      final invoiceRows = await db.rawQuery('''
+        SELECT
+          COALESCE(SUM(
+            d.total_amount - d.paid_amount -
+            COALESCE(payments.amount, 0) -
+            COALESCE(linked_checks.amount, 0) -
+            COALESCE(returns.amount, 0) -
+            COALESCE(allocations.amount, 0)
+          ), 0) AS open_invoice_balance,
+          COUNT(d.id) AS invoice_count
+        FROM business_documents d
+        LEFT JOIN (
+          SELECT source_document_id, SUM(paid_amount) AS amount
+          FROM business_documents
+          WHERE document_type = ? AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) payments ON payments.source_document_id = d.id
+        LEFT JOIN (
+          SELECT source_document_id, SUM(amount) AS amount
+          FROM check_records
+          WHERE direction = ?
+            AND status NOT IN ('bounced', 'cancelled')
+            AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) linked_checks ON linked_checks.source_document_id = d.id
+        LEFT JOIN (
+          SELECT source_document_id, SUM(total_amount) AS amount
+          FROM business_documents
+          WHERE document_type = ? AND source_document_id IS NOT NULL
+          GROUP BY source_document_id
+        ) returns ON returns.source_document_id = d.id
+        LEFT JOIN (
+          SELECT invoice_document_id, SUM(amount) AS amount
+          FROM invoice_payment_allocations
+          GROUP BY invoice_document_id
+        ) allocations ON allocations.invoice_document_id = d.id
+        WHERE d.counterparty_id = ? AND d.document_type = ?
+      ''', [
+        paymentType,
+        checkDirection,
+        returnType,
+        partyId,
+        invoiceType,
+      ]);
+      final openInvoiceBalance =
+          (invoiceRows.single['open_invoice_balance'] as num).toInt();
+      final invoiceCount = (invoiceRows.single['invoice_count'] as num).toInt();
+
+      final freeCheckRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(amount), 0) AS amount,
+          COUNT(*) AS check_count
+        FROM check_records
+        WHERE party_id = ?
+          AND direction = ?
+          AND source_document_id IS NULL
+          AND status NOT IN ('bounced', 'cancelled')
+      ''', [partyId, checkDirection]);
+      final freeCheckBalance =
+          (freeCheckRows.single['amount'] as num).toInt();
+      final freeCheckCount =
+          (freeCheckRows.single['check_count'] as num).toInt();
+      final unallocatedAdvance = advances[advanceKey] ?? 0;
+      final documentBalance =
+          openInvoiceBalance - unallocatedAdvance - freeCheckBalance;
+
+      final ledgerRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(debit), 0) AS debit,
+          COALESCE(SUM(credit), 0) AS credit
+        FROM journal_lines
+        WHERE party_id = ? AND account_code = ?
+      ''', [partyId, controlAccountCode]);
+      final debit = (ledgerRows.single['debit'] as num).toInt();
+      final credit = (ledgerRows.single['credit'] as num).toInt();
+      final ledgerBalance = isSupplier ? credit - debit : debit - credit;
+      final difference = documentBalance - ledgerBalance;
+
+      return {
+        'control_account_code': controlAccountCode,
+        'invoice_count': invoiceCount,
+        'open_invoice_balance': openInvoiceBalance,
+        'unallocated_advance': unallocatedAdvance,
+        'unlinked_check_balance': freeCheckBalance,
+        'unlinked_check_count': freeCheckCount,
+        'document_balance': documentBalance,
+        'ledger_balance': ledgerBalance,
+        'difference': difference,
+        'is_reconciled': difference == 0,
+      };
+    }
+
+    final customer = roles.contains('customer')
+        ? await reconcileRole(
+            invoiceType: 'sale',
+            paymentType: 'customer_receipt',
+            returnType: 'customer_return',
+            checkDirection: 'incoming',
+            controlAccountCode: '1100',
+            advanceKey: 'available_customer_advance',
+            isSupplier: false,
+          )
+        : null;
+    final supplier = roles.contains('supplier')
+        ? await reconcileRole(
+            invoiceType: 'purchase',
+            paymentType: 'supplier_payment',
+            returnType: 'supplier_return',
+            checkDirection: 'outgoing',
+            controlAccountCode: '2000',
+            advanceKey: 'available_supplier_prepayment',
+            isSupplier: true,
+          )
+        : null;
+    final applicable = [
+      if (customer != null) customer,
+      if (supplier != null) supplier,
+    ];
+
+    return {
+      'party_id': partyId,
+      'roles': roles,
+      'customer': customer,
+      'supplier': supplier,
+      'is_reconciled': applicable.isNotEmpty &&
+          applicable.every((balance) => balance['is_reconciled'] == true),
+    };
+  }
+
+  Future<Map<String, List<Map<String, Object?>>>> getPartyActivity(
+    String partyId,
+  ) async {
+    final db = await _database.database;
+    final partyRows = await db.query(
+      'parties',
+      where: 'id = ?',
+      whereArgs: [partyId],
+      limit: 1,
+    );
+    if (partyRows.isEmpty) throw StateError('طرف حساب پیدا نشد');
+    final party = partyRows.single;
+
+    final documents = await db.query(
+      'business_documents',
+      where: 'counterparty_id = ?',
+      whereArgs: [partyId],
+      orderBy: 'document_date DESC, id DESC',
+    );
+    final checks = await db.query(
+      'check_records',
+      where: 'party_id = ?',
+      whereArgs: [partyId],
+      orderBy: 'due_date DESC, id DESC',
+    );
+
+    final legacyRows = await db.query(
+      'repairs',
+      columns: ['id', 'data_json', 'created_at', 'updated_at'],
+      orderBy: 'created_at DESC, id DESC',
+    );
+    final repairs = <Map<String, Object?>>[];
+    final normalizedPartyName =
+        _normalizeName(party['display_name']?.toString() ?? '');
+    for (final row in legacyRows) {
+      try {
+        final decoded = jsonDecode(row['data_json']?.toString() ?? '{}');
+        if (decoded is! Map) continue;
+        final data = Map<String, Object?>.from(decoded);
+        final linkedPartyId =
+            data['شناسه طرف حساب']?.toString().trim() ?? '';
+        final repairName = _normalizeName(
+          data['نام مشتری']?.toString() ?? '',
+        );
+        final linked = linkedPartyId == partyId ||
+            (linkedPartyId.isEmpty &&
+                normalizedPartyName.isNotEmpty &&
+                repairName == normalizedPartyName);
+        if (linked) {
+          repairs.add({
+            'id': row['id'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+            ...data,
+          });
+        }
+      } catch (_) {
+        // A malformed legacy repair row must not block the rest of the profile.
+      }
+    }
+
+    return {
+      'documents': documents,
+      'repairs': repairs,
+      'checks': checks,
+    };
   }
 
   Future<Map<String, Object?>> getPartyStatement(String partyId) async {
@@ -113,6 +654,10 @@ class PartyRepository {
     if (parties.isEmpty) throw StateError('طرف حساب پیدا نشد');
 
     final party = parties.single;
+    final roles = await getPartyRoles(partyId);
+    final isSupplier = roles.contains('supplier') && !roles.contains('customer');
+    final hasBothTradingRoles =
+        roles.contains('supplier') && roles.contains('customer');
     final rawLines = await db.rawQuery('''
       SELECT
         e.id AS journal_entry_id,
@@ -144,35 +689,45 @@ class PartyRepository {
       debitTotal += debit;
       creditTotal += credit;
       runningDebitMinusCredit += debit - credit;
-      final balance = party['party_type'] == 'supplier'
+      final balance = isSupplier
           ? -runningDebitMinusCredit
           : runningDebitMinusCredit;
       statement.add({
         ...row,
         'running_balance': balance,
-        'balance_label': balance > 0
-            ? (party['party_type'] == 'supplier' ? 'بستانکار' : 'بدهکار')
-            : balance < 0
-                ? (party['party_type'] == 'supplier' ? 'بدهکار' : 'بستانکار')
-                : 'تسویه',
+        'balance_label': _balanceLabel(
+          balance,
+          isSupplier: isSupplier,
+          hasBothTradingRoles: hasBothTradingRoles,
+        ),
       });
     }
 
-    final closingBalance = party['party_type'] == 'supplier'
+    final closingBalance = isSupplier
         ? creditTotal - debitTotal
         : debitTotal - creditTotal;
 
+    final advanceBalances =
+        await _getUnallocatedAdvanceBalances(db, partyId);
+    final reconciliation = await getPartyBalanceReconciliation(
+      partyId,
+      advanceBalances: advanceBalances,
+    );
+
     return {
+      ...advanceBalances,
+      'balance_reconciliation': reconciliation,
       'party': party,
       'lines': statement,
       'total_debit': debitTotal,
       'total_credit': creditTotal,
       'closing_balance': closingBalance,
-      'closing_label': closingBalance > 0
-          ? (party['party_type'] == 'supplier' ? 'طلب فروشنده' : 'بدهی مشتری')
-          : closingBalance < 0
-              ? (party['party_type'] == 'supplier' ? 'بدهی فروشنده' : 'طلب مشتری')
-              : 'تسویه',
+      'closing_label': _closingLabel(
+        closingBalance,
+        isSupplier: isSupplier,
+        hasBothTradingRoles: hasBothTradingRoles,
+      ),
+      'roles': roles,
     };
   }
 
@@ -217,7 +772,10 @@ class PartyRepository {
     );
     if (parties.isEmpty) throw StateError('طرف حساب پیدا نشد');
     final party = parties.single;
-    final isSupplier = party['party_type'] == 'supplier';
+    final roles = await getPartyRoles(partyId);
+    final isSupplier = roles.contains('supplier') && !roles.contains('customer');
+    final hasBothTradingRoles =
+        roles.contains('supplier') && roles.contains('customer');
 
     final totals = await db.rawQuery('''
       SELECT COALESCE(SUM(l.debit), 0) AS total_debit,
@@ -301,11 +859,11 @@ class PartyRepository {
       lines.add({
         ...row,
         'running_balance': balance,
-        'balance_label': balance > 0
-            ? (isSupplier ? 'بستانکار' : 'بدهکار')
-            : balance < 0
-                ? (isSupplier ? 'بدهکار' : 'بستانکار')
-                : 'تسویه',
+        'balance_label': _balanceLabel(
+          balance,
+          isSupplier: isSupplier,
+          hasBothTradingRoles: hasBothTradingRoles,
+        ),
       });
     }
     final pageCount = await db.rawQuery('''
@@ -316,18 +874,33 @@ class PartyRepository {
     ''', args);
     final totalLines = (pageCount.single['line_count'] as num).toInt();
     final nextOffset = offset + rows.length;
+    final advanceBalances = await _getUnallocatedAdvanceBalances(
+      db,
+      partyId,
+      asOfDate: toDate,
+    );
+    final reconciliation = fromDate == null && toDate == null
+        ? await getPartyBalanceReconciliation(
+            partyId,
+            advanceBalances: advanceBalances,
+          )
+        : null;
+
     return {
+      ...advanceBalances,
+      'balance_reconciliation': reconciliation,
       'party': party,
       'lines': lines,
       'total_debit': totalDebit,
       'total_credit': totalCredit,
       'opening_balance': isSupplier ? -openingRaw : openingRaw,
       'closing_balance': closingBalance,
-      'closing_label': closingBalance > 0
-          ? (isSupplier ? 'طلب فروشنده' : 'بدهی مشتری')
-          : closingBalance < 0
-              ? (isSupplier ? 'بدهی فروشنده' : 'طلب مشتری')
-              : 'تسویه',
+      'closing_label': _closingLabel(
+        closingBalance,
+        isSupplier: isSupplier,
+        hasBothTradingRoles: hasBothTradingRoles,
+      ),
+      'roles': roles,
       'total_lines': totalLines,
       'offset': offset,
       'next_offset': nextOffset,
@@ -335,4 +908,67 @@ class PartyRepository {
     };
   }
 
+
+  Future<Map<String, int>> _getUnallocatedAdvanceBalances(
+    DatabaseExecutor db,
+    String partyId, {
+    String? asOfDate,
+  }) async {
+    Future<int> balanceFor(String type) async {
+      final rows = await db.rawQuery('''
+        SELECT COALESCE(SUM(
+          d.paid_amount - COALESCE(a.allocated_amount, 0)
+        ), 0) AS available
+        FROM business_documents d
+        LEFT JOIN (
+          SELECT allocations.payment_document_id,
+            SUM(allocations.amount) AS allocated_amount
+          FROM invoice_payment_allocations allocations
+          JOIN business_documents invoice
+            ON invoice.id = allocations.invoice_document_id
+          ${asOfDate == null ? '' : 'WHERE invoice.document_date <= ?'}
+          GROUP BY allocations.payment_document_id
+        ) a ON a.payment_document_id = d.id
+        WHERE d.counterparty_id = ?
+          AND d.document_type = ?
+          AND d.source_document_id IS NULL
+          ${asOfDate == null ? '' : 'AND d.document_date <= ?'}
+      ''', [
+        if (asOfDate != null) asOfDate,
+        partyId,
+        type,
+        if (asOfDate != null) asOfDate,
+      ]);
+      return (rows.single['available'] as num).toInt();
+    }
+
+    return {
+      'available_customer_advance': await balanceFor('customer_receipt'),
+      'available_supplier_prepayment': await balanceFor('supplier_payment'),
+    };
+  }
+
+  String _balanceLabel(
+    int balance, {
+    required bool isSupplier,
+    required bool hasBothTradingRoles,
+  }) {
+    if (balance == 0) return 'تسویه';
+    if (hasBothTradingRoles) return balance > 0 ? 'بدهکار' : 'بستانکار';
+    if (isSupplier) return balance > 0 ? 'بستانکار' : 'بدهکار';
+    return balance > 0 ? 'بدهکار' : 'بستانکار';
+  }
+
+  String _closingLabel(
+    int balance, {
+    required bool isSupplier,
+    required bool hasBothTradingRoles,
+  }) {
+    if (balance == 0) return 'تسویه';
+    if (hasBothTradingRoles) {
+      return balance > 0 ? 'مانده بدهکار' : 'مانده بستانکار';
+    }
+    if (isSupplier) return balance > 0 ? 'طلب فروشنده' : 'بدهی فروشنده';
+    return balance > 0 ? 'بدهی مشتری' : 'طلب مشتری';
+  }
 }

@@ -48,6 +48,275 @@ void main() {
     return rows.singleWhere((row) => row['account_code'] == code);
   }
 
+
+  test('stock count shortage adjusts stock value and posts a balanced loss journal once', () async {
+    final productId = await addProduct();
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده انبارگردانی',
+        idempotencyKey: 'stock-count-source-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 10, unitPrice: 1000),
+        ],
+      ),
+    );
+
+    final adjustmentId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 8,
+      fallbackUnitCost: 500,
+      occurredAt: '2026-11-17T10:00:00.000',
+      reason: 'کسری شمارش دوره‌ای',
+      idempotencyKey: 'stock-count-shortage-once',
+    );
+
+    expect(await store.getStockOnHand(productId), 8);
+    expect((await accountTotals('5200'))['total_debit'], 2000);
+    expect((await accountTotals('1200'))['total_debit'], 10000);
+    expect((await accountTotals('1200'))['total_credit'], 2000);
+
+    final db = await store.database;
+    final movements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['adjustment'],
+    );
+    expect(movements, hasLength(1));
+    expect(movements.single['quantity_delta'], -2);
+    expect(movements.single['total_cost'], 2000);
+
+    expect(
+      await accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 8,
+        fallbackUnitCost: 500,
+        occurredAt: '2026-11-17T10:00:00.000',
+        reason: 'کسری شمارش دوره‌ای',
+        idempotencyKey: 'stock-count-shortage-once',
+      ),
+      adjustmentId,
+    );
+    expect(await db.query('inventory_movements', where: 'movement_type = ?', whereArgs: ['adjustment']), hasLength(1));
+    expect((await db.query('journal_entries')).length, 2);
+  });
+
+  test('stock count surplus uses fallback cost for zero opening stock and rejects key reuse', () async {
+    final productId = await addProduct();
+    final adjustmentId = await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 3,
+      fallbackUnitCost: 750,
+      occurredAt: '2026-11-17T11:00:00.000',
+      reason: 'مازاد شمارش فیزیکی',
+      idempotencyKey: 'stock-count-surplus',
+    );
+
+    expect(adjustmentId, greaterThan(0));
+    expect(await store.getStockOnHand(productId), 3);
+    expect((await accountTotals('1200'))['total_debit'], 2250);
+    expect((await accountTotals('4055'))['total_credit'], 2250);
+
+    await expectLater(
+      accounting.recordStockAdjustment(
+        productId: productId,
+        countedQuantity: 4,
+        fallbackUnitCost: 750,
+        occurredAt: '2026-11-17T11:00:00.000',
+        reason: 'اصلاح متفاوت',
+        idempotencyKey: 'stock-count-surplus',
+      ),
+      throwsStateError,
+    );
+    expect(await store.getStockOnHand(productId), 3);
+  });
+
+
+  test('inventory reconciliation matches stock valuation and general ledger', () async {
+    final productId = await addProduct(
+      name: 'کالای تطبیق',
+      quantity: '5',
+      unitCost: '1000',
+    );
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده تطبیق',
+        idempotencyKey: 'inventory-reconcile-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 5, unitPrice: 1200),
+        ],
+      ),
+    );
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'مشتری تطبیق',
+        idempotencyKey: 'inventory-reconcile-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 1800),
+        ],
+      ),
+    );
+    await accounting.recordStockAdjustment(
+      productId: productId,
+      countedQuantity: 7,
+      fallbackUnitCost: 500,
+      occurredAt: '2026-11-17T12:00:00.000',
+      reason: 'آزمون تطبیق انبار',
+      idempotencyKey: 'inventory-reconcile-adjustment',
+    );
+
+    final report = await accounting.getInventoryReconciliation();
+    expect(report['inventory_value'], 7700);
+    expect(report['ledger_value'], 7700);
+    expect(report['difference'], 0);
+    expect(report['is_balanced'], isTrue);
+    expect(report['negative_stock_products'], 0);
+    final items = report['items'] as List<Map<String, Object?>>;
+    final item = items.singleWhere((row) => row['product_id'] == productId);
+    expect(item['stock_quantity'], 7);
+    expect(item['stock_value'], 7700);
+  });
+
+  test('inventory reconciliation exposes unmatched general ledger postings', () async {
+    final productId = await addProduct(
+      name: 'کالای دارای مغایرت',
+      quantity: '2',
+      unitCost: '500',
+    );
+    await accounting.postJournalEntry(const JournalEntryDraft(
+      entryDate: '2026-11-17',
+      description: 'ثبت آزمایشی بدون گردش انبار',
+      idempotencyKey: 'inventory-reconcile-unmatched-journal',
+      lines: [
+        JournalLineDraft(accountCode: '1200', debit: 100),
+        JournalLineDraft(accountCode: '3000', credit: 100),
+      ],
+    ));
+
+    final report = await accounting.getInventoryReconciliation();
+    expect(report['inventory_value'], 1000);
+    expect(report['ledger_value'], 1100);
+    expect(report['difference'], -100);
+    expect(report['is_balanced'], isFalse);
+    expect((report['items'] as List).single['product_id'], productId);
+  });
+
+  test('invoice numbers are readable sequential and shared safely by a custom prefix', () async {
+    final productId = await addProduct();
+    final firstPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده شماره‌گذاری',
+        idempotencyKey: 'invoice-number-first-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 5, unitPrice: 100),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final sale = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'مشتری شماره‌گذاری',
+        idempotencyKey: 'invoice-number-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 150),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final secondPurchase = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-17',
+        counterpartyName: 'فروشنده شماره‌گذاری',
+        idempotencyKey: 'invoice-number-second-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 1, unitPrice: 120),
+        ],
+      ),
+      documentPrefix: 'HOS',
+    );
+
+    final first = (await trades.getDocuments(type: 'purchase'))
+        .singleWhere((row) => row['id'] == firstPurchase);
+    final sold = (await trades.getDocuments(type: 'sale'))
+        .singleWhere((row) => row['id'] == sale);
+    final second = (await trades.getDocuments(type: 'purchase'))
+        .singleWhere((row) => row['id'] == secondPurchase);
+
+    expect(first['document_number'], 'HOS-000001');
+    expect(sold['document_number'], 'HOS-000002');
+    expect(second['document_number'], 'HOS-000003');
+    expect(
+      {
+        first['document_number'],
+        sold['document_number'],
+        second['document_number'],
+      },
+      hasLength(3),
+    );
+  });
+
+  test('purchase discounts and partial sales preserve exact inventory value', () async {
+    final productId = await addProduct();
+
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده با تخفیف',
+        idempotencyKey: 'exact-cost-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+
+    final purchase = (await trades.getDocuments(type: 'purchase')).single;
+    expect(purchase['subtotal'], 300);
+    expect(purchase['discount_amount'], 1);
+    expect(purchase['total_amount'], 299);
+    final db = await store.database;
+    final incoming = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['purchase'],
+    );
+    expect(incoming.single['total_cost'], 299);
+    expect(await store.getStockOnHand(productId), 3);
+
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'مشتری فروش جزئی',
+        idempotencyKey: 'exact-cost-partial-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200),
+        ],
+      ),
+    );
+
+    final outgoing = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['sale'],
+    );
+    expect(outgoing.single['total_cost'], 199);
+    expect(await store.getStockOnHand(productId), 1);
+    expect((await accountTotals('5000'))['total_debit'], 199);
+    final valuation = await db.rawQuery(
+      'SELECT COALESCE(SUM(CASE WHEN quantity_delta > 0 THEN total_cost '
+      'ELSE -total_cost END), 0) AS value '
+      'FROM inventory_movements WHERE product_id = ?',
+      [productId],
+    );
+    expect(valuation.single['value'], 100);
+  });
+
   test('purchase invoice updates stock, inventory value, VAT and supplier payable once', () async {
     final productId = await addProduct();
     final draft = TradeDocumentDraft(
@@ -141,6 +410,56 @@ void main() {
     expect(await db.query('inventory_movements'), hasLength(2));
   });
 
+  test('purchase invoice and immutable display snapshot are archived atomically', () async {
+    final productId = await addProduct(name: 'برد الکترونیکی');
+    final purchaseId = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-15',
+        counterpartyName: 'فروشنده قطعات',
+        idempotencyKey: 'purchase-archive-test',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 3500),
+        ],
+        discountAmount: 500,
+        shippingCost: 1000,
+        paidAmount: 1000,
+      ),
+      invoiceHeaderSnapshot: {
+        'shopName': 'خدمات فنی حسین',
+        'currency': 'ریال',
+        'ownerName': 'مسئول خرید',
+        'phone': '09150000000',
+        'stampImageBase64': 'purchase-stamp-at-issue',
+      },
+    );
+
+    final db = await store.database;
+    final archiveRows = await db.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [purchaseId],
+    );
+    expect(archiveRows, hasLength(1));
+    final snapshot = jsonDecode(archiveRows.single['snapshot_json'] as String)
+        as Map<String, dynamic>;
+    expect(snapshot['documentType'], 'purchase');
+    expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['currency'], 'ریال');
+    expect(snapshot['stampImageBase64'], 'purchase-stamp-at-issue');
+    expect(snapshot['counterpartyName'], 'فروشنده قطعات');
+    expect(snapshot['subtotal'], 7000);
+    expect(snapshot['discountAmount'], 500);
+    expect(snapshot['chargesAmount'], 1000);
+    expect(snapshot['totalAmount'], 7500);
+    expect(snapshot['paidAmount'], 1000);
+    expect(snapshot['outstandingAmount'], 6500);
+    expect(snapshot['items'], hasLength(1));
+    final item = (snapshot['items'] as List).single as Map;
+    expect(item['productName'], 'برد الکترونیکی');
+    expect(item['lineTotal'], 7000);
+    expect(item['netLineTotal'], 7500);
+  });
+
   test('sale invoice and immutable display snapshot are archived atomically', () async {
     final productId = await addProduct(name: 'خازن 100 میکرو');
     await trades.recordPurchase(
@@ -162,16 +481,19 @@ void main() {
         lines: [
           TradeLineDraft(productId: productId, quantity: 2, unitPrice: 2500),
         ],
-        paidAmount: 5000,
+        discountAmount: 500,
+        paidAmount: 4500,
       ),
       invoiceHeaderSnapshot: {
         'shopName': 'خدمات فنی حسین',
+        'currency': 'ریال',
         'ownerName': 'حجت محمدی',
         'phone': '09155637505',
         'postalCode': '1234567890',
         'address': 'عشق آباد',
         'stampImageBase64': 'stamp-fixed-at-issue',
         'signatureImageBase64': 'signature-fixed-at-issue',
+        'appLogoBase64': 'logo-fixed-at-issue',
       },
     );
 
@@ -185,13 +507,42 @@ void main() {
     final snapshot = jsonDecode(archiveRows.single['snapshot_json'] as String)
         as Map<String, dynamic>;
     expect(snapshot['shopName'], 'خدمات فنی حسین');
+    expect(snapshot['currency'], 'ریال');
     expect(snapshot['stampImageBase64'], 'stamp-fixed-at-issue');
     expect(snapshot['signatureImageBase64'], 'signature-fixed-at-issue');
+    expect(snapshot['appLogoBase64'], 'logo-fixed-at-issue');
     expect(snapshot['counterpartyName'], 'مشتری فاکتور');
-    expect(snapshot['totalAmount'], 5000);
-    expect(snapshot['paidAmount'], 5000);
+    expect(snapshot['subtotal'], 5000);
+    expect(snapshot['discountAmount'], 500);
+    expect(snapshot['totalAmount'], 4500);
+    expect(snapshot['paidAmount'], 4500);
     expect(snapshot['items'], hasLength(1));
-    expect((snapshot['items'] as List).single['productName'], 'خازن 100 میکرو');
+    final item = (snapshot['items'] as List).single as Map;
+    expect(item['productName'], 'خازن 100 میکرو');
+    expect(item['lineTotal'], 5000);
+    expect(item['netLineTotal'], 4500);
+
+    // Later shop-header changes must not rewrite the invoice issued above.
+    await db.rawInsert(
+      'INSERT OR REPLACE INTO invoice_settings (id, data_json, updated_at) VALUES (1, ?, ?)',
+      [
+        jsonEncode({
+          'shopName': 'فروشگاه با نام جدید',
+          'appLogoBase64': 'new-logo-after-issue',
+        }),
+        DateTime.now().toIso8601String(),
+      ],
+    );
+    final preservedArchive = await db.query(
+      'invoice_archives',
+      where: 'business_document_id = ?',
+      whereArgs: [saleId],
+    );
+    final preservedSnapshot = jsonDecode(
+      preservedArchive.single['snapshot_json'] as String,
+    ) as Map<String, dynamic>;
+    expect(preservedSnapshot['shopName'], 'خدمات فنی حسین');
+    expect(preservedSnapshot['appLogoBase64'], 'logo-fixed-at-issue');
   });
 
   test('sale with insufficient stock leaves no invoice, journal or stock movement', () async {
@@ -386,6 +737,136 @@ void main() {
     expect(await store.getStockOnHand(productId), 8);
   });
 
+  test('partial supplier returns preserve the exact original discounted purchase cost', () async {
+    final productId = await addProduct();
+    final purchaseId = await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده برگشت جزئی',
+        counterpartyId: 'supplier-partial-return',
+        idempotencyKey: 'supplier-partial-return-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+    final sourceLine = (await trades.getDocumentLines(purchaseId)).single;
+    expect(sourceLine['line_total'], 299);
+    expect(sourceLine['unit_cost'], 100);
+
+    for (var i = 0; i < 3; i++) {
+      await trades.recordSupplierReturn(
+        ReturnDocumentDraft(
+          documentDate: '2026-11-16',
+          sourceDocumentId: purchaseId,
+          counterpartyName: 'فروشنده برگشت جزئی',
+          counterpartyId: 'supplier-partial-return',
+          idempotencyKey: 'supplier-partial-return-$i',
+          lines: [
+            ReturnLineDraft(
+              sourceLineId: sourceLine['id'] as int,
+              quantity: 1,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final db = await store.database;
+    final movements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['supplier_return'],
+    );
+    final returnedStockValue = movements.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_cost'] as num).toInt(),
+    );
+    final returns = await trades.getDocuments(type: 'supplier_return');
+    final returnedInvoiceValue = returns.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_amount'] as num).toInt(),
+    );
+
+    expect(returns, hasLength(3));
+    expect(returnedStockValue, 299);
+    expect(returnedInvoiceValue, 299);
+    expect(await store.getStockOnHand(productId), 0);
+    expect((await accountTotals('1200'))['total_credit'], 299);
+    expect((await accountTotals('2000'))['total_debit'], 299);
+    expect(await trades.getOutstandingAmount(purchaseId), 0);
+  });
+
+  test('partial customer returns reverse exact original sale cost without rounding drift', () async {
+    final productId = await addProduct();
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'فروشنده هزینه نامتقارن',
+        idempotencyKey: 'customer-return-cost-purchase',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 3, unitPrice: 100),
+        ],
+        discountAmount: 1,
+      ),
+    );
+    final saleId = await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-16',
+        counterpartyName: 'مشتری برگشت جزئی',
+        idempotencyKey: 'customer-return-cost-sale',
+        lines: [
+          TradeLineDraft(productId: productId, quantity: 2, unitPrice: 200),
+        ],
+      ),
+    );
+    final saleLine = (await trades.getDocumentLines(saleId)).single;
+    final db = await store.database;
+    final saleMovement = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ? AND reference_id = ?',
+      whereArgs: ['sale', saleId.toString()],
+    );
+    expect(saleMovement.single['total_cost'], 199);
+    expect(saleLine['unit_cost'], 100);
+
+    for (var i = 0; i < 2; i++) {
+      await trades.recordCustomerReturn(
+        ReturnDocumentDraft(
+          documentDate: '2026-11-16',
+          sourceDocumentId: saleId,
+          counterpartyName: 'مشتری برگشت جزئی',
+          idempotencyKey: 'customer-return-cost-part-$i',
+          lines: [
+            ReturnLineDraft(
+              sourceLineId: saleLine['id'] as int,
+              quantity: 1,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final returnMovements = await db.query(
+      'inventory_movements',
+      where: 'movement_type = ?',
+      whereArgs: ['customer_return'],
+    );
+    final returnedCost = returnMovements.fold<int>(
+      0,
+      (sum, row) => sum + (row['total_cost'] as num).toInt(),
+    );
+    expect(returnMovements.map((row) => row['total_cost']), [100, 99]);
+    expect(returnedCost, 199);
+    expect(await store.getStockOnHand(productId), 3);
+    expect(await trades.getOutstandingAmount(saleId), 0);
+    expect((await accountTotals('5000'))['total_debit'], 199);
+    expect((await accountTotals('5000'))['total_credit'], 199);
+    expect((await accountTotals('1200'))['total_debit'], 498);
+    expect((await accountTotals('1200'))['total_credit'], 199);
+  });
+
   test('customer receipt and supplier payment are posted to the correct party control accounts', () async {
     final receiptId = await trades.recordCustomerReceipt(
       PartyPaymentDraft(
@@ -528,6 +1009,82 @@ void main() {
       throwsStateError,
     );
     expect(await trades.getOutstandingAmount(saleId), 1000);
+  });
+  test('proportional discount and VAT allocation never creates negative line shares', () async {
+    final productIds = <int>[];
+    for (var i = 0; i < 4; i++) {
+      productIds.add(await addProduct(name: 'کالای تقسیم مبلغ $i'));
+    }
+
+    await trades.recordPurchase(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'فروشنده تقسیم مبلغ',
+        idempotencyKey: 'allocation-purchase',
+        lines: [
+          for (final productId in productIds)
+            TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1),
+        ],
+        discountAmount: 2,
+        vatRate: 50,
+      ),
+    );
+
+    final purchaseLines = await trades.getDocuments(type: 'purchase');
+    expect(purchaseLines.single['subtotal'], 4);
+    expect(purchaseLines.single['discount_amount'], 2);
+    expect(purchaseLines.single['vat_amount'], 1);
+    final purchaseId = purchaseLines.single['id'] as int;
+    final allocatedPurchaseLines = await trades.getDocumentLines(purchaseId);
+    final purchaseDiscountShares = allocatedPurchaseLines
+        .map((line) => 1 - (line['line_total'] as int))
+        .toList();
+    expect(purchaseDiscountShares.every((share) => share >= 0), isTrue);
+    expect(purchaseDiscountShares.fold<int>(0, (sum, share) => sum + share), 2);
+    expect(
+      allocatedPurchaseLines
+          .where((line) => line['line_total'] == 0)
+          .every((line) => line['tax_amount'] == 0),
+      isTrue,
+      reason: 'Fully discounted purchase lines must not receive VAT',
+    );
+
+    await trades.recordSale(
+      TradeDocumentDraft(
+        documentDate: '2026-11-14',
+        counterpartyName: 'مشتری تقسیم مبلغ',
+        idempotencyKey: 'allocation-sale',
+        lines: [
+          for (final productId in productIds)
+            TradeLineDraft(productId: productId, quantity: 1, unitPrice: 1),
+        ],
+        discountAmount: 2,
+        vatRate: 50,
+        paidAmount: 3,
+      ),
+    );
+
+    final sale = (await trades.getDocuments(type: 'sale')).single;
+    expect(sale['subtotal'], 4);
+    expect(sale['discount_amount'], 2);
+    expect(sale['vat_amount'], 1);
+    expect(sale['total_amount'], 3);
+    final saleId = sale['id'] as int;
+    final allocatedSaleLines = await trades.getDocumentLines(saleId);
+    final taxShares = allocatedSaleLines
+        .map((line) => line['tax_amount'] as int)
+        .toList();
+    expect(taxShares.every((share) => share >= 0), isTrue);
+    expect(taxShares.fold<int>(0, (sum, share) => sum + share), 1);
+    expect(allocatedSaleLines.every((line) => (line['line_total'] as int) >= 0),
+        isTrue);
+    expect(
+      allocatedSaleLines
+          .where((line) => line['line_total'] == 0)
+          .every((line) => line['tax_amount'] == 0),
+      isTrue,
+      reason: 'Fully discounted sale lines must not receive VAT',
+    );
   });
 
 }

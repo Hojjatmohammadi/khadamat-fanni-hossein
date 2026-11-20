@@ -1,0 +1,62 @@
+name: Flutter CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
+
+# Always validate the newest source. Cancel stale runs so a stalled
+# older test cannot block the latest commit in the queue.
+concurrency:
+  # Keep only the newest run for this development branch active.
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Test Android release configuration helpers
+        run: python3 -m unittest discover -s tool -p 'test_*.py' -v
+      - name: Validate Android update version
+        run: python3 tool/android_version.py
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Verify committed dependency lockfile
+        run: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
+      - name: Generate Android platform and verify launcher icons
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
+          fi
+          python3 tool/android_identity.py
+          python3 tool/android_manifest.py
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
+      - name: Analyze
+        run: flutter analyze --no-pub --no-fatal-infos
+      - name: Run tests
+        timeout-minutes: 20
+        run: flutter test --no-pub --reporter expanded
+
+
+# APK creation is intentionally kept separate and requires an explicit manual request.

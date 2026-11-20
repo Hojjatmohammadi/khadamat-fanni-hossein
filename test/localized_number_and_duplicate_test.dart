@@ -18,6 +18,11 @@ void main() {
       expect(LocalizedNumber.tryParseDouble('نامعتبر'), isNull);
       expect(LocalizedNumber.parseDoubleOrZero('نامعتبر'), 0);
     });
+
+    test('normalizes Unicode minus and mixed Persian and Arabic digits', () {
+      expect(LocalizedNumber.tryParseDouble('−۱۲۳٫۵'), -123.5);
+      expect(LocalizedNumber.tryParseInt('؜-١٬٢٣٤'), -1234);
+    });
   });
 
   group('ProductDuplicateChecker', () {

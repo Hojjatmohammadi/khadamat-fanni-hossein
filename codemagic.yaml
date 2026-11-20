@@ -3,27 +3,23 @@ workflows:
     name: Build Khadamat Fanni Hossein Release APK
     max_build_duration: 60
     environment:
+      groups:
+        - android-release-signing
       flutter: stable
+      java: 17
     scripts:
       - name: Prepare Android project
         script: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
           fi
-      - name: Configure app label and notification permission
-        script: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+      - name: Enforce stable Android application ID
+        script: python3 tool/android_identity.py
+      - name: Validate Android update version
+        script: python3 tool/android_version.py
+      - name: Configure and validate Android manifest
+        script: python3 tool/android_manifest.py
 
-          manifest = Path("android/app/src/main/AndroidManifest.xml")
-          content = manifest.read_text(encoding="utf-8")
-          permission = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
-          if "android.permission.POST_NOTIFICATIONS" not in content:
-              content = content.replace("<application", permission + "\n\n    <application", 1)
-          content = re.sub(r'android:label="[^"]*"', 'android:label="خدمات فنی حسین"', content, count=1)
-          manifest.write_text(content, encoding="utf-8")
-          PY
       - name: Set Android compile SDK to 36
         script: |
           python3 - <<'PY'
@@ -95,34 +91,120 @@ workflows:
 
       - name: Get packages
         script: flutter pub get
-      - name: Align file_picker Android compile SDK to 36
+      - name: Verify committed dependency lockfile
+        script: |
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
+      - name: Generate and verify branded Android launcher icons
+        script: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+      - name: Align flutter_timezone Java and Kotlin JVM targets
         script: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          packages = sorted(Path.home().joinpath(".pub-cache/hosted/pub.dev").glob("file_picker-*/android/build.gradle*"))
-          if not packages:
-              raise SystemExit("Could not locate the resolved file_picker Android Gradle file")
-          updated = []
-          for gradle in packages:
-              content = gradle.read_text(encoding="utf-8")
-              content, count = re.subn(
-                  r"(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)34(\s*(?://.*)?$)",
-                  lambda match: match.group(1) + "36" + match.group(2),
-                  content,
-                  count=1,
+          packages = sorted(
+              Path.home().joinpath(".pub-cache/hosted/pub.dev").glob(
+                  "flutter_timezone-*/android/build.gradle*"
               )
-              if count:
-                  gradle.write_text(content, encoding="utf-8")
-                  updated.append(str(gradle))
-          if not updated:
-              raise SystemExit("file_picker compileSdk was not the expected API 34; refusing an unsafe patch")
-          print("Updated file_picker Android compile SDK to 36: " + ", ".join(updated))
+          )
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(
+                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\{.*?^([ ]*)\}"
+              )
+              match = pattern.search(content)
+              if match:
+                  indent = match.group(1)
+                  close_indent = match.group(2)
+                  body_indent = indent + "    "
+                  replacement = (
+                      f"{indent}{block_name} {{\n"
+                      + "".join(f"{body_indent}{line}\n" for line in lines)
+                      + f"{close_indent}}}"
+                  )
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ ]*)android[ ]*\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = (
+                  "\n" + indent + block_name + " {\n"
+                  + "".join(indent + "    " + line + "\n" for line in lines)
+                  + indent + "}\n"
+              )
+              position = android.end()
+              return content[:position] + insertion + content[position:]
+
+          for gradle in packages:
+              source = gradle.read_text(encoding="utf-8")
+              source = replace_or_add_block(
+                  source,
+                  "compileOptions",
+                  [
+                      "sourceCompatibility = JavaVersion.VERSION_11",
+                      "targetCompatibility = JavaVersion.VERSION_11",
+                  ],
+              )
+              source = replace_or_add_block(
+                  source,
+                  "kotlinOptions",
+                  ["jvmTarget = JavaVersion.VERSION_11.toString()"],
+              )
+              gradle.write_text(source, encoding="utf-8")
+              print(f"Aligned {gradle} to Java/Kotlin JVM 11")
           PY
-      - name: Build ABI-specific optimized release APKs
+
+      - name: Align file_picker Android compile SDK to 36
+        script: python3 tool/android_compile_sdk.py
+
+      - name: Configure permanent release signing
+        script: python3 tool/android_signing.py
+      - name: Build optimized ARM64 release APK
         script: |
-          flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
+          flutter build apk --release --target-platform=android-arm64 --obfuscate --split-debug-info=build/symbols
+      - name: Report ARM64 APK size and checksum
+        script: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          apk = Path("build/app/outputs/flutter-apk/app-release.apk")
+          if not apk.is_file():
+              raise SystemExit("ARM64 release APK is missing")
+          data = apk.read_bytes()
+          digest = hashlib.sha256(data).hexdigest()
+          checksum = apk.with_suffix(apk.suffix + ".sha256")
+          checksum.write_text(f"{digest}  {apk.name}" + chr(10), encoding="utf-8")
+          print(f"ARM64 APK size: {len(data):,} bytes ({len(data) / 1024 / 1024:.2f} MiB)")
+          print(f"SHA-256: {digest}")
+          PY
+
+      - name: Verify release APK signature
+        script: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -s "$APK" ]; then
+            echo "Release APK was not created"
+            exit 1
+          fi
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK root was not found"
+            exit 1
+          fi
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "Android apksigner was not found"
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose "$APK"
+          "$APKSIGNER" verify --print-certs "$APK"
+
     artifacts:
-      - build/app/outputs/flutter-apk/*-release.apk
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/flutter-apk/app-release.apk.sha256
       - build/symbols/**

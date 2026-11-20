@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:khadamat_fanni_hosein/accounting_repository.dart';
 import 'package:khadamat_fanni_hosein/app_database.dart';
+import 'package:khadamat_fanni_hosein/trade_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,6 +124,162 @@ void main() {
     await migrated.close();
   });
 
+  test('version 13 migration creates multi-role links for existing contacts', () async {
+    final legacyPath = '${tempDir.path}/legacy-v13.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 13,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE parties (
+              id TEXT PRIMARY KEY,
+              party_type TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              normalized_name TEXT NOT NULL,
+              phone TEXT,
+              address TEXT,
+              notes TEXT,
+              source_category TEXT,
+              source_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+          await db.insert('parties', {
+            'id': 'legacy-customer-1',
+            'party_type': 'customer',
+            'display_name': 'مشتری قدیمی',
+            'normalized_name': 'مشتری قدیمی',
+            'created_at': '2026-01-01T00:00:00.000',
+            'updated_at': '2026-01-01T00:00:00.000',
+          });
+          await db.insert('parties', {
+            'id': 'legacy-supplier-1',
+            'party_type': 'supplier',
+            'display_name': 'فروشنده قدیمی',
+            'normalized_name': 'فروشنده قدیمی',
+            'created_at': '2026-01-02T00:00:00.000',
+            'updated_at': '2026-01-02T00:00:00.000',
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final migrated = AppDatabase(databasePath: legacyPath);
+    final db = await migrated.database;
+    final roles = await db.query(
+      'party_roles',
+      orderBy: 'party_id ASC',
+    );
+
+    expect(roles, hasLength(2));
+    expect(
+      roles.map((row) => '${row['party_id']}:${row['role']}'),
+      containsAll([
+        'legacy-customer-1:customer',
+        'legacy-supplier-1:supplier',
+      ]),
+    );
+    await migrated.close();
+  });
+
+  test('version 14 upgrade preserves documents and installs immutable payment allocations', () async {
+    final legacyPath = '${tempDir.path}/legacy-v14.db';
+    final legacyDb = await databaseFactory.openDatabase(
+      legacyPath,
+      options: OpenDatabaseOptions(
+        version: 14,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE business_documents (
+              id INTEGER PRIMARY KEY,
+              document_type TEXT NOT NULL
+            )
+          ''');
+          await db.insert('business_documents', {
+            'id': 201,
+            'document_type': 'payment',
+          });
+          await db.insert('business_documents', {
+            'id': 202,
+            'document_type': 'sale',
+          });
+        },
+      ),
+    );
+    await legacyDb.close();
+
+    final upgraded = AppDatabase(databasePath: legacyPath);
+    final db = await upgraded.database;
+
+    final documents = await db.query(
+      'business_documents',
+      orderBy: 'id ASC',
+    );
+    expect(
+      documents.map((row) => row['id']),
+      [201, 202],
+    );
+
+    final allocationTables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invoice_payment_allocations'",
+    );
+    expect(allocationTables, hasLength(1));
+
+    final allocationIndexes = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_payment_allocations_%'",
+    );
+    expect(
+      allocationIndexes.map((row) => row['name']),
+      containsAll([
+        'idx_payment_allocations_invoice',
+        'idx_payment_allocations_payment',
+      ]),
+    );
+
+    final allocationId = await db.insert('invoice_payment_allocations', {
+      'payment_document_id': 201,
+      'invoice_document_id': 202,
+      'amount': 1250,
+      'created_at': '2026-11-18T12:00:00.000',
+    });
+    final allocations = await db.query(
+      'invoice_payment_allocations',
+      where: 'id = ?',
+      whereArgs: [allocationId],
+    );
+    expect(allocations.single['amount'], 1250);
+
+    await expectLater(
+      db.update(
+        'invoice_payment_allocations',
+        {'amount': 1200},
+        where: 'id = ?',
+        whereArgs: [allocationId],
+      ),
+      throwsA(isA<Exception>()),
+    );
+    await expectLater(
+      db.delete(
+        'invoice_payment_allocations',
+        where: 'id = ?',
+        whereArgs: [allocationId],
+      ),
+      throwsA(isA<Exception>()),
+    );
+
+    final unchanged = await db.query(
+      'invoice_payment_allocations',
+      where: 'id = ?',
+      whereArgs: [allocationId],
+    );
+    expect(unchanged.single['amount'], 1250);
+
+    await upgraded.close();
+  });
+
   test('version 4 migration normalizes whitespace in migrated party names', () async {
     final legacyPath = '${tempDir.path}/legacy-v4.db';
     final legacyDb = await databaseFactory.openDatabase(
@@ -190,6 +347,31 @@ void main() {
     expect(customer.single['normalized_name'], 'علی محمدی');
     expect(supplier.single['normalized_name'], 'فروشنده قدیمی');
     await migrated.close();
+  });
+
+  test('product list reads current stock from movements without requiring a metadata edit', () async {
+    final productId = await store.insert('products', {
+      'نام کالا': 'موجودی پویا',
+      'موجودی': '10',
+      'بهای تمام‌شده هر واحد': '1000',
+    });
+
+    await accounting.recordStockMovement(
+      StockMovementDraft(
+        productId: productId,
+        movementType: 'sale',
+        quantityDelta: -3,
+        unitCost: 1000,
+        occurredAt: '2026-11-14T12:00:00.000',
+        idempotencyKey: 'live-stock-list-sale-$productId',
+        referenceType: 'test',
+        referenceId: 'sale-live-stock',
+      ),
+    );
+
+    final listedProduct = (await store.getAll('products')).single;
+    expect(listedProduct['موجودی'], '7.0');
+    expect(await store.getStockOnHand(productId), 7);
   });
 
   test('editing product details preserves live stock and immutable accounting history', () async {
@@ -642,6 +824,130 @@ void main() {
       hasLength(1),
     );
     expect(await db.query('journal_entries'), isEmpty);
+  });
+
+  test('enforces only essential fields at the database boundary', () async {
+    await expectLater(
+      store.insert('products', {'نام کالا': 'کالای بدون موجودی'}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      store.insert('products', {'نام کالا': 'کالا', 'موجودی': '-1'}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      store.insert('repairs', {'نام مشتری': 'مشتری'}),
+      throwsArgumentError,
+    );
+
+    final customerId = await store.insert('customers', {
+      'نام مشتری': 'مشتری با مشخصات اختیاری خالی',
+      'شماره تماس': '',
+      'آدرس': '',
+    });
+    expect(customerId, greaterThan(0));
+    final productId = await store.insert('products', {
+      'نام کالا': 'کالای دارای موجودی صفر',
+      'موجودی': '۰',
+      'گروه اصلی': '',
+      'قیمت فروش': '',
+    });
+    expect(productId, greaterThan(0));
+  });
+
+  test('deletes only unreferenced records and protects product stock history', () async {
+    final emptyProductId = await store.insert('products', {
+      'نام کالا': 'کالای بدون گردش',
+      'موجودی': '0',
+    });
+    await store.deleteRecord('products', emptyProductId);
+    expect(
+      await (await store.database).query(
+        'products',
+        where: 'id = ?',
+        whereArgs: [emptyProductId],
+      ),
+      isEmpty,
+    );
+
+    final stockedProductId = await store.insert('products', {
+      'نام کالا': 'کالای دارای سابقه',
+      'موجودی': '3',
+      'بهای تمام‌شده هر واحد': '100',
+    });
+    await expectLater(
+      store.deleteRecord('products', stockedProductId),
+      throwsStateError,
+    );
+    expect(await store.getStockOnHand(stockedProductId), 3);
+  });
+
+  test('protects repairs with stock consumption even when the part cost is zero', () async {
+    final repairWithoutHistory = await store.insert('repairs', {
+      'نام مشتری': 'مشتری بدون سابقه',
+      'نوع دستگاه': 'دریل',
+    });
+    await store.deleteRecord('repairs', repairWithoutHistory);
+
+    final repairWithHistory = await store.insert('repairs', {
+      'نام مشتری': 'مشتری دارای مصرف قطعه',
+      'نوع دستگاه': 'فرز',
+    });
+    final productId = await store.insert('products', {
+      'نام کالا': 'قطعه بدون بهای ثبت‌شده',
+      'موجودی': '3',
+      'بهای تمام‌شده هر واحد': '0',
+    });
+    final trades = TradeRepository(store);
+    await trades.recordRepairConsumption(
+      documentDate: '2026-11-17',
+      repairId: repairWithHistory.toString(),
+      customerName: 'مشتری دارای مصرف قطعه',
+      parts: [
+        TradeLineDraft(productId: productId, quantity: 1, unitPrice: 0),
+      ],
+      idempotencyKey: 'zero-cost-repair-consumption-$repairWithHistory',
+    );
+
+    expect(await store.getStockOnHand(productId), 2);
+    await expectLater(
+      store.deleteRecord('repairs', repairWithHistory),
+      throwsStateError,
+    );
+    expect(
+      await (await store.database).query(
+        'repairs',
+        where: 'id = ?',
+        whereArgs: [repairWithHistory],
+      ),
+      hasLength(1),
+    );
+  });
+
+  test('does not delete customer records still linked to the contacts ledger', () async {
+    final customerId = await store.insert('customers', {
+      'نام مشتری': 'مشتری دارای پرونده',
+    });
+    final db = await store.database;
+    await db.insert('parties', {
+      'id': 'customer:$customerId',
+      'party_type': 'customer',
+      'display_name': 'مشتری دارای پرونده',
+      'normalized_name': 'مشتری دارای پرونده',
+      'source_category': 'customers',
+      'source_id': customerId.toString(),
+      'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+
+    await expectLater(
+      store.deleteRecord('customers', customerId),
+      throwsStateError,
+    );
+    expect(
+      await db.query('customers', where: 'id = ?', whereArgs: [customerId]),
+      hasLength(1),
+    );
   });
 
   test('rejects reusing an idempotency key for different journal data', () async {

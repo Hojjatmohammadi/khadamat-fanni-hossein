@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
+import 'backup_storage.dart';
 
 /// Local SQLite backup, daily backup and validated restore operations.
 class BackupService {
@@ -16,16 +17,144 @@ class BackupService {
     Directory? backupDirectory,
     Directory? temporaryDirectory,
     DateTime Function()? clock,
+    BackupFolderAccess? folderAccess,
+    BackupLocationStore? locationStore,
   })  : _databasePathOverride = databasePath,
         _backupDirectoryOverride = backupDirectory,
         _temporaryDirectoryOverride = temporaryDirectory,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _folderAccess = folderAccess ??
+            (Platform.isAndroid ? SafBackupFolderAccess() : null),
+        _locationStore = locationStore ?? FileBackupLocationStore();
 
   final AppDatabase _appDatabase;
   final String? _databasePathOverride;
   final Directory? _backupDirectoryOverride;
   final Directory? _temporaryDirectoryOverride;
   final DateTime Function() _clock;
+
+  final BackupFolderAccess? _folderAccess;
+  final BackupLocationStore _locationStore;
+  String? lastBackupWarning;
+
+  Future<BackupFolder?> getBackupLocation() => _locationStore.read();
+
+  Future<BackupFolder?> chooseBackupLocation() async {
+    final access = _folderAccess;
+    if (access == null) {
+      throw UnsupportedError('انتخاب پوشهٔ بیرونی پشتیبان‌گیری فقط در اندروید فعال است.');
+    }
+    final current = await _locationStore.read();
+    final selected = await access.pickDirectory(initialUri: current?.uri);
+    if (selected == null) return null;
+    if (!await access.hasPersistedWritePermission(selected.uri)) {
+      throw StateError('مجوز ماندگار خواندن و نوشتن پوشه دریافت نشد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    await access.verifyWritable(selected.uri);
+    await _locationStore.write(selected);
+    lastBackupWarning = null;
+    return selected;
+  }
+
+  Future<void> clearBackupLocation() async {
+    await _locationStore.write(null);
+    lastBackupWarning = null;
+  }
+
+  Future<List<ExternalBackupFile>> listExternalBackups() async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null) return <ExternalBackupFile>[];
+    try {
+      if (!await access.hasPersistedWritePermission(folder.uri)) {
+        lastBackupWarning = 'مجوز پوشهٔ بیرونی در دسترس نیست؛ نسخه‌های داخلی همچنان محفوظ‌اند.';
+        return <ExternalBackupFile>[];
+      }
+      return await access.listBackups(folder.uri);
+    } catch (error) {
+      lastBackupWarning = 'دسترسی به پوشهٔ بیرونی برقرار نیست؛ نسخهٔ داخلی پشتیبان محفوظ است. ($error)';
+      return <ExternalBackupFile>[];
+    }
+  }
+
+  Future<void> _validateExternalBackupReference(
+    BackupFolderAccess access,
+    BackupFolder folder,
+    ExternalBackupFile file,
+  ) async {
+    if (file.folderUri != folder.uri ||
+        !p.basename(file.name).startsWith('khadamat-backup-') ||
+        !file.name.endsWith('.db')) {
+      throw ArgumentError('فایل انتخاب‌شده متعلق به فهرست پشتیبان‌های معتبر نیست.');
+    }
+    final currentFiles = await access.listBackups(folder.uri);
+    final stillExists = currentFiles.any(
+      (candidate) =>
+          candidate.uri == file.uri &&
+          candidate.folderUri == folder.uri &&
+          candidate.name == file.name,
+    );
+    if (!stillExists) {
+      throw StateError('فایل پشتیبان دیگر در پوشهٔ انتخاب‌شده وجود ندارد؛ فهرست را تازه‌سازی کنید.');
+    }
+  }
+
+  Future<void> deleteExternalBackup(ExternalBackupFile file) async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null) {
+      throw ArgumentError('پوشهٔ پشتیبان بیرونی انتخاب نشده است.');
+    }
+    if (!await access.hasPersistedWritePermission(folder.uri)) {
+      throw StateError('مجوز حذف از پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    await _validateExternalBackupReference(access, folder, file);
+    await access.deleteFile(file.uri);
+  }
+
+  Future<void> restoreFromExternalBackup(ExternalBackupFile file) async {
+    final folder = await _locationStore.read();
+    final access = _folderAccess;
+    if (folder == null || access == null) {
+      throw ArgumentError('پوشهٔ پشتیبان بیرونی انتخاب نشده است.');
+    }
+    if (!await access.hasPersistedWritePermission(folder.uri)) {
+      throw StateError('مجوز پوشهٔ پشتیبان وجود ندارد؛ پوشه را دوباره انتخاب کنید.');
+    }
+    await _validateExternalBackupReference(access, folder, file);
+    final temporaryDirectory = await _temporaryDirectory;
+    await temporaryDirectory.create(recursive: true);
+    final staged = File(p.join(
+      temporaryDirectory.path,
+      'external-restore-${_clock().microsecondsSinceEpoch}.db',
+    ));
+    try {
+      await access.copyToLocalFile(file.uri, staged.path);
+      await restoreFromPath(staged.path);
+    } finally {
+      if (await staged.exists()) await staged.delete();
+    }
+  }
+
+  Future<void> _copyToSelectedFolder(File backup) async {
+    lastBackupWarning = null;
+    try {
+      final folder = await _locationStore.read();
+      final access = _folderAccess;
+      if (folder == null || access == null) return;
+      if (!await access.hasPersistedWritePermission(folder.uri)) {
+        lastBackupWarning =
+            'مجوز پوشهٔ بیرونی لغو شده است؛ نسخه در حافظهٔ داخلی ذخیره شد. پوشه را دوباره انتخاب کنید.';
+        return;
+      }
+      await access.copyLocalFile(backup, folder.uri);
+    } catch (error) {
+      // An unavailable location preference must never invalidate the local snapshot.
+      lastBackupWarning =
+          'ذخیره در پوشهٔ بیرونی انجام نشد؛ نسخهٔ داخلی محفوظ است. ($error)';
+    }
+  }
+
 
   Future<String> get _databaseFile async {
     final override = _databasePathOverride;
@@ -70,6 +199,7 @@ class BackupService {
     if (await dailyFile.exists()) {
       try {
         await _validateBackupFile(dailyFile);
+        await _copyToSelectedFolder(dailyFile);
         return null;
       } catch (_) {
         await dailyFile.delete();
@@ -80,7 +210,10 @@ class BackupService {
   }
 
   /// Makes a consistent on-disk copy after checking that SQLite can checkpoint.
-  Future<File> createBackup({bool daily = false}) async {
+  Future<File> createBackup({bool daily = false, bool emergency = false}) async {
+    if (daily && emergency) {
+      throw ArgumentError('پشتیبان روزانه و اضطراری نمی‌توانند هم‌زمان انتخاب شوند.');
+    }
     final db = await _appDatabase.database;
     final checkpoint = await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
     if (checkpoint.isNotEmpty) {
@@ -105,13 +238,17 @@ class BackupService {
       final now = _clock();
       final fileName = daily
           ? 'khadamat-backup-daily-${_dateStamp(now)}.db'
-          : 'khadamat-backup-${_dateStamp(now)}-${_timeStamp(now)}-'
-              '${now.microsecondsSinceEpoch % 1000000}.db';
+          : emergency
+              ? 'khadamat-backup-emergency-${_dateStamp(now)}-${_timeStamp(now)}-'
+                  '${now.microsecondsSinceEpoch % 1000000}.db'
+              : 'khadamat-backup-${_dateStamp(now)}-${_timeStamp(now)}-'
+                  '${now.microsecondsSinceEpoch % 1000000}.db';
       destination = File(p.join(directory.path, fileName));
 
       await source.copy(destination.path);
       await _validateBackupFile(destination);
       await _applyRetention();
+      await _copyToSelectedFolder(destination);
       return destination;
     } catch (_) {
       if (destination != null && await destination.exists()) {
@@ -169,19 +306,21 @@ class BackupService {
     );
   }
 
-  Future<void> restoreFromFile() async {
+  /// Returns false when the user cancels the file picker; true only after restore succeeds.
+  Future<bool> restoreFromFile() async {
     final selection = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['db', 'sqlite', 'sqlite3'],
       allowMultiple: false,
       withData: false,
     );
-    if (selection == null || selection.files.isEmpty) return;
+    if (selection == null || selection.files.isEmpty) return false;
     final selectedPath = selection.files.single.path;
     if (selectedPath == null) {
       throw StateError('دسترسی به فایل انتخاب‌شده ممکن نیست.');
     }
     await restoreFromPath(selectedPath);
+    return true;
   }
 
   /// Public path-based restore method also allows deterministic automated tests.
@@ -224,15 +363,36 @@ class BackupService {
     );
     var hadOriginal = false;
 
-    final activeDb = await _appDatabase.database;
-    final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
-    if (checkpoint.isNotEmpty) {
-      final busy = checkpoint.first['busy'];
-      if (busy is num && busy != 0) {
-        throw StateError(
-          'پایگاه داده در حال استفاده است؛ بازیابی انجام نشد. دوباره تلاش کنید.',
-        );
+    // Stage the selected backup before creating the emergency copy. Retention
+    // may remove the oldest item from the backup folder; staging first ensures
+    // it cannot delete the very file the user selected for restoration.
+    try {
+      await selected.copy(staged.path);
+      await _validateBackupFile(staged);
+
+      // Keep a separately listed, validated emergency copy before replacing
+      // the live database. The rollback file below protects the swap itself;
+      // this backup remains available after a successful restore.
+      await createBackup(emergency: true);
+    } catch (_) {
+      if (await staged.exists()) await staged.delete();
+      rethrow;
+    }
+
+    try {
+      final activeDb = await _appDatabase.database;
+      final checkpoint = await activeDb.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      if (checkpoint.isNotEmpty) {
+        final busy = checkpoint.first['busy'];
+        if (busy is num && busy != 0) {
+          throw StateError(
+            'پایگاه داده در حال استفاده است؛ بازیابی انجام نشد. دوباره تلاش کنید.',
+          );
+        }
       }
+    } catch (_) {
+      if (await staged.exists()) await staged.delete();
+      rethrow;
     }
 
     await _appDatabase.close();
@@ -244,7 +404,6 @@ class BackupService {
         hadOriginal = true;
       }
 
-      await selected.copy(staged.path);
       final stagedHandle = await staged.open(mode: FileMode.append);
       try {
         await stagedHandle.flush();
@@ -348,6 +507,15 @@ class BackupService {
       if (version >= 7) required.add('bank_reconciliations');
       if (version >= 11) required.add('invoice_archives');
       if (version >= 12) required.add('invoice_settings');
+      if (version >= 13) {
+        required.addAll([
+          'loan_records',
+          'loan_installments',
+          'loan_transactions',
+        ]);
+      }
+      if (version >= 14) required.add('party_roles');
+      if (version >= 15) required.add('invoice_payment_allocations');
 
       final missing = required.difference(tables);
       if (missing.isNotEmpty) {
@@ -369,6 +537,13 @@ class BackupService {
     if (integrity.isEmpty ||
         integrity.first.values.first?.toString().toLowerCase() != 'ok') {
       throw const FormatException('سلامت فایل پایگاه داده تأیید نشد.');
+    }
+
+    final foreignKeyErrors = await db.rawQuery('PRAGMA foreign_key_check');
+    if (foreignKeyErrors.isNotEmpty) {
+      throw const FormatException(
+        'ارتباط بین اطلاعات فایل پشتیبان ناقص است؛ بازیابی انجام نشد.',
+      );
     }
   }
 }

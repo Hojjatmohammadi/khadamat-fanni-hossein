@@ -1,12 +1,32 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 
+import 'check_repository.dart';
+import 'checks_page.dart';
+import 'check_reminder_service.dart';
 import 'jalali_date_field.dart';
+import 'party_payment_dialog.dart';
 import 'party_repository.dart';
+import 'trade_repository.dart';
 
 class PartyLedgerPage extends StatefulWidget {
-  const PartyLedgerPage({super.key, required this.repository});
+  const PartyLedgerPage({
+    super.key,
+    required this.repository,
+    required this.reminders,
+    this.trades,
+    this.checks,
+    this.onChanged,
+    this.initialPartyId,
+  });
 
   final PartyRepository repository;
+  final CheckReminderService reminders;
+  final TradeRepository? trades;
+  final CheckRepository? checks;
+  final VoidCallback? onChanged;
+  final String? initialPartyId;
 
   @override
   State<PartyLedgerPage> createState() => _PartyLedgerPageState();
@@ -14,13 +34,23 @@ class PartyLedgerPage extends StatefulWidget {
 
 class _PartyLedgerPageState extends State<PartyLedgerPage> {
   List<Map<String, Object?>> _parties = [];
+  List<Map<String, Object?>> _activityDocuments = [];
+  List<Map<String, Object?>> _activityRepairs = [];
+  List<Map<String, Object?>> _activityChecks = [];
   Map<String, Object?>? _statement;
   String? _selectedPartyId;
+  final _partySearchController = TextEditingController();
   bool _loading = true;
   bool _loadingMore = false;
   int _nextOffset = 0;
   bool _hasMore = false;
   static const int _pageSize = 100;
+
+  @override
+  void dispose() {
+    _partySearchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -31,22 +61,42 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
   Future<void> _loadParties() async {
     setState(() => _loading = true);
     try {
-      final parties = await widget.repository.getParties();
-      final selected = parties.any((p) => p['id'] == _selectedPartyId)
-          ? _selectedPartyId
+      final storedParties = await widget.repository.getParties();
+      final rolesByParty = await widget.repository.getPartyRolesForParties(
+        storedParties.map((party) => party['id'] as String),
+      );
+      final parties = storedParties.map((party) {
+        final id = party['id'] as String;
+        return <String, Object?>{
+          ...party,
+          'roles': rolesByParty[id] ?? const <String>[],
+        };
+      }).toList();
+      final preferredId = _selectedPartyId ?? widget.initialPartyId;
+      final selected = parties.any((p) => p['id'] == preferredId)
+          ? preferredId
           : parties.isEmpty
               ? null
               : parties.first['id'] as String;
       Map<String, Object?>? statement;
+      Map<String, List<Map<String, Object?>>> activity = {
+        'documents': [],
+        'repairs': [],
+        'checks': [],
+      };
       if (selected != null) {
         statement = await widget.repository.getPartyStatementPage(
           selected,
           limit: _pageSize,
         );
+        activity = await widget.repository.getPartyActivity(selected);
       }
       if (!mounted) return;
       setState(() {
         _parties = parties;
+        _activityDocuments = activity['documents'] ?? [];
+        _activityRepairs = activity['repairs'] ?? [];
+        _activityChecks = activity['checks'] ?? [];
         _selectedPartyId = selected;
         _statement = statement;
         _nextOffset = (statement?['next_offset'] as num?)?.toInt() ?? 0;
@@ -77,9 +127,13 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         id,
         limit: _pageSize,
       );
+      final activity = await widget.repository.getPartyActivity(id);
       if (!mounted) return;
       setState(() {
         _statement = result;
+        _activityDocuments = activity['documents'] ?? [];
+        _activityRepairs = activity['repairs'] ?? [];
+        _activityChecks = activity['checks'] ?? [];
         _nextOffset = (result['next_offset'] as num?)?.toInt() ?? 0;
         _hasMore = result['has_more'] == true;
         _loading = false;
@@ -91,6 +145,111 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
         SnackBar(content: Text('خواندن گردش حساب ناموفق بود: $error')),
       );
     }
+  }
+
+  Future<void> _recordPartyPayment({required bool isCustomerReceipt}) async {
+    final trades = widget.trades;
+    final partyId = _selectedPartyId;
+    final party = _statement?['party'] as Map<String, Object?>?;
+    if (trades == null || partyId == null || party == null) return;
+
+    final roles = (_statement?['roles'] as List?)?.cast<String>() ?? const [];
+    if (isCustomerReceipt && !roles.contains('customer')) return;
+    if (!isCustomerReceipt && !roles.contains('supplier')) return;
+
+    final invoiceType = isCustomerReceipt ? 'sale' : 'purchase';
+    final invoices = await trades.getDocuments(
+      type: invoiceType,
+      counterpartyId: partyId,
+    );
+    final openInvoices = <Map<String, Object?>>[];
+    for (final invoice in invoices) {
+      final balance = await trades.getOutstandingAmount(invoice['id'] as int);
+      if (balance > 0) {
+        openInvoices.add({...invoice, 'remaining_amount': balance});
+      }
+    }
+
+    if (!mounted) return;
+    final payment = await showDialog<Map<String, Object?>?>(
+      context: context,
+      builder: (_) => PartyPaymentDialog(
+        isCustomerReceipt: isCustomerReceipt,
+        openInvoices: openInvoices,
+      ),
+    );
+    if (payment == null || !mounted) return;
+    final amount = payment['amount'] as int;
+    final referenceId = payment['referenceId'] as String?;
+    final selectedPaymentMethod =
+        payment['paymentMethod'] as String? ?? 'cash';
+
+    try {
+      final cashAccountCode =
+          selectedPaymentMethod == 'cash' ? '1000' : '1010';
+      final draft = PartyPaymentDraft(
+        documentDate: DateTime.now().toIso8601String().substring(0, 10),
+        counterpartyName: party['display_name']?.toString() ?? 'طرف حساب',
+        counterpartyId: partyId,
+        amount: amount,
+        idempotencyKey:
+            'party-advance-$partyId-${DateTime.now().microsecondsSinceEpoch}',
+        cashAccountCode: cashAccountCode,
+        paymentMethod: selectedPaymentMethod,
+        referenceId: referenceId,
+      );
+      if (isCustomerReceipt) {
+        await trades.recordCustomerReceipt(draft);
+      } else {
+        await trades.recordSupplierPayment(draft);
+      }
+      await _selectParty(partyId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            referenceId == null
+                ? (isCustomerReceipt ? 'بیعانه مشتری در گردش حساب ثبت شد' : 'پیش‌پرداخت فروشنده ثبت شد')
+                : (isCustomerReceipt ? 'دریافت به فاکتور متصل شد' : 'پرداخت به فاکتور متصل شد'),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ثبت دریافت / پرداخت ناموفق بود: $error')),
+      );
+    }
+  }
+
+  Future<void> _openCheckEntry({required bool incoming}) async {
+    final checks = widget.checks;
+    final trades = widget.trades;
+    final partyId = _selectedPartyId;
+    if (checks == null || trades == null || partyId == null) return;
+
+    final party = _statement?['party'] as Map<String, Object?>?;
+    if (party == null) return;
+    final displayName = party['display_name']?.toString() ?? 'طرف حساب';
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: Text(incoming ? 'ثبت چک دریافتی • $displayName' : 'ثبت چک پرداختی • $displayName'),
+          ),
+          body: CheckPage(
+            checks: checks,
+            parties: widget.repository,
+            trades: trades,
+            reminders: widget.reminders,
+            onChanged: widget.onChanged ?? () {},
+            initialPartyId: partyId,
+            initialDirection: incoming ? 'incoming' : 'outgoing',
+          ),
+        ),
+      ),
+    );
+    if (mounted) await _selectParty(partyId);
   }
 
   Future<void> _loadMore() async {
@@ -129,20 +288,154 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
     }
   }
 
-  String _partyTypeLabel(Object? type) => switch (type) {
-        'customer' => 'مشتری',
-        'supplier' => 'فروشنده',
-        _ => 'شخص دیگر',
-      };
+  String _partyTypeLabel(Object? type, [List<String> roles = const []]) {
+    const labels = {
+      'customer': 'مشتری',
+      'supplier': 'فروشنده',
+      'other': 'سایر',
+    };
+    if (roles.isNotEmpty) {
+      return roles.map((role) => labels[role] ?? role).join('، ');
+    }
+    return labels[type] ?? 'شخص دیگر';
+  }
 
   String _amount(Object? value) =>
       ((value as num?)?.toInt() ?? 0).toString();
 
+  String _dateLabel(Object? value) {
+    final date = DateTime.tryParse(value?.toString() ?? '');
+    return date == null ? '—' : formatJalaliDate(date);
+  }
+
+  String _checkStatusLabel(Object? value) => switch (value?.toString()) {
+        'received' => 'دریافت‌شده',
+        'issued' => 'صادرشده',
+        'deposited' => 'واگذار‌شده به بانک',
+        'cleared' => 'وصول / پاس‌شده',
+        'bounced' => 'برگشتی',
+        'cancelled' => 'باطل‌شده',
+        _ => 'نامشخص',
+      };
+
+  bool _isOverdueCheck(Map<String, Object?> check) {
+    final status = check['status']?.toString();
+    if (const {'cleared', 'bounced', 'cancelled'}.contains(status)) {
+      return false;
+    }
+    final dueDate = DateTime.tryParse(check['due_date']?.toString() ?? '');
+    if (dueDate == null) return false;
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    return dueDate.isBefore(todayOnly);
+  }
+
+  String? _linkedInvoiceLabel(Map<String, Object?> document) {
+    final sourceId = document['source_document_id'];
+    if (sourceId == null) return null;
+    for (final source in _activityDocuments) {
+      if (source['id'] == sourceId) {
+        final number = source['document_number']?.toString().trim() ?? '';
+        if (number.isNotEmpty) return 'متصل به فاکتور $number';
+      }
+    }
+    return 'متصل به فاکتور شماره $sourceId';
+  }
+
+  String? _paymentMethodLabel(Map<String, Object?> document) {
+    final type = document['document_type'];
+    if (type != 'customer_receipt' && type != 'supplier_payment') {
+      return null;
+    }
+    try {
+      final payload = jsonDecode(document['payload_json']?.toString() ?? '{}');
+      if (payload is! Map) return null;
+      return switch (payload['paymentMethod']) {
+        'cash' => 'نقدی',
+        'bank_transfer' => 'انتقال بانکی',
+        'card_to_card' => 'کارت‌به‌کارت',
+        _ => null,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _documentTypeLabel(Map<String, Object?> document) {
+    final type = document['document_type'];
+    final isAdvance = document['source_document_id'] == null;
+    return switch (type) {
+      'purchase' => 'فاکتور خرید',
+      'sale' => 'فاکتور فروش',
+      'supplier_return' => 'برگشت از خرید',
+      'customer_return' => 'برگشت از فروش',
+      'customer_receipt' => isAdvance ? 'بیعانه مشتری' : 'دریافت از مشتری',
+      'supplier_payment' =>
+        isAdvance ? 'پیش‌پرداخت فروشنده' : 'پرداخت به فروشنده',
+      _ => 'سند تجاری',
+    };
+  }
+
+  Widget _buildReconciliationSection(
+    String title,
+    Map<String, Object?> balance,
+  ) {
+    final difference = (balance['difference'] as num?)?.toInt() ?? 0;
+    final reconciled = balance['is_reconciled'] == true;
+    final accountCode = balance['control_account_code']?.toString() ?? '';
+    final details = [
+      'مانده اسناد: ${_amount(balance['document_balance'])} تومان',
+      'مانده حسابداری ($accountCode): ${_amount(balance['ledger_balance'])} تومان',
+      'فاکتورهای باز: ${_amount(balance['invoice_count'])} مورد',
+      if ((balance['unallocated_advance'] as num? ?? 0) > 0)
+        'بیعانه / پیش‌پرداخت آزاد: ${_amount(balance['unallocated_advance'])} تومان',
+      if ((balance['unlinked_check_balance'] as num? ?? 0) > 0)
+        'چک آزاد فعال: ${_amount(balance['unlinked_check_balance'])} تومان',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          for (final detail in details) Text(detail),
+          Text(
+            reconciled
+                ? 'وضعیت: منطبق'
+                : 'اختلاف: ${_amount(difference.abs())} تومان • '
+                    '${difference > 0 ? 'مانده اسناد بیشتر است' : 'مانده حسابداری بیشتر است'}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: reconciled
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final reconciliation =
+        _statement?['balance_reconciliation'] as Map<String, Object?>?;
     final party = _statement?['party'] as Map<String, Object?>?;
     final lines = (_statement?['lines'] as List<Map<String, Object?>>?) ?? [];
     final closing = (_statement?['closing_balance'] as num?)?.toInt() ?? 0;
+    final selectedRoles =
+        (_statement?['roles'] as List?)?.cast<String>() ?? const <String>[];
+    final partyQuery = _partySearchController.text.trim().toLowerCase();
+    final visibleParties = _parties.where((item) {
+      final searchable = [
+        item['display_name'],
+        item['phone'],
+        item['party_type'],
+        ...((item['roles'] as List?) ?? const []),
+      ].whereType<Object>().join(' ').toLowerCase();
+      return searchable.contains(partyQuery);
+    }).toList();
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -156,24 +449,43 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            if (_parties.isNotEmpty)
+            if (_parties.isNotEmpty) ...[
+              TextField(
+                controller: _partySearchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'جست‌وجو در اشخاص',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _partySearchController.text.isEmpty ? null : IconButton(
+                    tooltip: 'پاک کردن جست‌وجو',
+                    onPressed: () { _partySearchController.clear(); setState(() {}); },
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 key: ValueKey(_selectedPartyId),
-                initialValue: _selectedPartyId,
+                initialValue: visibleParties.any((item) => item['id'] == _selectedPartyId) ? _selectedPartyId : null,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'انتخاب مشتری یا فروشنده'),
                 items: [
-                  for (final item in _parties)
+                  for (final item in visibleParties)
                     DropdownMenuItem(
                       value: item['id'] as String,
                       child: Text(
-                        '${item['display_name']} — ${_partyTypeLabel(item['party_type'])}',
+                        (item['display_name']?.toString() ?? '') +
+                            ((item['phone']?.toString().trim().isNotEmpty ?? false)
+                                ? ' • ${item['phone']}'
+                                : '') +
+                            ' — ${_partyTypeLabel(item['party_type'], (item['roles'] as List?)?.cast<String>() ?? const [])}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                 ],
                 onChanged: _selectParty,
               ),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
@@ -200,7 +512,10 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         party?['display_name']?.toString() ?? '',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                       ),
-                      Text(_partyTypeLabel(party?['party_type'])),
+                      Text(_partyTypeLabel(
+                        party?['party_type'],
+                        (_statement?['roles'] as List?)?.cast<String>() ?? const [],
+                      )),
                       const Divider(),
                       Text('جمع بدهکار: ${_amount(_statement?['total_debit'])} تومان'),
                       Text('جمع بستانکار: ${_amount(_statement?['total_credit'])} تومان'),
@@ -209,10 +524,150 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                         '${_statement?['closing_label']}: ${closing.abs()} تومان',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      if (selectedRoles.contains('customer') &&
+                          (_statement?['available_customer_advance'] as num? ?? 0) > 0)
+                        Text(
+                          'بیعانه آزاد قابل تخصیص: ${_amount(_statement?['available_customer_advance'])} تومان',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
+                      if (selectedRoles.contains('supplier') &&
+                          (_statement?['available_supplier_prepayment'] as num? ?? 0) > 0)
+                        Text(
+                          'پیش‌پرداخت آزاد فروشنده: ${_amount(_statement?['available_supplier_prepayment'])} تومان',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
+                      if (reconciliation?['customer'] is Map<String, Object?>) ...[
+                        const Divider(),
+                        _buildReconciliationSection(
+                          'تطبیق حساب مشتری',
+                          reconciliation!['customer'] as Map<String, Object?>,
+                        ),
+                      ],
+                      if (reconciliation?['supplier'] is Map<String, Object?>) ...[
+                        const Divider(),
+                        _buildReconciliationSection(
+                          'تطبیق حساب فروشنده',
+                          reconciliation!['supplier'] as Map<String, Object?>,
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
+              if (widget.trades != null &&
+                  (selectedRoles.contains('customer') || selectedRoles.contains('supplier'))) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (selectedRoles.contains('customer'))
+                      FilledButton.icon(
+                        key: const ValueKey('record-customer-advance'),
+                        onPressed: () => _recordPartyPayment(isCustomerReceipt: true),
+                        icon: const Icon(Icons.savings_outlined),
+                        label: const Text('ثبت بیعانه / دریافت'),
+                      ),
+                    if (selectedRoles.contains('customer') && widget.checks != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('record-customer-check'),
+                        onPressed: () => _openCheckEntry(incoming: true),
+                        icon: const Icon(Icons.request_quote_outlined),
+                        label: const Text('ثبت چک دریافتی'),
+                      ),
+                    if (selectedRoles.contains('supplier'))
+                      OutlinedButton.icon(
+                        key: const ValueKey('record-supplier-prepayment'),
+                        onPressed: () => _recordPartyPayment(isCustomerReceipt: false),
+                        icon: const Icon(Icons.payments_outlined),
+                        label: const Text('ثبت پیش‌پرداخت به فروشنده'),
+                      ),
+                    if (selectedRoles.contains('supplier') && widget.checks != null)
+                      OutlinedButton.icon(
+                        key: const ValueKey('record-supplier-check'),
+                        onPressed: () => _openCheckEntry(incoming: false),
+                        icon: const Icon(Icons.request_quote_outlined),
+                        label: const Text('ثبت چک پرداختی'),
+                      ),
+                  ],
+                ),
+              ],
+              if (_activityDocuments.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'اسناد مالی، فاکتورها و برگشت‌ها (${_activityDocuments.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final document in _activityDocuments)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title: Text(
+                        '${_documentTypeLabel(document)} • ${document['document_number'] ?? ''}',
+                      ),
+                      subtitle: Text([
+                        _dateLabel(document['document_date']),
+                        if (_linkedInvoiceLabel(document) case final invoice?)
+                          invoice,
+                        if (_paymentMethodLabel(document) case final method?)
+                          'روش: $method',
+                      ].join(' • ')),
+                      trailing: Text('${_amount(document['total_amount'])} تومان'),
+                    ),
+                  ),
+              ],
+              if (_activityRepairs.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'سابقه تعمیرات (${_activityRepairs.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final repair in _activityRepairs)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.build_outlined),
+                      title: Text(
+                        repair['نوع دستگاه']?.toString().isNotEmpty == true
+                            ? repair['نوع دستگاه'].toString()
+                            : 'پذیرش تعمیر',
+                      ),
+                      subtitle: Text(
+                        [
+                          if ((repair['نام دستگاه']?.toString() ?? '').isNotEmpty)
+                            repair['نام دستگاه'].toString(),
+                          if ((repair['وضعیت']?.toString() ?? '').isNotEmpty)
+                            repair['وضعیت'].toString(),
+                          _dateLabel(repair['تاریخ'] ?? repair['created_at']),
+                        ].join(' • '),
+                      ),
+                    ),
+                  ),
+              ],
+              if (_activityChecks.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'چک‌های مرتبط (${_activityChecks.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                for (final check in _activityChecks)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.request_quote_outlined),
+                      title: Text(
+                        '${check['direction'] == 'incoming' ? 'چک دریافتی' : 'چک پرداختی'} • ${check['check_number']}',
+                      ),
+                      subtitle: Text(
+                        '${check['bank_name']} • سررسید: ${_dateLabel(check['due_date'])} • ${_checkStatusLabel(check['status'])}${_isOverdueCheck(check) ? ' • سررسید گذشته' : ''}',
+                        style: TextStyle(
+                          color: _isOverdueCheck(check)
+                              ? Theme.of(context).colorScheme.error
+                              : null,
+                        ),
+                      ),
+                      trailing: Text('${_amount(check['amount'])} تومان'),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 8),
               const Text('گردش حساب', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
               if (lines.isEmpty)
@@ -225,7 +680,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
                   child: ListTile(
                     title: Text(line['description']?.toString() ?? 'سند مالی'),
                     subtitle: Text(
-                      '${formatJalaliDate(DateTime.parse(line['entry_date'] as String))} • ${line['account_name']}',
+                      '${_dateLabel(line['entry_date'])} • ${line['account_name']}',
                     ),
                     isThreeLine: true,
                     trailing: Column(

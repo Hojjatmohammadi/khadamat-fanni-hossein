@@ -1,7 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'check_repository.dart';
+import 'check_reminder_service.dart';
 import 'jalali_date_field.dart';
+import 'localized_number.dart';
+import 'numeric_input.dart';
 import 'party_repository.dart';
 import 'trade_repository.dart';
 
@@ -11,13 +14,19 @@ class CheckPage extends StatefulWidget {
     required this.checks,
     required this.parties,
     required this.trades,
+    required this.reminders,
     required this.onChanged,
+    this.initialPartyId,
+    this.initialDirection = 'incoming',
   });
 
   final CheckRepository checks;
   final PartyRepository parties;
   final TradeRepository trades;
+  final CheckReminderService reminders;
   final VoidCallback onChanged;
+  final String? initialPartyId;
+  final String initialDirection;
 
   @override
   State<CheckPage> createState() => _CheckPageState();
@@ -30,6 +39,7 @@ class _CheckPageState extends State<CheckPage> {
   final _party = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  final _listSearch = TextEditingController();
 
   String _direction = 'incoming';
   DateTime _issueDate = DateTime.now();
@@ -45,6 +55,8 @@ class _CheckPageState extends State<CheckPage> {
   @override
   void initState() {
     super.initState();
+    _direction = widget.initialDirection;
+    _selectedPartyId = widget.initialPartyId;
     _load();
   }
 
@@ -56,6 +68,7 @@ class _CheckPageState extends State<CheckPage> {
     _party.dispose();
     _amount.dispose();
     _note.dispose();
+    _listSearch.dispose();
     super.dispose();
   }
 
@@ -107,11 +120,25 @@ class _CheckPageState extends State<CheckPage> {
         }
       }
       if (!mounted) return;
+      final preferredPartyId = _selectedPartyId ?? widget.initialPartyId;
+      final preferredParty = partyOptions.where(
+        (party) => party['id'] == preferredPartyId,
+      );
       setState(() {
         _checks = checks;
         _dueChecks = due;
         _documents = outstandingDocs;
         _partyOptions = partyOptions;
+        if (preferredParty.isNotEmpty) {
+          final selected = preferredParty.first;
+          _selectedPartyId = selected['id'] as String;
+          if (_party.text.trim().isEmpty ||
+              widget.initialPartyId == _selectedPartyId) {
+            _party.text = selected['display_name']?.toString() ?? '';
+          }
+        } else if (preferredPartyId != null) {
+          _selectedPartyId = null;
+        }
       });
     } catch (error) {
       if (!mounted) return;
@@ -132,15 +159,19 @@ class _CheckPageState extends State<CheckPage> {
 
   Future<void> _saveCheck() async {
     if (_saving) return;
-    final amount = int.tryParse(_amount.text.trim().replaceAll(',', ''));
-    if (_number.text.trim().isEmpty ||
+    final amount = LocalizedNumber.tryParseInt(_amount.text);
+    final checkNumberError = validateNumericField('شماره چک', _number.text, forceNumeric: true);
+    final amountError = validateNumericField('مبلغ', _amount.text, forceNumeric: true);
+    if (checkNumberError != null || amountError != null ||
+        _number.text.trim().isEmpty ||
         _bank.text.trim().isEmpty ||
         _drawer.text.trim().isEmpty ||
         _party.text.trim().isEmpty ||
         amount == null ||
         amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('شماره چک، بانک، صادرکننده، طرف حساب و مبلغ را کامل کنید')),
+        SnackBar(content: Text(checkNumberError ?? amountError ??
+            'شماره چک، بانک، صادرکننده، طرف حساب و مبلغ را کامل کنید')),
       );
       return;
     }
@@ -183,6 +214,16 @@ class _CheckPageState extends State<CheckPage> {
           note: _note.text.trim(),
         ),
       );
+      var remindersEnabled = false;
+      try {
+        remindersEnabled = await widget.reminders.synchronize(
+          widget.checks,
+          requestPermission: true,
+        );
+      } catch (_) {
+        // The cheque and its accounting entry are already safely committed.
+      }
+      if (!mounted) return;
       _number.clear();
       _bank.clear();
       _drawer.clear();
@@ -196,13 +237,19 @@ class _CheckPageState extends State<CheckPage> {
         _dueDate = DateTime.now().add(const Duration(days: 7));
       });
       await _load();
+      if (!mounted) return;
       widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('چک و سند حسابداری آن ثبت شد')),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              remindersEnabled
+                  ? 'چک ثبت شد؛ یادآوری یک‌روز قبل و روزانه از سررسید فعال شد.'
+                  : 'چک ثبت شد؛ برای یادآوری خودکار، مجوز اعلان‌ها را فعال کنید.',
+            ),
+          ),
         );
-      }
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ثبت چک ناموفق بود: $error')),
       );
@@ -254,14 +301,29 @@ class _CheckPageState extends State<CheckPage> {
         reason: reason,
         eventDate: _iso(DateTime.now()),
       );
-      await _load();
-      widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('وضعیت چک و ثبت حسابداری به‌روزرسانی شد')),
-        );
+      var reminderSyncFailed = false;
+      var remindersEnabled = true;
+      try {
+        remindersEnabled = await widget.reminders.synchronize(widget.checks);
+      } catch (_) {
+        reminderSyncFailed = true;
       }
+      await _load();
+      if (!mounted) return;
+      widget.onChanged();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              reminderSyncFailed
+                  ? 'وضعیت چک ثبت شد؛ به‌روزرسانی یادآوری خودکار ناموفق بود.'
+                  : !remindersEnabled
+                      ? 'وضعیت چک ثبت شد؛ مجوز اعلان‌ها غیرفعال است و یادآوری خودکار فعال نیست.'
+                      : 'وضعیت چک و یادآوری‌های آن به‌روزرسانی شد.',
+            ),
+          ),
+        );
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('تغییر وضعیت چک ناموفق بود: $error')),
       );
@@ -287,6 +349,10 @@ class _CheckPageState extends State<CheckPage> {
             onPressed: () => _changeStatus(check, 'bounced'),
             child: const Text('برگشتی'),
           ),
+          TextButton(
+            onPressed: () => _changeStatus(check, 'cancelled'),
+            child: const Text('لغو چک'),
+          ),
         ],
       );
     }
@@ -301,6 +367,10 @@ class _CheckPageState extends State<CheckPage> {
           TextButton(
             onPressed: () => _changeStatus(check, 'bounced'),
             child: const Text('برگشتی'),
+          ),
+          TextButton(
+            onPressed: () => _changeStatus(check, 'cancelled'),
+            child: const Text('لغو چک'),
           ),
         ],
       );
@@ -375,6 +445,8 @@ class _CheckPageState extends State<CheckPage> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _listSearch.text.trim().toLowerCase();
+    final visibleChecks = _checks.where((check) => check.values.any((value) => value?.toString().toLowerCase().contains(query) ?? false)).toList();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: RefreshIndicator(
@@ -396,7 +468,7 @@ class _CheckPageState extends State<CheckPage> {
                         '${_dueChecks.length} چک سررسیدشده یا نزدیک به سررسید',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      const Text('این یادآوری داخل برنامه نمایش داده می‌شود؛ برای دریافت اعلان حتی هنگام بسته بودن برنامه، سامانه اعلان زمان‌بندی‌شده هنوز لازم است.'),
+                      const Text('اعلان خودکار در ساعت ۹ صبح: یک‌روز پیش از سررسید و سپس هر روز از تاریخ سررسید تا تعیین وضعیت چک. برای دریافت اعلان، مجوز اعلان‌ها باید فعال باشد.'),
                       for (final check in _dueChecks.take(5))
                         Text(
                           '• ${check['check_number']} — ${check['party_name']} — ${_dueLabel(check['due_date'] as String)}',
@@ -422,6 +494,8 @@ class _CheckPageState extends State<CheckPage> {
             const SizedBox(height: 8),
             TextField(
               controller: _number,
+              keyboardType: TextInputType.number,
+              inputFormatters: numericInputFormattersForField('شماره چک'),
               decoration: const InputDecoration(labelText: 'شماره چک'),
             ),
             const SizedBox(height: 8),
@@ -447,7 +521,10 @@ class _CheckPageState extends State<CheckPage> {
                     DropdownMenuItem(
                       value: party['id'] as String,
                       child: Text(
-                        party['display_name']?.toString() ?? '',
+                        (party['display_name']?.toString() ?? '') +
+                            ((party['phone']?.toString().trim().isNotEmpty ?? false)
+                                ? ' • ${party['phone']}'
+                                : ''),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -482,6 +559,7 @@ class _CheckPageState extends State<CheckPage> {
             TextField(
               controller: _amount,
               keyboardType: TextInputType.number,
+              inputFormatters: numericInputFormattersForField('مبلغ'),
               decoration: const InputDecoration(labelText: 'مبلغ چک (تومان)'),
             ),
             const SizedBox(height: 8),
@@ -554,12 +632,26 @@ class _CheckPageState extends State<CheckPage> {
             for (final check in _dueChecks) _checkCard(check, reminder: true),
             const Divider(height: 28),
             const Text('همه چک‌ها', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-            if (_checks.isEmpty)
-              const Card(child: Padding(
-                padding: EdgeInsets.all(14),
-                child: Text('هنوز چکی ثبت نشده است'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _listSearch,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'جست‌وجو در چک‌ها',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _listSearch.text.isEmpty ? null : IconButton(
+                  tooltip: 'پاک کردن جست‌وجو',
+                  onPressed: () { _listSearch.clear(); setState(() {}); },
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+            ),
+            if (visibleChecks.isEmpty)
+              Card(child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(_checks.isEmpty ? 'هنوز چکی ثبت نشده است' : 'چکی با این عبارت پیدا نشد'),
               )),
-            for (final check in _checks) _checkCard(check),
+            for (final check in visibleChecks) _checkCard(check),
           ],
         ),
       ),

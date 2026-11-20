@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_database.dart';
+import 'numeric_input.dart';
 
 /// Persists editable shop invoice header settings on this device.
 class InvoiceSettingsRepository {
@@ -11,6 +12,7 @@ class InvoiceSettingsRepository {
   final AppDatabase _database;
 
   static const Map<String, String> defaults = {
+    'appName': 'خدمات فنی حسین',
     'shopName': 'خدمات فنی حسین',
     'ownerName': 'حجت محمدی',
     'phone': '',
@@ -18,6 +20,11 @@ class InvoiceSettingsRepository {
     'address': '',
     'stampImageBase64': '',
     'signatureImageBase64': '',
+    'appLogoBase64': '',
+    'currency': 'تومان',
+    'vatPercent': '0',
+    'defaultDiscount': '0',
+    'invoicePrefix': '',
   };
 
   Future<Map<String, String>> getSettings() async {
@@ -44,13 +51,19 @@ class InvoiceSettingsRepository {
       for (final key in defaults.keys)
         key: (settings[key] ?? defaults[key]!).trim(),
     };
-    if (clean['shopName']!.isEmpty || clean['ownerName']!.isEmpty) {
-      throw ArgumentError('نام فروشگاه و نام مسئول فاکتور الزامی است');
+    if (clean['appName']!.isEmpty || clean['shopName']!.isEmpty || clean['ownerName']!.isEmpty) {
+      throw ArgumentError('نام برنامه، فروشگاه و نام مسئول فاکتور الزامی است');
     }
+    final phoneError = validateNumericField('شماره تماس', clean['phone']);
+    if (phoneError != null) throw ArgumentError(phoneError);
+    final postalError = validateNumericField('کد پستی', clean['postalCode']);
+    if (postalError != null) throw ArgumentError(postalError);
+    clean['phone'] = normalizeNumericField('شماره تماس', clean['phone']!);
+    clean['postalCode'] = normalizeNumericField('کد پستی', clean['postalCode']!);
     // Keep each compressed image bounded to avoid oversized SQLite backups.
-    for (final key in ['stampImageBase64', 'signatureImageBase64']) {
+    for (final key in ['stampImageBase64', 'signatureImageBase64', 'appLogoBase64']) {
       if (clean[key]!.length > 1500000) {
-        throw ArgumentError('حجم تصویر مهر یا امضا بیش از حد مجاز است');
+        throw ArgumentError('حجم تصویر لوگو، مهر یا امضا بیش از حد مجاز است');
       }
     }
 

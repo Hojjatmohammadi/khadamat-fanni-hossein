@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:shamsi_date/shamsi_date.dart';
+import 'numeric_input.dart';
 
 const List<String> _jalaliMonthNames = [
   'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
@@ -31,17 +32,25 @@ DateTime? parseJalaliDate(String value) {
     normalized = normalized.replaceAll(persian[i], '$i');
     normalized = normalized.replaceAll(arabic[i], '$i');
   }
-  final match = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$')
+  final match = RegExp(r'^([0-9]{4})/([0-9]{2})/([0-9]{2})$')
       .firstMatch(normalized);
   if (match == null) return null;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
   try {
-    final jalali = Jalali(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    );
+    final jalali = Jalali(year, month, day);
     final gregorian = jalali.toGregorian();
-    return DateTime(gregorian.year, gregorian.month, gregorian.day);
+    final result = DateTime(gregorian.year, gregorian.month, gregorian.day);
+    final roundTrip = Jalali.fromDateTime(result);
+    if (roundTrip.year != year ||
+        roundTrip.month != month ||
+        roundTrip.day != day) {
+      return null;
+    }
+    return result;
   } catch (_) {
     return null;
   }
@@ -69,7 +78,9 @@ class _JalaliDateFieldState extends State<JalaliDateField> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: formatJalaliDate(widget.initialDate));
+    _controller = TextEditingController(
+      text: formatJalaliDate(widget.initialDate),
+    );
   }
 
   @override
@@ -89,7 +100,8 @@ class _JalaliDateFieldState extends State<JalaliDateField> {
   Future<void> _pickDate() async {
     final selected = await showDialog<DateTime>(
       context: context,
-      builder: (context) => _JalaliDatePickerDialog(initialDate: widget.initialDate),
+      builder: (context) =>
+          _JalaliDatePickerDialog(initialDate: widget.initialDate),
     );
     if (selected == null || !mounted) return;
     _controller.text = formatJalaliDate(selected);
@@ -105,6 +117,8 @@ class _JalaliDateFieldState extends State<JalaliDateField> {
   Widget build(BuildContext context) => TextField(
         controller: _controller,
         keyboardType: TextInputType.datetime,
+        textInputAction: TextInputAction.next,
+        inputFormatters: const [NumericDateInputFormatter(separator: '/')],
         textDirection: TextDirection.ltr,
         decoration: InputDecoration(
           labelText: widget.label,
@@ -125,7 +139,8 @@ class _JalaliDatePickerDialog extends StatefulWidget {
   final DateTime initialDate;
 
   @override
-  State<_JalaliDatePickerDialog> createState() => _JalaliDatePickerDialogState();
+  State<_JalaliDatePickerDialog> createState() =>
+      _JalaliDatePickerDialogState();
 }
 
 class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
@@ -138,7 +153,9 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
   }
 
   void _changeMonth(int amount) {
-    setState(() => _visibleMonth = _visibleMonth.addMonths(amount).withDay(1));
+    setState(() {
+      _visibleMonth = _visibleMonth.addMonths(amount).withDay(1);
+    });
   }
 
   @override
@@ -147,8 +164,14 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
     final firstWeekday = _visibleMonth.weekDay;
     final cells = <Widget>[
       for (final weekday in _jalaliWeekdayNames)
-        Center(child: Text(weekday, style: const TextStyle(fontWeight: FontWeight.bold))),
-      for (var empty = 1; empty < firstWeekday; empty++) const SizedBox.shrink(),
+        Center(
+          child: Text(
+            weekday,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      for (var empty = 1; empty < firstWeekday; empty++)
+        const SizedBox.shrink(),
       for (var day = 1; day <= monthLength; day++) _buildDay(day),
     ];
 
@@ -166,7 +189,8 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
             Expanded(
               child: Center(
                 child: Text(
-                  '${_jalaliMonthNames[_visibleMonth.month - 1]} ${toPersianDigits(_visibleMonth.year.toString())}',
+                  '${_jalaliMonthNames[_visibleMonth.month - 1]} '
+                  '${toPersianDigits(_visibleMonth.year.toString())}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -207,9 +231,8 @@ class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
     return TextButton(
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,
-        backgroundColor: isToday
-            ? Theme.of(context).colorScheme.primaryContainer
-            : null,
+        backgroundColor:
+            isToday ? Theme.of(context).colorScheme.primaryContainer : null,
         shape: const CircleBorder(),
       ),
       onPressed: () => Navigator.pop(context, selected.toDateTime()),

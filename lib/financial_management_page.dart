@@ -1,12 +1,19 @@
 import 'package:material_ui/material_ui.dart';
+import 'numeric_input.dart';
 
 import 'accounting_repository.dart';
 import 'jalali_date_field.dart';
+import 'party_repository.dart';
 
 class FinancialManagementPage extends StatefulWidget {
-  const FinancialManagementPage({super.key, required this.repository});
+  const FinancialManagementPage({
+    super.key,
+    required this.repository,
+    required this.parties,
+  });
 
   final AccountingRepository repository;
+  final PartyRepository parties;
 
   @override
   State<FinancialManagementPage> createState() => _FinancialManagementPageState();
@@ -26,10 +33,13 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
   String _cashAccount = '1000';
   String? _ledgerAccount;
   List<Map<String, Object?>> _accounts = [];
+  List<Map<String, Object?>> _partyOptions = [];
+  String? _selectedExpensePartyId;
   List<Map<String, Object?>> _journal = [];
   List<Map<String, Object?>> _trialBalance = [];
   Map<String, Object?>? _ledger;
   List<Map<String, Object?>> _reconciliations = [];
+  Map<String, Object?>? _inventoryReconciliation;
   bool _loading = true;
   bool _saving = false;
 
@@ -52,11 +62,14 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     setState(() => _loading = true);
     try {
       final accounts = await widget.repository.getAccounts();
+      final partyOptions = await widget.parties.getParties();
       final fromDate = _isoDate(_reportFrom);
       final toDate = _isoDate(_reportTo);
       final journal = await widget.repository.getJournalEntries(fromDate: fromDate, toDate: toDate);
       final trial = await widget.repository.getTrialBalance(fromDate: fromDate, toDate: toDate);
       final reconciliations = await widget.repository.getBankReconciliations();
+      final inventoryReconciliation =
+          await widget.repository.getInventoryReconciliation();
       final expenseAccounts = accounts.where((a) => a['account_type'] == 'expense').toList();
       final selectedExpense = expenseAccounts.any((a) => a['code'] == _expenseAccount)
           ? _expenseAccount
@@ -71,12 +84,14 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
       if (!mounted) return;
       setState(() {
         _accounts = accounts;
+        _partyOptions = partyOptions;
         _journal = journal;
         _trialBalance = trial;
         _expenseAccount = selectedExpense;
         _ledgerAccount = selectedLedger;
         _ledger = ledger;
         _reconciliations = reconciliations;
+        _inventoryReconciliation = inventoryReconciliation;
         _loading = false;
       });
     } catch (error) {
@@ -101,6 +116,89 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     }
   }
 
+  Future<void> _addExpenseParty() async {
+    final name = TextEditingController();
+    final phone = TextEditingController();
+    final address = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('افزودن طرف هزینه به دفتر مخاطبین'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'نام شخص یا فروشنده'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'نام مخاطب را وارد کنید'
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: numericInputFormattersForField('شماره همراه'),
+                  decoration: const InputDecoration(labelText: 'شماره همراه'),
+                  validator: (value) => validateNumericField('شماره همراه', value),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'نشانی'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
+              child: const Text('ذخیره و انتخاب'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      try {
+        final id = await widget.parties.ensureParty(
+          PartyDraft(
+            partyType: 'supplier',
+            displayName: name.text.trim(),
+            phone: phone.text.trim(),
+            address: address.text.trim(),
+          ),
+        );
+        final options = await widget.parties.getParties();
+        if (!mounted) return;
+        setState(() {
+          _partyOptions = options;
+          _selectedExpensePartyId = id;
+        });
+        _message('مخاطب به پرونده هزینه متصل شد.');
+      } catch (error) {
+        _message('افزودن مخاطب ناموفق بود: $error');
+      }
+    }
+    name.dispose();
+    phone.dispose();
+    address.dispose();
+  }
+
   Future<void> _saveExpense() async {
     final amount = _parseAmount(_amount.text);
     if (_description.text.trim().isEmpty || amount == null || amount <= 0) {
@@ -116,6 +214,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
         expenseAccountCode: _expenseAccount,
         cashAccountCode: _cashAccount,
         idempotencyKey: 'expense-${DateTime.now().microsecondsSinceEpoch}',
+        partyId: _selectedExpensePartyId,
       );
       _description.clear();
       _amount.clear();
@@ -227,7 +326,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
     final expenses = _accounts.where((a) => a['account_type'] == 'expense').toList();
     final ledgerLines = (_ledger?['lines'] as List<Map<String, Object?>>?) ?? [];
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(
         children: [
           const Material(
@@ -240,6 +339,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                 Tab(text: 'تراز آزمایشی'),
                 Tab(text: 'دفتر کل حساب'),
                 Tab(text: 'تطبیق بانکی'),
+                Tab(text: 'تطبیق انبار'),
               ],
             ),
           ),
@@ -265,9 +365,46 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                     TextField(
                       controller: _amount,
                       keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                       decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
                     ),
                     const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedExpensePartyId),
+                      initialValue: _selectedExpensePartyId ?? '',
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'مخاطب یا فروشنده (اختیاری)',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('بدون اتصال به مخاطب'),
+                        ),
+                        for (final party in _partyOptions)
+                          DropdownMenuItem(
+                            value: party['id'] as String,
+                            child: Text(
+                              '${party['display_name'] ?? ''} • ${party['phone'] ?? ''}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _selectedExpensePartyId =
+                            value == null || value.isEmpty ? null : value,
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _saving ? null : _addExpenseParty,
+                        icon: const Icon(Icons.person_add_alt_1),
+                        label: const Text('افزودن مخاطب جدید'),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     DropdownButtonFormField<String>(
                       key: ValueKey(_expenseAccount),
                       initialValue: _expenseAccount,
@@ -437,6 +574,7 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                       TextField(
                         controller: _statementBalance,
                         keyboardType: TextInputType.number,
+                        inputFormatters: const [NumericInputFormatter()],
                         decoration: const InputDecoration(labelText: 'مانده پایان صورت‌حساب (تومان)'),
                       ),
                       const SizedBox(height: 10),
@@ -470,6 +608,103 @@ class _FinancialManagementPageState extends State<FinancialManagementPage> {
                           ),
                         ),
                       if (_reconciliations.isEmpty) const Text('هنوز تطبیق بانکی ثبت نشده است'),
+                    ],
+                  ),
+                ),
+                RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      const Text(
+                        'تطبیق ارزش انبار با حسابداری',
+                        style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'این گزارش، ارزش روز موجودی بر اساس گردش واقعی کالاها را با مانده بدهکار حساب «موجودی کالا» (۱۲۰۰) در دفتر کل مقایسه می‌کند. این گزارش فقط مغایرت را نشان می‌دهد و سند اصلاحی خودکار ثبت نمی‌کند.',
+                      ),
+                      const SizedBox(height: 12),
+                      if (_inventoryReconciliation != null) ...[
+                        Builder(builder: (context) {
+                          final report = _inventoryReconciliation!;
+                          final difference = (report['difference'] as num).toInt();
+                          final negativeStock =
+                              (report['negative_stock_products'] as num).toInt();
+                          final matched = report['is_balanced'] == true;
+                          return Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        matched ? Icons.verified_outlined : Icons.warning_amber_rounded,
+                                        color: matched ? Colors.green : Colors.deepOrange,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          matched ? 'ارزش انبار با دفتر کل منطبق است' : 'مغایرت نیازمند بررسی است',
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(height: 22),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('ارزش موجودی طبق دفتر انبار'),
+                                    trailing: Text('${_money(report['inventory_value'])} تومان'),
+                                  ),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('مانده حساب موجودی کالا (۱۲۰۰)'),
+                                    trailing: Text('${_money(report['ledger_value'])} تومان'),
+                                  ),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('اختلاف انبار منهای دفتر کل'),
+                                    trailing: Text(
+                                      '${difference < 0 ? '-' : ''}${_money(difference.abs())} تومان',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: difference == 0 ? Colors.green : Colors.deepOrange,
+                                      ),
+                                    ),
+                                  ),
+                                  if (negativeStock > 0)
+                                    Text(
+                                      'توجه: برای $negativeStock کالا مانده مقداری منفی ثبت شده است.',
+                                      style: const TextStyle(color: Colors.deepOrange),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        Card(
+                          child: ExpansionTile(
+                            title: const Text('ریز ارزش موجودی کالاها'),
+                            subtitle: Text(
+                              '${(_inventoryReconciliation!['items'] as List<Map<String, Object?>>).length} قلم کالا',
+                            ),
+                            children: [
+                              for (final item in (_inventoryReconciliation!['items'] as List<Map<String, Object?>>))
+                                ListTile(
+                                  dense: true,
+                                  title: Text(item['product_name']?.toString() ?? 'کالا'),
+                                  subtitle: Text('موجودی: ${(item['stock_quantity'] as num).toString()}'),
+                                  trailing: Text('${_money(item['stock_value'])} تومان'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ] else
+                        const Center(child: Text('گزارش تطبیق در دسترس نیست')),
                     ],
                   ),
                 ),

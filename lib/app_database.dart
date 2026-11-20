@@ -10,7 +10,7 @@ class AppDatabase {
   AppDatabase({String? databasePath}) : _databasePath = databasePath;
 
   static const String databaseName = 'khadamat_fanni_hosein.db';
-  static const int schemaVersion = 12;
+  static const int schemaVersion = 15;
 
   static const Map<String, String> _tables = {
     'products': 'products',
@@ -28,6 +28,7 @@ class AppDatabase {
     {'code': '1200', 'name': 'موجودی کالا', 'type': 'asset', 'side': 'debit'},
     {'code': '2000', 'name': 'پرداختنی به فروشندگان', 'type': 'liability', 'side': 'credit'},
     {'code': '2020', 'name': 'چک‌های پرداختنی', 'type': 'liability', 'side': 'credit'},
+    {'code': '2030', 'name': 'وام و قرض پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '2100', 'name': 'مالیات ارزش افزوده پرداختنی', 'type': 'liability', 'side': 'credit'},
     {'code': '3000', 'name': 'سرمایه و مانده افتتاحیه', 'type': 'equity', 'side': 'credit'},
     {'code': '4000', 'name': 'درآمد فروش کالا', 'type': 'income', 'side': 'credit'},
@@ -64,10 +65,13 @@ class AppDatabase {
         await _createCoreSchema(db);
         await _createAccountingSchema(db);
         await _createCommerceSchema(db);
+        await _createPaymentAllocationSchema(db);
         await _createPartyAndCheckSchema(db);
+        await _createPartyRolesSchema(db);
         await _createBankReconciliationSchema(db);
         await _createInvoiceArchiveSchema(db);
         await _createInvoiceSettingsSchema(db);
+        await _createLoanSchema(db);
         await _seedAccounts(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -106,6 +110,32 @@ class AppDatabase {
         }
         if (oldVersion < 12) {
           await _createInvoiceSettingsSchema(db);
+        }
+        if (oldVersion < 13) {
+          await _createLoanSchema(db);
+          final accountTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'accounts'",
+          );
+          if (accountTables.isNotEmpty) {
+            await _seedAccounts(db);
+          }
+        }
+        if (oldVersion < 14) {
+          await _createPartyRolesSchema(db);
+          // Some lightweight/legacy installations may not have the parties
+          // table yet. Only backfill roles when the source table is present.
+          final partyTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'parties'",
+          );
+          if (partyTables.isNotEmpty) {
+            await db.execute('''
+              INSERT OR IGNORE INTO party_roles (party_id, role, created_at)
+              SELECT id, party_type, created_at FROM parties
+            ''');
+          }
+        }
+        if (oldVersion < 15) {
+          await _createPaymentAllocationSchema(db);
         }
         if (oldVersion < 10) {
           // Older minimal migration fixtures may not have an accounts table.
@@ -362,6 +392,47 @@ class AppDatabase {
     """);
   }
 
+
+  static Future<void> _createPaymentAllocationSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_payment_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_document_id INTEGER NOT NULL,
+        invoice_document_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        created_at TEXT NOT NULL,
+        UNIQUE (payment_document_id, invoice_document_id),
+        CHECK (payment_document_id != invoice_document_id),
+        FOREIGN KEY (payment_document_id)
+          REFERENCES business_documents(id) ON DELETE RESTRICT,
+        FOREIGN KEY (invoice_document_id)
+          REFERENCES business_documents(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_payment_allocations_invoice '
+      'ON invoice_payment_allocations(invoice_document_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment '
+      'ON invoice_payment_allocations(payment_document_id)',
+    );
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_payment_allocations_update
+      BEFORE UPDATE ON invoice_payment_allocations
+      BEGIN
+        SELECT RAISE(ABORT, 'invoice payment allocations are immutable');
+      END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_payment_allocations_delete
+      BEFORE DELETE ON invoice_payment_allocations
+      BEGIN
+        SELECT RAISE(ABORT, 'invoice payment allocations cannot be deleted');
+      END
+    """);
+  }
+
   static Future<void> _createPartyAndCheckSchema(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS parties (
@@ -483,6 +554,77 @@ class AppDatabase {
 
 
 
+  static Future<void> _createLoanSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        direction TEXT NOT NULL CHECK (direction IN ('received', 'given')),
+        party_name TEXT NOT NULL,
+        principal_amount INTEGER NOT NULL CHECK (principal_amount > 0),
+        loan_date TEXT NOT NULL,
+        due_date TEXT,
+        note TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        journal_entry_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_installments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loan_id INTEGER NOT NULL,
+        installment_number INTEGER NOT NULL CHECK (installment_number > 0),
+        due_date TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0 AND paid_amount <= amount),
+        created_at TEXT NOT NULL,
+        UNIQUE (loan_id, installment_number),
+        FOREIGN KEY (loan_id) REFERENCES loan_records(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS loan_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loan_id INTEGER NOT NULL,
+        transaction_type TEXT NOT NULL CHECK (transaction_type IN ('repayment', 'disbursement')),
+        transaction_date TEXT NOT NULL,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        installment_id INTEGER,
+        journal_entry_id INTEGER NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (loan_id) REFERENCES loan_records(id) ON DELETE RESTRICT,
+        FOREIGN KEY (installment_id) REFERENCES loan_installments(id) ON DELETE RESTRICT,
+        FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_records_due ON loan_records(due_date, direction)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_installments_due ON loan_installments(due_date, loan_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_loan_transactions_loan ON loan_transactions(loan_id, transaction_date)');
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_records_update
+      BEFORE UPDATE ON loan_records
+      BEGIN SELECT RAISE(ABORT, 'loan records are immutable'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_records_delete
+      BEFORE DELETE ON loan_records
+      BEGIN SELECT RAISE(ABORT, 'loan records cannot be deleted'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_transactions_update
+      BEFORE UPDATE ON loan_transactions
+      BEGIN SELECT RAISE(ABORT, 'loan transactions are immutable'); END
+    """);
+    await db.execute("""
+      CREATE TRIGGER IF NOT EXISTS immutable_loan_transactions_delete
+      BEFORE DELETE ON loan_transactions
+      BEGIN SELECT RAISE(ABORT, 'loan transactions cannot be deleted'); END
+    """);
+  }
+
   static Future<void> _createInvoiceArchiveSchema(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS invoice_archives (
@@ -537,6 +679,21 @@ class AppDatabase {
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  static Future<void> _createPartyRolesSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS party_roles (
+        party_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('customer', 'supplier', 'other')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (party_id, role),
+        FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_party_roles_role ON party_roles(role, party_id)',
     );
   }
 
@@ -824,6 +981,21 @@ class AppDatabase {
     final table = _tableFor(category);
     final db = await database;
     final rows = await db.query(table, orderBy: 'id ASC');
+    final stockByProductId = <int, double>{};
+    if (category == 'products' && rows.isNotEmpty) {
+      // Product JSON is descriptive metadata; live stock belongs to the
+      // append-only movement ledger. Aggregate once to avoid N+1 queries and
+      // never show the stale opening quantity after purchases, sales or returns.
+      final stockRows = await db.rawQuery('''
+        SELECT product_id, COALESCE(SUM(quantity_delta), 0) AS quantity
+        FROM inventory_movements
+        GROUP BY product_id
+      ''');
+      for (final stockRow in stockRows) {
+        stockByProductId[stockRow['product_id'] as int] =
+            (stockRow['quantity'] as num).toDouble();
+      }
+    }
     return rows.map((row) {
       final raw = row['data_json'] as String;
       final decoded = jsonDecode(raw);
@@ -833,9 +1005,41 @@ class AppDatabase {
       final item = decoded.map(
         (key, value) => MapEntry(key, value?.toString() ?? ''),
       );
-      item['__database_id'] = row['id'].toString();
+      final productId = row['id'] as int;
+      if (category == 'products') {
+        item['موجودی'] = (stockByProductId[productId] ?? 0).toString();
+      }
+      item['__database_id'] = productId.toString();
       return item;
     }).toList(growable: true);
+  }
+
+  void _validateCoreRecord(
+    String category,
+    Map<String, String> item, {
+    required bool isInsert,
+  }) {
+    String value(String key) => item[key]?.trim() ?? '';
+
+    if (category == 'products') {
+      if (value('نام کالا').isEmpty) {
+        throw ArgumentError('نام کالا الزامی است');
+      }
+      if (isInsert) {
+        final stock = LocalizedNumber.tryParseDouble(value('موجودی'));
+        if (stock == null || stock < 0) {
+          throw ArgumentError('موجودی کالا باید عدد معتبر و غیرمنفی باشد');
+        }
+      }
+    } else if (category == 'customers') {
+      if (value('نام مشتری').isEmpty && value('نام').isEmpty) {
+        throw ArgumentError('نام مشتری الزامی است');
+      }
+    } else if (category == 'repairs') {
+      if (value('نام مشتری').isEmpty || value('نوع دستگاه').isEmpty) {
+        throw ArgumentError('نام مشتری و نوع دستگاه برای پذیرش تعمیر الزامی است');
+      }
+    }
   }
 
   Future<int> insert(String category, Map<String, String> item) async {
@@ -843,6 +1047,7 @@ class AppDatabase {
     if (item.isEmpty || item.values.every((value) => value.trim().isEmpty)) {
       throw ArgumentError('اطلاعات خالی قابل ذخیره نیست');
     }
+    _validateCoreRecord(category, item, isInsert: true);
 
     final now = DateTime.now().toIso8601String();
     final db = await database;
@@ -915,6 +1120,7 @@ class AppDatabase {
         values.values.every((value) => value.trim().isEmpty)) {
       throw ArgumentError('اطلاعات خالی قابل ذخیره نیست');
     }
+    _validateCoreRecord(category, values, isInsert: false);
 
     final db = await database;
     final now = DateTime.now().toIso8601String();
@@ -950,6 +1156,76 @@ class AppDatabase {
         where: 'id = ?',
         whereArgs: [id],
       );
+    });
+  }
+
+  /// Deletes only unreferenced legacy records. Financial and stock history is
+  /// append-only: records referenced by a ledger, document, or party are kept.
+  Future<void> deleteRecord(String category, int id) async {
+    final table = _tableFor(category);
+    if (id <= 0) throw ArgumentError('شناسه رکورد معتبر نیست');
+
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        table,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('رکورد موردنظر پیدا نشد');
+
+      Future<int> count(String sql, List<Object?> args) async {
+        final result = await txn.rawQuery(sql, args);
+        return (result.single['total'] as num).toInt();
+      }
+
+      if (category == 'products') {
+        final movements = await count(
+          'SELECT COUNT(*) AS total FROM inventory_movements WHERE product_id = ?',
+          [id],
+        );
+        final documentLines = await count(
+          'SELECT COUNT(*) AS total FROM business_document_lines WHERE product_id = ?',
+          [id],
+        );
+        if (movements > 0 || documentLines > 0) {
+          throw StateError(
+            'این کالا سابقه ورود یا خروج انبار یا فاکتور دارد؛ برای حفظ سوابق امکان حذف آن وجود ندارد.',
+          );
+        }
+      } else if (category == 'customers') {
+        final linkedParties = await txn.query(
+          'parties',
+          columns: ['id'],
+          where: 'source_category = ? AND source_id = ?',
+          whereArgs: ['customers', id.toString()],
+        );
+        if (linkedParties.isNotEmpty) {
+          throw StateError(
+            'این مشتری در دفتر مخاطبین ثبت شده است؛ حذف را از دفتر مخاطبین انجام دهید تا سوابق بررسی شوند.',
+          );
+        }
+      } else if (category == 'repairs') {
+        final linkedEntries = await count(
+          'SELECT COUNT(*) AS total FROM journal_entries WHERE reference_id = ?',
+          [id.toString()],
+        );
+        final linkedStockMovements = await count(
+          'SELECT COUNT(*) AS total FROM inventory_movements '
+          'WHERE reference_type = ? AND reference_id = ?',
+          ['repair_consumption', id.toString()],
+        );
+        if (linkedEntries > 0 || linkedStockMovements > 0) {
+          throw StateError(
+            'برای این پذیرش سابقه حسابداری یا مصرف قطعه در انبار ثبت شده است؛ '
+            'حذف مستقیم مجاز نیست.',
+          );
+        }
+      }
+
+      await txn.delete(table, where: 'id = ?', whereArgs: [id]);
     });
   }
 

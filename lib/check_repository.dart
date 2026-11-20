@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'accounting_repository.dart';
+import 'invoice_balance.dart';
 import 'app_database.dart';
 
 class CheckDraft {
@@ -108,34 +109,10 @@ class CheckRepository {
         }
         partyId ??= sourcePartyId;
 
-        final paymentType = draft.direction == 'incoming'
-            ? 'customer_receipt'
-            : 'supplier_payment';
-        final linkedPayments = await txn.rawQuery(
-          'SELECT COALESCE(SUM(paid_amount), 0) AS paid '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [draft.sourceDocumentId, paymentType],
+        final remaining = await InvoiceBalance.getOutstandingAmount(
+          txn,
+          draft.sourceDocumentId!,
         );
-        final linkedChecks = await txn.rawQuery(
-          'SELECT COALESCE(SUM(amount), 0) AS amount FROM check_records '
-          "WHERE source_document_id = ? AND status NOT IN ('bounced', 'cancelled')",
-          [draft.sourceDocumentId],
-        );
-        final linkedReturns = await txn.rawQuery(
-          'SELECT COALESCE(SUM(total_amount), 0) AS amount '
-          'FROM business_documents WHERE source_document_id = ? AND document_type = ?',
-          [
-            draft.sourceDocumentId,
-            draft.direction == 'incoming' ? 'customer_return' : 'supplier_return',
-          ],
-        );
-        final alreadyPaid =
-            (source['paid_amount'] as num).toInt() +
-            (linkedPayments.single['paid'] as num).toInt() +
-            (linkedChecks.single['amount'] as num).toInt();
-        final remaining = (source['total_amount'] as num).toInt() -
-            alreadyPaid -
-            (linkedReturns.single['amount'] as num).toInt();
         if (draft.amount > remaining) {
           throw StateError('مبلغ چک از مانده فاکتور بیشتر است');
         }
