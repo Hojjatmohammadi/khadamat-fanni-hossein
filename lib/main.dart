@@ -1332,6 +1332,80 @@ class DemoStore {
           'snapshot_json': jsonEncode(item),
           'archived_at': createdAt,
         });
+
+        final invoiceDate = DateTime.tryParse(item['تاریخ میلادی'] ?? '') ??
+            DateTime.parse(createdAt);
+        final customerId = int.tryParse((item['شناسه مشتری'] ?? '').trim());
+        final customerName = (item['نام مشتری'] ?? '').trim();
+        final gross = _parseMoney(item['مبلغ کل'] ?? '0');
+        final discount = _parseMoney(item['تخفیف'] ?? '0');
+        final tax = _parseMoney(item['مبلغ مالیات'] ?? '0');
+        final depositApplied = _parseMoney(item['بیعانه تخصیص‌یافته'] ?? '0');
+        final received = _parseMoney(item['مبلغ دریافتی'] ?? '0');
+        final paymentMethod = (item['روش پرداخت'] ?? 'نقدی').trim();
+
+        final productLines = <Map<String, Object?>>[];
+        final encodedLines = (item['ردیف‌های فاکتور'] ?? '').trim();
+        if (encodedLines.isNotEmpty) {
+          final decoded = jsonDecode(encodedLines);
+          if (decoded is! List) {
+            throw StateError('ردیف‌های فاکتور برای ثبت حسابداری معتبر نیستند.');
+          }
+          for (final value in decoded) {
+            if (value is! Map) {
+              throw StateError('ساختار یکی از ردیف‌های فاکتور معتبر نیست.');
+            }
+            productLines.add(Map<String, Object?>.from(value));
+          }
+        } else {
+          final productId = (item['شناسه کالای انبار'] ?? '').trim();
+          final quantity = _parseMoney(item['تعداد'] ?? '0');
+          if (productId.isNotEmpty) {
+            productLines.add({
+              'product_id': productId,
+              'quantity': quantity,
+            });
+          }
+        }
+
+        await AccountingEngine.postSaleInTransaction(
+          txn,
+          entryNumber: assignedInvoiceNumber ?? 'HOS-$recordId',
+          sourceId: recordId.toString(),
+          occurredAt: invoiceDate,
+          gross: gross,
+          discount: discount,
+          tax: tax,
+          depositApplied: depositApplied,
+          received: received,
+          paymentMethod: paymentMethod,
+          customerId: customerId,
+          customerName: customerName,
+          productLines: productLines,
+        );
+
+        if (paymentMethod == 'چک' && received > 0) {
+          final checkNumber = (item['شماره چک'] ?? '').trim();
+          final dueDate = DateTime.tryParse(item['تاریخ سررسید میلادی'] ?? '');
+          if (checkNumber.isEmpty || dueDate == null) {
+            throw StateError('برای دریافت با چک، شماره چک و تاریخ سررسید لازم است.');
+          }
+          await AppDatabaseSchema.insertCheck(
+            txn,
+            checkNumber: checkNumber,
+            direction: 'received',
+            partyType: 'customer',
+            partyId: customerId,
+            partyName: customerName,
+            amount: received,
+            issueDate: invoiceDate,
+            dueDate: dueDate,
+            bankName: item['بانک چک'] ?? '',
+            notes: 'دریافت چک بابت فاکتور ' + (assignedInvoiceNumber ?? recordId.toString()),
+            sourceType: 'sale',
+            sourceId: recordId.toString(),
+          );
+        }
       }
       if (category == 'operations') {
         await _postOperationInTransaction(
