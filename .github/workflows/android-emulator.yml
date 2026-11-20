@@ -183,6 +183,9 @@ jobs:
 
       - name: Run app on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # GitHub-hosted Ubuntu runners may not expose KVM; force the emulator's TCG fallback.
+          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: 34
           target: google_apis
