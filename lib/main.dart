@@ -1180,7 +1180,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final repairCustomerOptions = widget.title == 'پذیرش تعمیر'
         ? await DemoStore.parties.getParties(partyType: 'customer')
         : <Map<String, Object?>>[];
-    if (!context.mounted) return;
+    if (!mounted) return;
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> addRepairCustomer() async {
