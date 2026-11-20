@@ -185,6 +185,87 @@ void main() {
     expect(ledger.single['credit'], 200);
   });
 
+  test('party ledger account filter includes AR and customer credit only', () async {
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final customerCreditId = await AccountingEngine.accountId(db, '2010');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+    final returnRevenueId = await AccountingEngine.accountId(db, '4100');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'PARTY-FILTER-OPENING',
+      occurredAt: DateTime(2026, 1, 5),
+      description: 'فاکتور و گردش اعتبار قبل از دوره',
+      sourceType: 'unit_test',
+      sourceId: 'party-filter-opening',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 100,
+          partyType: 'customer',
+          partyId: 84,
+        ),
+        // Revenue is intentionally tagged to the party too; the subledger
+        // must not count it in addition to the receivable.
+        JournalLineInput(
+          accountId: revenueId,
+          credit: 100,
+          partyType: 'customer',
+          partyId: 84,
+        ),
+      ],
+    );
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'PARTY-FILTER-DEPOSIT',
+      occurredAt: DateTime(2026, 1, 8),
+      description: 'بیعانه مشتری',
+      sourceType: 'unit_test',
+      sourceId: 'party-filter-deposit',
+      lines: [
+        JournalLineInput(accountId: cashId, debit: 50),
+        JournalLineInput(
+          accountId: customerCreditId,
+          credit: 50,
+          partyType: 'customer',
+          partyId: 84,
+        ),
+      ],
+    );
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'PARTY-FILTER-RETURN',
+      occurredAt: DateTime(2026, 2, 8),
+      description: 'برگشت از فروش',
+      sourceType: 'unit_test',
+      sourceId: 'party-filter-return',
+      lines: [
+        JournalLineInput(accountId: returnRevenueId, debit: 30),
+        JournalLineInput(
+          accountId: receivableId,
+          credit: 30,
+          partyType: 'customer',
+          partyId: 84,
+        ),
+      ],
+    );
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: 84,
+      from: DateTime(2026, 2, 1),
+      to: DateTime(2026, 2, 28),
+      accountCodes: ['1100', '2010'],
+    );
+
+    expect(ledger, hasLength(1));
+    expect(ledger.single['account_code'], '1100');
+    expect(ledger.single['credit'], 30);
+    expect(ledger.single['running_balance'], 20);
+  });
+
   test('stock cardex carries movements before the selected date as opening balance',
       () async {
     final productId = await addProduct('کالای آزمون کارتکس');
