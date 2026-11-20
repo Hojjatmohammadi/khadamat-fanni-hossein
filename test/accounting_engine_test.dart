@@ -39,6 +39,23 @@ void main() {
     });
   }
 
+  test('supplier identity trims and collapses whitespace before deduplication', () async {
+    final firstId = await AppDatabaseSchema.ensureSupplier(
+      db,
+      '  ACME   Tools  ',
+    );
+    final secondId = await AppDatabaseSchema.ensureSupplier(
+      db,
+      'acme tools',
+    );
+
+    expect(secondId, firstId);
+    expect(await db.query('suppliers'), hasLength(1));
+    final supplier = (await db.query('suppliers')).single;
+    expect(supplier['name'], 'ACME Tools');
+    expect(supplier['normalized_name'], 'acme tools');
+  });
+
   test('stock cardex carries movements before the selected date as opening balance',
       () async {
     final productId = await addProduct('کالای آزمون کارتکس');
