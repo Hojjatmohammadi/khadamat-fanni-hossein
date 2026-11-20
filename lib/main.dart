@@ -3832,6 +3832,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
   Future<void> _returnDocument(Map<String, Object?> document) async {
     final documentId = (document['id'] as num).toInt();
     final lines = await DemoStore.trades.getDocumentLines(documentId);
+    if (!mounted) return;
     if (lines.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('برای این فاکتور ردیف کالایی پیدا نشد')),
@@ -3927,13 +3928,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
       }
       await DemoStore.refreshProducts();
       await _loadDocuments();
+      if (!mounted) return;
       widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('برگشت کالا و ثبت‌های حسابداری انجام شد')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('برگشت کالا و ثبت‌های حسابداری انجام شد')),
+      );
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ثبت برگشت ناموفق بود: $error')),
       );
@@ -4028,13 +4029,13 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         await DemoStore.trades.recordCustomerReceipt(draft);
       }
       await _loadDocuments();
+      if (!mounted) return;
       widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تسویه و سند دریافت / پرداخت ثبت شد')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تسویه و سند دریافت / پرداخت ثبت شد')),
+      );
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ثبت تسویه ناموفق بود: $error')),
       );
@@ -4667,7 +4668,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                       Text('تنظیمات مالی', style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: _currency,
+                        initialValue: _currency,
                         decoration: const InputDecoration(labelText: 'واحد پول', border: OutlineInputBorder()),
                         items: const [
                           DropdownMenuItem(value: 'تومان', child: Text('تومان')),
