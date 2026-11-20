@@ -418,6 +418,7 @@ class AccountingEngine {
     required int? customerId,
     required String customerName,
     required List<Map<String, Object?>> productLines,
+    int? linkedRepairSourceId,
   }) async {
     final values = [gross, discount, tax, depositApplied, received];
     if (values.any((value) => !value.isFinite || value < 0) ||
@@ -469,18 +470,135 @@ class AccountingEngine {
       }
     }
 
+    // Split product and service revenue from the invoice's line snapshots.
+    // This is required to avoid recognizing repair labor twice when the repair
+    // intake already posted that labor to the customer's receivable.
+    var productRevenue = 0.0;
+    var serviceRevenue = 0.0;
+    var explicitLineTotals = false;
+    var missingLineTotals = false;
+    var computedLineRevenue = 0.0;
+    final quantitiesByProduct = <int, double>{};
+    for (final line in productLines) {
+      final productId = int.tryParse((line['product_id'] ?? '').toString());
+      final quantityValue = line['quantity'];
+      final quantity = quantityValue is num
+          ? quantityValue.toDouble()
+          : double.tryParse((quantityValue ?? '').toString()) ?? 0;
+      if (productId != null) {
+        if (!quantity.isFinite || quantity <= 0) {
+          throw ArgumentError('تعداد کالای فاکتور معتبر نیست.');
+        }
+        quantitiesByProduct.update(
+          productId,
+          (current) => current + quantity,
+          ifAbsent: () => quantity,
+        );
+      }
+
+      final rawLineTotal = line['line_total'];
+      if (rawLineTotal == null || rawLineTotal.toString().trim().isEmpty) {
+        missingLineTotals = true;
+        continue;
+      }
+      explicitLineTotals = true;
+      final lineTotal = rawLineTotal is num
+          ? rawLineTotal.toDouble()
+          : double.tryParse(rawLineTotal.toString()) ?? double.nan;
+      if (!lineTotal.isFinite || lineTotal < 0) {
+        throw ArgumentError('مبلغ یکی از ردیف‌های فاکتور معتبر نیست.');
+      }
+      computedLineRevenue += lineTotal;
+      if (productId == null) {
+        serviceRevenue += lineTotal;
+      } else {
+        productRevenue += lineTotal;
+      }
+    }
+
+    if (productLines.isEmpty) {
+      serviceRevenue = gross;
+    } else if (missingLineTotals) {
+      if (explicitLineTotals || productLines.length != 1) {
+        throw StateError('مبلغ ردیف‌های فاکتور برای ثبت حسابداری کامل نیست.');
+      }
+      final onlyProductId = int.tryParse(
+        (productLines.single['product_id'] ?? '').toString(),
+      );
+      if (onlyProductId == null) {
+        serviceRevenue = gross;
+      } else {
+        productRevenue = gross;
+      }
+    } else if ((computedLineRevenue - gross).abs() > 0.02) {
+      throw StateError('جمع ردیف‌های فاکتور با مبلغ کل برابر نیست.');
+    }
+
+    var linkedRepairWageToClear = 0.0;
+    if (linkedRepairSourceId != null) {
+      final repairRows = await txn.query(
+        'repairs',
+        columns: ['customer_id', 'labor_cost'],
+        where: 'legacy_source_id = ?',
+        whereArgs: [linkedRepairSourceId],
+        limit: 1,
+      );
+      if (repairRows.isEmpty) {
+        throw StateError('پذیرش تعمیر مرتبط با فاکتور پیدا نشد.');
+      }
+      final repairCustomerId = repairRows.first['customer_id'] as int?;
+      final repairWage = (repairRows.first['labor_cost'] as num).toDouble();
+      if (repairWage > 0.01) {
+        if (customerId == null || repairCustomerId != customerId) {
+          throw StateError('پذیرش تعمیر و فاکتور باید به پرونده یکسان مشتری متصل باشند.');
+        }
+        if (serviceRevenue + 0.01 < repairWage) {
+          throw StateError('مبلغ ردیف‌های خدمت فاکتور باید اجرت پذیرش تعمیر را پوشش دهد.');
+        }
+        final repairJournal = await txn.query(
+          'journal_entries',
+          columns: ['id'],
+          where: "source_type = 'repair' AND source_id = ?",
+          whereArgs: [linkedRepairSourceId.toString()],
+          limit: 1,
+        );
+        if (repairJournal.isEmpty) {
+          throw StateError('سند اجرت پذیرش تعمیر در دفتر کل پیدا نشد.');
+        }
+        linkedRepairWageToClear = repairWage;
+      }
+    }
+
     final paymentAccountCode = paymentMethod == 'چک'
         ? '1020'
         : (paymentMethod.contains('کارت') || paymentMethod.contains('حواله'))
             ? '1010'
             : '1000';
-    final lines = <JournalLineInput>[
-      JournalLineInput(
+    final lines = <JournalLineInput>[];
+    if (productRevenue > 0.001) {
+      lines.add(JournalLineInput(
         accountId: await accountId(txn, '4000'),
-        credit: gross,
-        memo: 'فروش فاکتور ' + entryNumber,
-      ),
-    ];
+        credit: productRevenue,
+        memo: 'فروش قطعات فاکتور ' + entryNumber,
+      ));
+    }
+    final newServiceRevenue = serviceRevenue - linkedRepairWageToClear;
+    if (newServiceRevenue > 0.001) {
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, '4010'),
+        credit: newServiceRevenue,
+        memo: 'درآمد خدمات جدید فاکتور ' + entryNumber,
+      ));
+    }
+    if (linkedRepairWageToClear > 0.001) {
+      lines.add(JournalLineInput(
+        accountId: receivableAccount,
+        credit: linkedRepairWageToClear,
+        partyType: 'customer',
+        partyId: customerId,
+        memo: 'تسویه دریافتنی اجرت پذیرش تعمیر ' + linkedRepairSourceId.toString(),
+      ));
+    }
     if (discount > 0) {
       lines.add(JournalLineInput(
         accountId: await accountId(txn, '4110'),
@@ -528,24 +646,6 @@ class AccountingEngine {
         partyId: customerId,
         memo: 'اعتبار مازاد پرداخت مشتری در فاکتور ' + entryNumber,
       ));
-    }
-
-    final quantitiesByProduct = <int, double>{};
-    for (final line in productLines) {
-      final productId = int.tryParse((line['product_id'] ?? '').toString());
-      final quantityValue = line['quantity'];
-      final quantity = quantityValue is num
-          ? quantityValue.toDouble()
-          : double.tryParse((quantityValue ?? '').toString()) ?? 0;
-      if (productId == null) continue;
-      if (!quantity.isFinite || quantity <= 0) {
-        throw ArgumentError('تعداد کالای فاکتور معتبر نیست.');
-      }
-      quantitiesByProduct.update(
-        productId,
-        (current) => current + quantity,
-        ifAbsent: () => quantity,
-      );
     }
 
     var totalCostOfGoods = 0.0;
