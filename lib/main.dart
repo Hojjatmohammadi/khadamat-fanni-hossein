@@ -4713,19 +4713,11 @@ class _OperationsPageState extends State<OperationsPage> {
         : rawPartyType == 'فروشنده' ? 'supplier' : rawPartyType;
     final partyId = check['party_id'] as int?;
 
-    final allowed = direction == 'received'
-        ? <String, Set<String>>{
-            'pending': {'deposited', 'cashed', 'bounced', 'cancelled'},
-            'deposited': {'cashed', 'bounced', 'cancelled'},
-            'cashed': {'bounced', 'cancelled'},
-          }
-        : <String, Set<String>>{
-            'pending': {'spent', 'bounced', 'cancelled'},
-            'spent': {'bounced', 'cancelled'},
-          };
-    if (!(allowed[oldStatus]?.contains(nextStatus) ?? false)) {
-      throw StateError('تغییر وضعیت انتخاب‌شده مجاز نیست. وضعیت‌های قبلی و نهایی قابل بازگشت نیستند.');
-    }
+    AccountingEngine.validateCheckStatusTransition(
+      direction: direction,
+      oldStatus: oldStatus,
+      nextStatus: nextStatus,
+    );
 
     final lines = <JournalLineInput>[];
     Future<int> accountId(String code) => AccountingEngine.accountId(txn, code);
