@@ -1,5 +1,5 @@
 name: Validate Flutter code
-# Pushes run static analysis only. APK builds require a deliberate manual dispatch.
+# Normal pushes run validation; an explicitly prefixed release commit also builds installable APKs.
 
 on:
   push:
@@ -113,15 +113,15 @@ jobs:
         run: flutter analyze --no-fatal-infos lib
 
       - name: Build universal release APK
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK'))
         run: flutter build apk --release
 
       - name: Build smaller per-ABI release APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK'))
         run: flutter build apk --release --split-per-abi
 
       - name: Upload installable APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK'))
         uses: actions/upload-artifact@v4
         with:
           name: khadamat-fanni-hossein-release-apks
