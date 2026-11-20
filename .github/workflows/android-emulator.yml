@@ -1,6 +1,9 @@
 name: Android emulator smoke tests
 
 on:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
   workflow_dispatch:
 # Pushes to the work branch are the single source of automated validation.
 # Manual dispatch remains available for an intentional rerun.
@@ -184,7 +187,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           emulator-boot-timeout: 1200
           disable-animations: true
-          script: flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
+          script: |
+            flutter test integration_test/material_localizations_test.dart -d emulator-5554 --reporter expanded
+            flutter test integration_test/app_smoke_test.dart -d emulator-5554 --reporter expanded
 
       - name: Upload emulator test diagnostics
         if: always()
