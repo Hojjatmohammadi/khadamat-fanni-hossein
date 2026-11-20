@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' as legacy_material;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -30,6 +31,12 @@ void main() {
       expect(
         Localizations.localeOf(homeContext).languageCode,
         'fa',
+      );
+      // Some legacy framework widgets still resolve the SDK Material type.
+      // The compatibility bridge must make it available alongside material_ui.
+      expect(
+        legacy_material.MaterialLocalizations.of(homeContext),
+        isNotNull,
       );
     },
   );
