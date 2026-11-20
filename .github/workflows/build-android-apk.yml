@@ -1,0 +1,86 @@
+name: Build Android APK (debug)
+on:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
+    paths:
+      - '.github/workflows/build-android-apk.yml'
+      - 'lib/**'
+      - 'assets/**'
+      - 'test/**'
+      - 'tool/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate Android release configuration helpers
+        run: python3 -m unittest discover -s tool -p 'test_*.py' -v
+
+      - name: Validate app identity and version
+        run: python3 tool/android_version.py
+
+      - name: Generate Android platform
+        run: |
+          flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
+          python3 tool/android_identity.py
+          python3 tool/android_manifest.py
+
+      - name: Install dependencies and verify lockfile
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+
+      - name: Generate and validate launcher icons
+        run: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+
+      - name: Analyze Dart code
+        run: flutter analyze --no-pub --no-fatal-infos
+
+      - name: Run Flutter tests
+        run: flutter test --no-pub --reporter expanded
+
+      - name: Build installable debug APK
+        run: flutter build apk --debug --release
+
+      - name: Verify APK output
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
+          sha256sum build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: khadamat-fanni-hossein-debug-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
