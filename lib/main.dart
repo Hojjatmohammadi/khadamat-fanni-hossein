@@ -1382,6 +1382,9 @@ class DemoStore {
           customerId: customerId,
           customerName: customerName,
           productLines: productLines,
+          linkedRepairSourceId: int.tryParse(
+            (item['پذیرش تعمیر مرتبط'] ?? '').trim(),
+          ),
         );
 
         if (paymentMethod == 'چک' && received > 0) {
