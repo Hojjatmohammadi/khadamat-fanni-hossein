@@ -248,6 +248,108 @@ void main() {
     expect(history, hasLength(2));
   });
 
+
+  test('bouncing a sale cheque consumes the applied customer credit before restoring receivable', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'فروش آزمایشی',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final issueDate = DateTime(2026, 7, 1);
+    const chequeAmount = 300.0;
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SALE-CHECK-OVERPAYMENT',
+      occurredAt: issueDate,
+      description: 'فروش آزمایشی با اعتبار مازاد',
+      sourceType: 'sale',
+      sourceId: 'test-sale-cheque-overpayment',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1020'),
+          debit: chequeAmount,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2010'),
+          credit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '4000'),
+          credit: 200,
+        ),
+      ],
+    );
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'SALE-300',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'مشتری فروش آزمایشی',
+      partyId: customerId,
+      amount: chequeAmount,
+      issueDate: issueDate,
+      dueDate: DateTime(2026, 8, 1),
+      sourceType: 'sale',
+      sourceId: 'test-sale-cheque-overpayment',
+    );
+
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'pending',
+      nextStatus: 'bounced',
+      occurredAt: DateTime(2026, 8, 2),
+    ));
+
+    final balances = await db.rawQuery(
+      '''SELECT a.code, COALESCE(SUM(l.debit - l.credit), 0) AS balance
+         FROM journal_lines l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE a.code = '1020'
+            OR (a.code IN ('1100', '2010') AND l.party_type = 'customer' AND l.party_id = ?)
+         GROUP BY a.code''',
+      [customerId],
+    );
+    final byCode = {for (final row in balances) row['code']: (row['balance'] as num).toDouble()};
+    expect(byCode['1020'], closeTo(0, 0.001));
+    expect(byCode['2010'], closeTo(0, 0.001));
+    expect(byCode['1100'], closeTo(200, 0.001));
+  });
+
+  test('unlinked historical cheque cannot be bounced and leaves its history unchanged', () async {
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'OLD-UNLINKED-1',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'مشتری قدیمی',
+      amount: 125,
+      issueDate: DateTime(2026, 8, 1),
+      dueDate: DateTime(2026, 9, 1),
+    );
+
+    await expectLater(
+      db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+        txn,
+        checkId: checkId,
+        expectedOldStatus: 'pending',
+        nextStatus: 'bounced',
+        occurredAt: DateTime(2026, 9, 2),
+      )),
+      throwsStateError,
+    );
+
+    final check = (await db.query('checks_register', where: 'id = ?', whereArgs: [checkId])).single;
+    expect(check['status'], 'pending');
+    expect(await db.query('checks_history', where: 'check_id = ?', whereArgs: [checkId]), hasLength(1));
+    expect(
+      await db.query('journal_entries', where: "source_type = 'check_status' AND source_id LIKE ?", whereArgs: ['$checkId:%']),
+      isEmpty,
+    );
+  });
+
   test('stale cheque status update is rejected without changing status or history', () async {
     final checkId = await AppDatabaseSchema.insertCheck(
       db,

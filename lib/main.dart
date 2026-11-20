@@ -4821,6 +4821,75 @@ class _OperationsPageState extends State<OperationsPage> {
   static const options = ['ثبت هزینه', 'ثبت بیعانه', 'تخفیف دادن به مشتری', 'تخفیف گرفتن از فروشنده', 'متفرقه شخص بدهکار', 'متفرقه شخص بستانکار', 'پرداخت وجه', 'دریافت وجه'];
   final Set<String> _selected = {};
 
+
+  Future<void> _showCheckHistory(int checkId, String checkNumber) async {
+    final history = await DemoStore.database.query(
+      'checks_history',
+      where: 'check_id = ?',
+      whereArgs: [checkId],
+      orderBy: 'occurred_at ASC, id ASC',
+    );
+    if (!mounted) return;
+    const labels = <String, String>{
+      'pending': 'در انتظار / نزد صندوق',
+      'deposited': 'واگذار شده به بانک',
+      'cashed': 'وصول شده',
+      'spent': 'خرج شده',
+      'bounced': 'برگشت خورده',
+      'cancelled': 'باطل شده',
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('تاریخچه چک شماره ' + checkNumber),
+          content: SizedBox(
+            width: 480,
+            height: 340,
+            child: history.isEmpty
+                ? const Center(child: Text('برای این چک سابقه‌ای ثبت نشده است.'))
+                : ListView.separated(
+                    itemCount: history.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final row = history[index];
+                      final oldStatus = (row['old_status'] ?? '').toString();
+                      final newStatus = (row['new_status'] ?? '').toString();
+                      final title = oldStatus.isEmpty
+                          ? 'ثبت اولیه: ' + (labels[newStatus] ?? newStatus)
+                          : (labels[oldStatus] ?? oldStatus) + ' ← ' +
+                              (labels[newStatus] ?? newStatus);
+                      final date = DateTime.tryParse((row['occurred_at'] ?? '').toString());
+                      final dateLabel = date == null
+                          ? 'تاریخ نامشخص'
+                          : Jalali.fromDateTime(date).formatCompactDate() +
+                              ' • ' +
+                              date.hour.toString().padLeft(2, '0') +
+                              ':' +
+                              date.minute.toString().padLeft(2, '0');
+                      final notes = (row['notes'] ?? '').toString();
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        leading: const Icon(Icons.history),
+                        title: Text(title),
+                        subtitle: Text(notes.isEmpty ? dateLabel : dateLabel + '\n' + notes),
+                        isThreeLine: notes.isNotEmpty,
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('بستن'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showCheckBook() async {
     var checks = await DemoStore.database.query('checks_register', orderBy: 'due_date ASC, id ASC');
     if (!mounted) return;
@@ -4900,6 +4969,17 @@ class _OperationsPageState extends State<OperationsPage> {
                                       final refreshed = await DemoStore.database.query('checks_register', where: 'id = ?', whereArgs: [id], limit: 1);
                                       if (refreshed.isNotEmpty) refresh(() => checks[i] = refreshed.first);
                                     },
+                                  ),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _showCheckHistory(
+                                        checks[i]['id'] as int,
+                                        (checks[i]['check_number'] ?? '').toString(),
+                                      ),
+                                      icon: const Icon(Icons.history),
+                                      label: const Text('مشاهده تاریخچه'),
+                                    ),
                                   ),
                                 ],
                               ),
