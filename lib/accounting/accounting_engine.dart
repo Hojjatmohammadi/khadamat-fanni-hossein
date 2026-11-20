@@ -431,11 +431,14 @@ class AccountingEngine {
 
     final receivableAccount = await accountId(txn, '1100');
     final customerCreditAccount = await accountId(txn, '2010');
-    var availableCredit = 0.0;
-    if (depositApplied > 0) {
-      if (customerId == null) {
-        throw StateError('برای مصرف بیعانه، پرونده مشتری باید مشخص باشد.');
-      }
+    final customerHasOpenBalance =
+        (net - depositApplied - received).abs() > 0.01;
+    if (customerId == null && customerHasOpenBalance) {
+      throw StateError(
+        'برای فاکتور دارای مانده بدهی یا بستانکاری، ابتدا پرونده مشتری را انتخاب کنید.',
+      );
+    }
+    if (customerId != null) {
       final customer = await txn.query(
         'customers',
         columns: ['id'],
@@ -443,7 +446,16 @@ class AccountingEngine {
         whereArgs: [customerId],
         limit: 1,
       );
-      if (customer.isEmpty) throw StateError('پرونده مشتری برای تخصیص بیعانه پیدا نشد.');
+      if (customer.isEmpty) {
+        throw StateError('پرونده مشتری انتخاب‌شده دیگر وجود ندارد؛ مشتری را دوباره انتخاب کنید.');
+      }
+    }
+
+    if (depositApplied > 0 && customerId == null) {
+      throw StateError('برای مصرف بیعانه، پرونده مشتری باید مشخص باشد.');
+    }
+    var availableCredit = 0.0;
+    if (depositApplied > 0) {
       final creditRows = await txn.rawQuery(
         '''SELECT COALESCE(SUM(credit - debit), 0) AS available
            FROM journal_lines
