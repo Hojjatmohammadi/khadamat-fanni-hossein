@@ -261,7 +261,7 @@ void main() {
       issueDate: DateTime(2026, 10, 1),
       dueDate: DateTime(2026, 11, 1),
       sourceType: 'sale',
-      sourceId: 'sale-return-source-1',
+      sourceId: '1',
     );
 
     await expectLater(
@@ -319,7 +319,7 @@ void main() {
       issueDate: DateTime(2026, 10, 1),
       dueDate: DateTime(2026, 11, 1),
       sourceType: 'purchase',
-      sourceId: 'purchase-return-source-1',
+      sourceId: '1',
     );
 
     await expectLater(
@@ -347,7 +347,7 @@ void main() {
       issueDate: DateTime(2026, 10, 1),
       dueDate: DateTime(2026, 11, 1),
       sourceType: 'sale',
-      sourceId: 'sale-return-source-2',
+      sourceId: '2',
     );
     await db.update(
       'checks_register',
