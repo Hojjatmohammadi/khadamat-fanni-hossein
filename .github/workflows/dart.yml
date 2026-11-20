@@ -112,6 +112,119 @@ jobs:
       - name: Analyze Flutter code
         run: flutter analyze --no-fatal-infos lib
 
+      - name: Configure persistent Android release signing
+        if: "\${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
+        env:
+          ANDROID_KEYSTORE_BASE64: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "\${!name:-}" ]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Release APKs are not built with temporary Android Debug signing."
+            exit 1
+          fi
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-keystore.jks
+          test -s android/app/release-keystore.jks
+          {
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'storeFile=app/release-keystore.jks\n'
+          } > android/key.properties
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          kts = Path("android/app/build.gradle.kts")
+          groovy = Path("android/app/build.gradle")
+          path = kts if kts.exists() else groovy
+          if not path.exists():
+              raise SystemExit("Android app Gradle file not found")
+
+          source = path.read_text()
+          if path.suffix == ".kts":
+              if "signingProperties" in source or 'create("release")' in source:
+                  raise SystemExit("Release signing configuration already exists; refusing to duplicate it")
+              prefix = '''val signingProperties = java.util.Properties()
+          val signingPropertiesFile = rootProject.file("key.properties")
+          if (!signingPropertiesFile.exists()) {
+              throw GradleException("Android release signing properties are missing.")
+          }
+          signingPropertiesFile.inputStream().use { signingProperties.load(it) }
+
+          '''
+              if "android {" not in source or "buildTypes {" not in source:
+                  raise SystemExit("Unexpected Kotlin Gradle structure; release signing was not changed")
+              source = source.replace("android {", prefix + "android {", 1)
+              signing = '''signingConfigs {
+                  create("release") {
+                      keyAlias = signingProperties.getProperty("keyAlias")
+                      keyPassword = signingProperties.getProperty("keyPassword")
+                      storeFile = rootProject.file(signingProperties.getProperty("storeFile"))
+                      storePassword = signingProperties.getProperty("storePassword")
+                  }
+              }
+
+              '''
+              source = source.replace("    buildTypes {", "    " + signing.replace("\\n", "\\n    ").rstrip() + "\\n    buildTypes {", 1)
+              updated, count = re.subn(
+                  r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
+                  'signingConfig = signingConfigs.getByName("release")',
+                  source,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("Default debug signing declaration was not found")
+              source = updated
+          else:
+              if "signingProperties" in source or "signingConfigs {" in source:
+                  raise SystemExit("Release signing configuration already exists; refusing to duplicate it")
+              prefix = '''def signingProperties = new Properties()
+          def signingPropertiesFile = rootProject.file('key.properties')
+          if (!signingPropertiesFile.exists()) {
+              throw new GradleException('Android release signing properties are missing.')
+          }
+          signingPropertiesFile.withInputStream { signingProperties.load(it) }
+
+          '''
+              if "android {" not in source or "buildTypes {" not in source:
+                  raise SystemExit("Unexpected Groovy Gradle structure; release signing was not changed")
+              source = source.replace("android {", prefix + "android {", 1)
+              signing = '''signingConfigs {
+                  release {
+                      keyAlias signingProperties['keyAlias']
+                      keyPassword signingProperties['keyPassword']
+                      storeFile rootProject.file(signingProperties['storeFile'])
+                      storePassword signingProperties['storePassword']
+                  }
+              }
+
+              '''
+              source = source.replace("    buildTypes {", "    " + signing.replace("\\n", "\\n    ").rstrip() + "\\n    buildTypes {", 1)
+              updated, count = re.subn(
+                  r'signingConfig\s+signingConfigs\.debug',
+                  'signingConfig signingConfigs.release',
+                  source,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("Default debug signing declaration was not found")
+              source = updated
+
+          path.write_text(source)
+          PY
+
       - name: Build universal release APK
         if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
         run: flutter build apk --release
@@ -119,6 +232,35 @@ jobs:
       - name: Build smaller per-ABI release APKs
         if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
         run: flutter build apk --release --split-per-abi
+
+      - name: Verify APK signatures use one persistent release certificate
+        if: "\${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
+        run: |
+          set -euo pipefail
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          apksigner="$build_tools/apksigner"
+          test -x "$apksigner"
+          expected=""
+          for apk in \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/app/outputs/flutter-apk/app-x86_64-release.apk; do
+            test -s "$apk"
+            "$apksigner" verify --verbose "$apk"
+            fingerprint="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+            if [ -z "$fingerprint" ]; then
+              echo "::error::Could not read the APK signing certificate: $apk"
+              exit 1
+            fi
+            if [ -z "$expected" ]; then
+              expected="$fingerprint"
+            elif [ "$fingerprint" != "$expected" ]; then
+              echo "::error::APK files were signed with different certificates."
+              exit 1
+            fi
+          done
+          echo "All APKs use the same release certificate: $expected"
 
       - name: Upload installable APKs
         if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
