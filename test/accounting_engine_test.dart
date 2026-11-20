@@ -56,6 +56,63 @@ void main() {
     expect(supplier['normalized_name'], 'acme tools');
   });
 
+  test('party ledger date filter carries forward the opening balance', () async {
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'PARTY-OPENING-1',
+      occurredAt: DateTime(2026, 1, 5),
+      description: 'مانده قبل از دوره',
+      sourceType: 'unit_test',
+      sourceId: 'party-opening-1',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 500,
+          partyType: 'customer',
+          partyId: 42,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 500),
+      ],
+    );
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'PARTY-PERIOD-1',
+      occurredAt: DateTime(2026, 2, 5),
+      description: 'دریافت در دوره',
+      sourceType: 'unit_test',
+      sourceId: 'party-period-1',
+      lines: [
+        JournalLineInput(
+          accountId: cashId,
+          debit: 200,
+        ),
+        JournalLineInput(
+          accountId: receivableId,
+          credit: 200,
+          partyType: 'customer',
+          partyId: 42,
+        ),
+      ],
+    );
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: 42,
+      from: DateTime(2026, 2, 1),
+      to: DateTime(2026, 2, 28),
+    );
+
+    expect(ledger, hasLength(1));
+    expect(ledger.single['running_balance'], 300.0);
+    expect(ledger.single['debit'], 0);
+    expect(ledger.single['credit'], 200);
+  });
+
   test('stock cardex carries movements before the selected date as opening balance',
       () async {
     final productId = await addProduct('کالای آزمون کارتکس');
