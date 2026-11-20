@@ -42,15 +42,25 @@ class AndroidReleaseBuildTests(unittest.TestCase):
         self.assertIn("app-release.apk.sha256", workflow)
         self.assertIn("hashlib.sha256", workflow)
 
-    def test_release_and_emulator_build_workflows_require_manual_dispatch(self) -> None:
-        for relative_path in (
-            ".github/workflows/android-apk.yml",
-            ".github/workflows/android-emulator.yml",
-        ):
-            workflow = (ROOT / relative_path).read_text(encoding="utf-8")
-            header = workflow.split("permissions:", maxsplit=1)[0]
-            self.assertIn("on:\n  workflow_dispatch:", header, relative_path)
-            self.assertNotIn("  push:", header, relative_path)
+    def test_release_workflow_requires_manual_dispatch(self) -> None:
+        workflow = (ROOT / ".github/workflows/android-apk.yml").read_text(
+            encoding="utf-8"
+        )
+        header = workflow.split("permissions:", maxsplit=1)[0]
+        self.assertIn("on:\\n  workflow_dispatch:", header)
+        self.assertNotIn("  push:", header)
+
+    def test_emulator_validation_runs_on_development_branch_without_building_apk(self) -> None:
+        workflow = (ROOT / ".github/workflows/android-emulator.yml").read_text(
+            encoding="utf-8"
+        )
+        header = workflow.split("permissions:", maxsplit=1)[0]
+        self.assertIn("  push:", header)
+        self.assertIn("fix/dashboard-layout-phase2", header)
+        self.assertIn("  workflow_dispatch:", header)
+        self.assertIn("integration_test/material_localizations_test.dart", workflow)
+        self.assertIn("integration_test/app_smoke_test.dart", workflow)
+        self.assertNotIn("flutter build apk", workflow)
 
     def test_regular_flutter_ci_does_not_build_or_install_an_apk(self) -> None:
         workflow = (ROOT / ".github/workflows/flutter-ci.yml").read_text(
