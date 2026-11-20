@@ -247,7 +247,6 @@ class _CheckPageState extends State<CheckPage> {
             ),
           ),
         );
-      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -322,7 +321,6 @@ class _CheckPageState extends State<CheckPage> {
             ),
           ),
         );
-      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
