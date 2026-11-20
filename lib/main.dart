@@ -878,15 +878,8 @@ class DemoStore {
     }
   }
 
-  static double _parseMoney(String raw) {
-    var value = raw.trim();
-    const fa = '۰۱۲۳۴۵۶۷۸۹';
-    const ar = '٠١٢٣٤٥٦٧٨٩';
-    for (var i = 0; i < 10; i++) {
-      value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
-    }
-    return double.tryParse(value.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
-  }
+  static double _parseMoney(String raw) =>
+      AccountingEngine.parseLocalizedAmount(raw);
 
   static Future<void> _postOperationInTransaction(
     DatabaseExecutor txn, {
@@ -6299,7 +6292,7 @@ class _ReportsPageState extends State<ReportsPage> {
         if (_fromDate != null && occurredAt.isBefore(_fromDate!.toDateTime())) continue;
         if (_toDate != null && !occurredAt.isBefore(_toDate!.toDateTime().add(const Duration(days: 1)))) continue;
         final category = (data['دسته هزینه'] ?? 'سایر').toString();
-        final amount = double.tryParse((data['مبلغ'] ?? '0').toString()) ?? 0;
+        final amount = AccountingEngine.parseLocalizedAmount(data['مبلغ']);
         if (amount > 0 && amount.isFinite) {
           expenseCategoryTotals[category] = (expenseCategoryTotals[category] ?? 0) + amount;
         }
