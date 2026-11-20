@@ -401,6 +401,10 @@ class _ContactsPageState extends State<ContactsPage> {
             IconButton.filled(
               tooltip: 'افزودن مخاطب',
               onPressed: () => _editContact(),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFFFFD400),
+              ),
               icon: const Icon(Icons.add),
             ),
           ],
