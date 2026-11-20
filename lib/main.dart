@@ -3324,7 +3324,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
         : await AccountingEngine.partyLedger(
             DemoStore.database,
             partyType: 'customer',
-            partyId: customerId!,
+            partyId: customerId,
             accountCodes: const ['1100', '2010'],
           );
     if (normalizedLedgerRows.isNotEmpty) {
@@ -5379,7 +5379,7 @@ class _OperationsPageState extends State<OperationsPage> {
         : await AccountingEngine.partyLedger(
             DemoStore.database,
             partyType: ledgerPartyType,
-            partyId: partyId!,
+            partyId: partyId,
             accountCodes: type == 'فروشنده'
                 ? const ['2000', '1110']
                 : const ['1100', '2010'],
