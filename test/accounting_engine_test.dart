@@ -290,6 +290,35 @@ void main() {
     expect((receivable.single['balance'] as num).toDouble(), 490.0);
   });
 
+  test('sale with unpaid balance requires a linked customer record', () async {
+    await expectLater(
+      db.transaction((txn) => AccountingEngine.postSaleInTransaction(
+        txn,
+        entryNumber: 'HOS-UNLINKED',
+        sourceId: '503',
+        occurredAt: DateTime(2026, 2, 3),
+        gross: 100,
+        discount: 0,
+        tax: 0,
+        depositApplied: 0,
+        received: 20,
+        paymentMethod: 'نقدی',
+        customerId: null,
+        customerName: 'مشتری بدون پرونده',
+        productLines: const [],
+      )),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      await db.query(
+        'journal_entries',
+        where: "source_type = 'sale' AND source_id = ?",
+        whereArgs: ['503'],
+      ),
+      isEmpty,
+    );
+  });
+
   test('failed sale stock deduction rolls back journal and inventory changes', () async {
     final productId = await addProduct('کالای ناموجود آزمون');
     await db.update(
