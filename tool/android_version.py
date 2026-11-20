@@ -6,9 +6,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# Previously supplied ARM64 test APKs used versionCode 2001.
-# Every follow-up build must have a strictly greater versionCode.
-MINIMUM_BUILD_NUMBER = 2002
+# Previously supplied ARM64 APKs used versionCode 2002.
+# Every follow-up installation must use a strictly greater versionCode.
+MINIMUM_BUILD_NUMBER = 2003
 _VERSION_PATTERN = re.compile(
     r"""(?m)^version:\s*['"]?(?P<name>\d+\.\d+\.\d+)\+(?P<build>\d+)['"]?\s*(?:#.*)?$"""
 )
@@ -35,7 +35,7 @@ def validate_android_build_number(project_root: Path) -> tuple[str, int]:
     if build_number < MINIMUM_BUILD_NUMBER:
         raise AndroidVersionError(
             f"Android versionCode must be at least {MINIMUM_BUILD_NUMBER} "
-            f"to update the previously distributed ARM64 build 2001; "
+            f"to update the previously distributed ARM64 build 2002; "
             f"found {build_number}."
         )
     return version_name, build_number

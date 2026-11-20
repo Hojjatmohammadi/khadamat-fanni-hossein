@@ -23,18 +23,18 @@ class AndroidVersionTests(unittest.TestCase):
         (self.root / "pubspec.yaml").write_text(content, encoding="utf-8")
 
     def test_accepts_minimum_safe_update_build_number(self) -> None:
-        self._write(f"version: 1.0.1+{MINIMUM_BUILD_NUMBER}\n")
+        self._write(f"version: 1.0.2+{MINIMUM_BUILD_NUMBER}\n")
         self.assertEqual(
             validate_android_build_number(self.root),
-            ("1.0.1", MINIMUM_BUILD_NUMBER),
+            ("1.0.2", MINIMUM_BUILD_NUMBER),
         )
 
     def test_accepts_higher_build_number(self) -> None:
-        self._write("version: 1.0.2+2003\n")
-        self.assertEqual(validate_android_build_number(self.root), ("1.0.2", 2003))
+        self._write("version: 1.0.3+2004\n")
+        self.assertEqual(validate_android_build_number(self.root), ("1.0.3", 2004))
 
     def test_rejects_build_number_that_would_downgrade_previous_arm64_apk(self) -> None:
-        self._write("version: 1.0.1+2001\n")
+        self._write("version: 1.0.1+2002\n")
         with self.assertRaisesRegex(AndroidVersionError, "previously distributed ARM64"):
             validate_android_build_number(self.root)
 
@@ -44,7 +44,7 @@ class AndroidVersionTests(unittest.TestCase):
             validate_android_build_number(self.root)
 
     def test_rejects_duplicate_version_declarations(self) -> None:
-        self._write("version: 1.0.1+2002\nversion: 1.0.2+2003\n")
+        self._write("version: 1.0.2+2003\nversion: 1.0.3+2004\n")
         with self.assertRaisesRegex(AndroidVersionError, "exactly one version"):
             validate_android_build_number(self.root)
 
