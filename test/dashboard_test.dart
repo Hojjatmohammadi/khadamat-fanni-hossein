@@ -312,7 +312,6 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     const contactName = 'آزمون دفتر مرکزی مخاطبین';
-    print('[contacts-widget-test] start');
     // Use a dedicated database; initialize and seed it outside FakeAsync.
     final tempDir = await tester.runAsync(
       () => Directory.systemTemp.createTemp(
@@ -354,7 +353,6 @@ void main() {
         ) ??
         <String>[];
     expect(roles, containsAll(['customer', 'supplier']));
-    print('[contacts-widget-test] contact-and-roles-seeded');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -370,7 +368,6 @@ void main() {
     await _waitForText(tester, contactName);
     expect(find.text('مشتری'), findsWidgets);
     expect(find.text('فروشنده'), findsWidgets);
-    print('[contacts-widget-test] contacts-page-loaded');
 
     await tester.tap(find.byTooltip('پرونده و گردش حساب'));
     await _waitForText(tester, 'دفتر گردش حساب اشخاص');
@@ -382,7 +379,6 @@ void main() {
     expect(find.byKey(const ValueKey('record-supplier-prepayment')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-customer-check')), findsOneWidget);
     expect(find.byKey(const ValueKey('record-supplier-check')), findsOneWidget);
-    print('[contacts-widget-test] ledger-opened');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-check')));
     await _waitForText(tester, 'ثبت چک جدید');
@@ -394,7 +390,6 @@ void main() {
       find.byKey(const ValueKey('record-customer-advance')),
       'بازگشت به دفتر گردش حساب پس از فرم چک',
     );
-    print('[contacts-widget-test] check-form-opened-and-closed');
 
     await tester.tap(find.byKey(const ValueKey('record-customer-advance')));
     await _waitForFinder(
@@ -405,10 +400,8 @@ void main() {
     expect(find.text('ثبت در گردش حساب'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 300));
-    print('[contacts-widget-test] advance-form-opened-and-closed');
 
     await tester.pumpWidget(const SizedBox.shrink());
-    print('[contacts-widget-test] finished');
   });
 
   testWidgets('inventory image menu changes the actual product list display', (tester) async {
