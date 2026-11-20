@@ -212,12 +212,8 @@ class HoseinApp extends StatelessWidget {
             ),
           ),
         ),
-        builder: (context, child) => Localizations(
-          locale: const Locale('fa'),
-          delegates: GlobalMaterialLocalizations.delegates,
-          child: MaterialUiCompatibilityBridge(
-            child: child ?? const SizedBox.shrink(),
-          ),
+        builder: (context, child) => MaterialUiCompatibilityBridge(
+          child: child ?? const SizedBox.shrink(),
         ),
         home: const HomePage(),
         ),
