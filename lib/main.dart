@@ -1201,6 +1201,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
+                    textInputAction: TextInputAction.next,
                     controller: nameController,
                     autofocus: true,
                     decoration: const InputDecoration(labelText: 'نام مشتری'),
@@ -1222,6 +1223,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
+                    textInputAction: TextInputAction.next,
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
                     inputFormatters: numericInputFormattersForField('شماره همراه'),
@@ -1230,6 +1232,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   ),
                   const SizedBox(height: 8),
                   TextField(
+                    textInputAction: TextInputAction.next,
                     controller: addressController,
                     decoration: const InputDecoration(labelText: 'نشانی'),
                   ),
@@ -2005,6 +2008,7 @@ class _ProductPageState extends State<ProductPage> {
                 if (currentStock <= 0) ...[
                   const SizedBox(height: 12),
                   TextField(
+                    textInputAction: TextInputAction.next,
                     controller: costController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: false),
                     inputFormatters: numericInputFormattersForField('بهای تمام‌شده', forceNumeric: true),
@@ -3255,6 +3259,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextFormField(
+                    textInputAction: TextInputAction.next,
                     controller: nameController,
                     autofocus: true,
                     decoration: const InputDecoration(labelText: 'نام و نام خانوادگی'),
@@ -3271,6 +3276,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
+                    textInputAction: TextInputAction.next,
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
                     inputFormatters: numericInputFormattersForField('شماره همراه'),
@@ -3279,6 +3285,7 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
                   ),
                   const SizedBox(height: 10),
                   TextField(
+                    textInputAction: TextInputAction.next,
                     controller: addressController,
                     decoration: const InputDecoration(labelText: 'نشانی'),
                     maxLines: 2,
@@ -4626,6 +4633,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
+        textInputAction: lines > 1 ? TextInputAction.newline : TextInputAction.next,
         controller: _controllers[key],
         keyboardType: type ?? numericKeyboardTypeForField(label),
         inputFormatters: numericInputFormattersForField(
