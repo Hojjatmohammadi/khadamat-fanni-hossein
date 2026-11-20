@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'jalali_date_field.dart';
 import 'loan_repository.dart';
 import 'localized_number.dart';
 import 'numeric_input.dart';
@@ -17,12 +18,9 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
   final _party = TextEditingController();
   final _amount = TextEditingController();
   final _count = TextEditingController(text: '1');
-  final _date = TextEditingController(
-    text: DateTime.now().toIso8601String().substring(0, 10),
-  );
-  final _due = TextEditingController(
-    text: DateTime.now().toIso8601String().substring(0, 10),
-  );
+
+  DateTime _loanDate = DateTime.now();
+  DateTime _dueDate = DateTime.now();
 
   List<Map<String, Object?>> _loans = [];
   bool _loading = true;
@@ -40,12 +38,13 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
     _party.dispose();
     _amount.dispose();
     _count.dispose();
-    _date.dispose();
-    _due.dispose();
     super.dispose();
   }
 
   int? _number(String value) => LocalizedNumber.tryParseInt(value);
+
+  String _dateForStorage(DateTime value) =>
+      value.toIso8601String().substring(0, 10);
 
   void _message(String value) {
     if (!mounted) return;
@@ -73,15 +72,11 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
 
     final amount = _number(_amount.text);
     final count = _number(_count.text) ?? 0;
-    final loanDate = DateTime.tryParse(_date.text);
-    final dueDate = DateTime.tryParse(_due.text);
     if (_party.text.trim().isEmpty ||
         amount == null ||
         amount <= 0 ||
         count < 1 ||
-        loanDate == null ||
-        dueDate == null ||
-        dueDate.isBefore(loanDate)) {
+        _dueDate.isBefore(_loanDate)) {
       _message('نام قرض‌دهنده، مبلغ، تاریخ دریافت، سررسید و تعداد اقساط را صحیح وارد کنید');
       return;
     }
@@ -91,8 +86,8 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
       await widget.repository.createReceivedLoan(
         partyName: _party.text.trim(),
         amount: amount,
-        loanDate: _date.text,
-        dueDate: _due.text,
+        loanDate: _dateForStorage(_loanDate),
+        dueDate: _dateForStorage(_dueDate),
         installmentCount: count,
         idempotencyKey: 'loan-${DateTime.now().microsecondsSinceEpoch}',
       );
@@ -178,7 +173,7 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
       await widget.repository.recordRepayment(
         loanId: loanId,
         amount: amount,
-        paymentDate: DateTime.now().toIso8601String().substring(0, 10),
+        paymentDate: _dateForStorage(DateTime.now()),
         idempotencyKey: 'loan-repay-${DateTime.now().microsecondsSinceEpoch}',
         installmentId: next['id'] as int,
       );
@@ -197,7 +192,7 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
       .toInt()
       .toString()
       .replaceAllMapped(
-        RegExp(r'\B(?=(\d{3})+(?!\d))'),
+        RegExp(r'\\B(?=(\\d{3})+(?!\\d))'),
         (match) => ',',
       );
 
@@ -239,26 +234,20 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: _date,
-                              keyboardType: TextInputType.datetime,
-                              inputFormatters: const [
-                                NumericDateInputFormatter(separator: '-'),
-                              ],
-                              decoration: const InputDecoration(
-                                labelText: 'تاریخ دریافت (YYYY-MM-DD)',
-                              ),
+                            JalaliDateField(
+                              initialDate: _loanDate,
+                              label: 'تاریخ دریافت قرض',
+                              onChanged: (date) {
+                                setState(() => _loanDate = date);
+                              },
                             ),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: _due,
-                              keyboardType: TextInputType.datetime,
-                              inputFormatters: const [
-                                NumericDateInputFormatter(separator: '-'),
-                              ],
-                              decoration: const InputDecoration(
-                                labelText: 'تاریخ اولین سررسید (YYYY-MM-DD)',
-                              ),
+                            JalaliDateField(
+                              initialDate: _dueDate,
+                              label: 'تاریخ اولین سررسید',
+                              onChanged: (date) {
+                                setState(() => _dueDate = date);
+                              },
                             ),
                             const SizedBox(height: 8),
                             TextField(
@@ -309,8 +298,8 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
                             subtitle: Text(
                               'اصل قرض: ${_money(loan['principal_amount'])} تومان'
                               ' • پرداخت‌شده: ${_money(loan['paid_amount'])} تومان'
-                              '\nمانده بدهی: ${_money(remaining)} تومان'
-                              '\nتعداد اقساط: ${loan['installment_count']}',
+                              '\\nمانده بدهی: ${_money(remaining)} تومان'
+                              '\\nتعداد اقساط: ${loan['installment_count']}',
                             ),
                             isThreeLine: true,
                             trailing: remaining > 0
