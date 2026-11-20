@@ -37,6 +37,33 @@ void main() {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
+  testWidgets(
+    'HoseinApp provides Persian MaterialLocalizations to the dashboard AppBar',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const HoseinApp());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(tester.takeException(), isNull);
+      final title = find.byKey(const ValueKey('home-brand-title'));
+      expect(title, findsOneWidget);
+
+      final appBarContext = tester.element(title);
+      expect(
+        MaterialLocalizations.of(appBarContext),
+        isNotNull,
+      );
+      expect(
+        Localizations.localeOf(appBarContext).languageCode,
+        'fa',
+      );
+    },
+  );
+
   testWidgets('home screen shows only the requested category cards',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 1600);
