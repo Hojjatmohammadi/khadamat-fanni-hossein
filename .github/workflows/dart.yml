@@ -113,17 +113,17 @@ jobs:
         run: flutter analyze --no-fatal-infos lib
 
       - name: Configure persistent Android release signing
-        if: "\${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
+        if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
         env:
-          ANDROID_KEYSTORE_BASE64: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           missing=0
           for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
-            if [ -z "\${!name:-}" ]; then
+            if [ -z "${!name:-}" ]; then
               echo "::error::Missing required GitHub Actions secret: $name"
               missing=1
             fi
@@ -177,7 +177,7 @@ jobs:
               }
 
               '''
-              source = source.replace("    buildTypes {", "    " + signing.replace("\\n", "\\n    ").rstrip() + "\\n    buildTypes {", 1)
+              source = source.replace("    buildTypes {", "    " + signing.replace("\n", "\n    ").rstrip() + "\n    buildTypes {", 1)
               updated, count = re.subn(
                   r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
                   'signingConfig = signingConfigs.getByName("release")',
@@ -211,7 +211,7 @@ jobs:
               }
 
               '''
-              source = source.replace("    buildTypes {", "    " + signing.replace("\\n", "\\n    ").rstrip() + "\\n    buildTypes {", 1)
+              source = source.replace("    buildTypes {", "    " + signing.replace("\n", "\n    ").rstrip() + "\n    buildTypes {", 1)
               updated, count = re.subn(
                   r'signingConfig\s+signingConfigs\.debug',
                   'signingConfig signingConfigs.release',
@@ -234,7 +234,7 @@ jobs:
         run: flutter build apk --release --split-per-abi
 
       - name: Verify APK signatures use one persistent release certificate
-        if: "\${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
+        if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
         run: |
           set -euo pipefail
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
