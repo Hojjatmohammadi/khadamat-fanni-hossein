@@ -94,4 +94,44 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
-}
+
+  testWidgets(
+    'same-day Jalali due date is accepted when only the due field is edited',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('fa'),
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: LoanManagementPage(repository: repository),
+        ),
+      );
+      await _waitForText(tester, 'ثبت قرض دریافتی و برنامه اقساط');
+
+      await tester.enterText(_field('نام شخص قرض‌دهنده'), 'قرض‌دهنده همان‌روز');
+      await tester.enterText(_field('اصل مبلغ قرض (تومان)'), '۹۰۰۰');
+      await tester.enterText(
+        _field('تاریخ اولین سررسید'),
+        formatJalaliDate(DateTime.now()),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('ثبت قرض و ایجاد اقساط'));
+      await tester.pump();
+      await _waitForText(
+        tester,
+        'قرض ثبت شد؛ مبلغ به بدهی اضافه شد و درآمد محسوب نشد',
+      );
+
+      final loans = await tester.runAsync(repository.getLoans);
+      expect(loans, hasLength(1));
+      expect(loans!.single['remaining_amount'], 9000);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+ } 
