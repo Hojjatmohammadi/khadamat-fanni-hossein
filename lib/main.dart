@@ -241,6 +241,20 @@ class AppSettings {
   static String stampImage = '';
   static String signatureImage = '';
   static double fontScale = 1.0;
+  static const supportedFontScales = <double>[0.82, 0.92, 1.0, 1.12];
+
+  static double normalizeFontScale(double value) {
+    var nearest = supportedFontScales.first;
+    var distance = (nearest - value).abs();
+    for (final candidate in supportedFontScales.skip(1)) {
+      final candidateDistance = (candidate - value).abs();
+      if (candidateDistance < distance) {
+        nearest = candidate;
+        distance = candidateDistance;
+      }
+    }
+    return nearest;
+  }
   static String productImageMode = 'عکس پیش‌فرض';
   static Map<String, List<String>> productGroups = {
     'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
@@ -267,7 +281,11 @@ class AppSettings {
     drawerImage = _prefs.getString('drawer_image') ?? '';
     stampImage = _prefs.getString('invoice_stamp_image') ?? '';
     signatureImage = _prefs.getString('invoice_signature_image') ?? '';
-    fontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    final savedFontScale = _prefs.getDouble('font_scale') ?? 1.0;
+    fontScale = normalizeFontScale(savedFontScale);
+    if (fontScale != savedFontScale) {
+      await _prefs.setDouble('font_scale', fontScale);
+    }
     productImageMode = _prefs.getString('product_image_mode') ?? 'عکس پیش‌فرض';
     final savedGroups = _prefs.getString('product_groups');
     if (savedGroups != null) {
@@ -301,7 +319,7 @@ class AppSettings {
     drawerImage = newDrawerImage;
     stampImage = newStampImage;
     signatureImage = newSignatureImage;
-    fontScale = newFontScale;
+    fontScale = normalizeFontScale(newFontScale);
     await _prefs.setString('store_name', storeName);
     await _prefs.setString('manager_name', managerName);
     await _prefs.setString('store_phone', phone);
@@ -368,7 +386,7 @@ class AppSettings {
     if (data['drawer_image'] is String) { drawerImage = data['drawer_image']; await _prefs.setString('drawer_image', drawerImage); }
     if (data['invoice_stamp_image'] is String) { stampImage = data['invoice_stamp_image']; await _prefs.setString('invoice_stamp_image', stampImage); }
     if (data['invoice_signature_image'] is String) { signatureImage = data['invoice_signature_image']; await _prefs.setString('invoice_signature_image', signatureImage); }
-    if (data['font_scale'] is num) { fontScale = (data['font_scale'] as num).toDouble(); await _prefs.setDouble('font_scale', fontScale); }
+    if (data['font_scale'] is num) { fontScale = normalizeFontScale((data['font_scale'] as num).toDouble()); await _prefs.setDouble('font_scale', fontScale); }
     if (data['product_image_mode'] is String) { productImageMode = data['product_image_mode']; await _prefs.setString('product_image_mode', productImageMode); }
     if (data['product_groups'] is Map) {
       productGroups = (data['product_groups'] as Map).map((k,v)=>MapEntry(k.toString(), (v as List).map((x)=>x.toString()).toList()));
@@ -461,10 +479,62 @@ class HoseinApp extends StatelessWidget {
               ),
               textTheme: ThemeData(brightness: brightness).textTheme,
             ),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(AppSettings.fontScale)),
-              child: child ?? const SizedBox.shrink(),
-            ),
+            builder: (context, child) {
+              final sourceMedia = MediaQuery.of(context);
+              final scale = AppSettings.normalizeFontScale(AppSettings.fontScale);
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : sourceMedia.size.width;
+                  final height = constraints.maxHeight.isFinite
+                      ? constraints.maxHeight
+                      : sourceMedia.size.height;
+                  final scaledSize = Size(width / scale, height / scale);
+
+                  EdgeInsets scaleInsets(EdgeInsets value) => EdgeInsets.fromLTRB(
+                    value.left / scale,
+                    value.top / scale,
+                    value.right / scale,
+                    value.bottom / scale,
+                  );
+
+                  final scaledMedia = sourceMedia.copyWith(
+                    size: scaledSize,
+                    padding: scaleInsets(sourceMedia.padding),
+                    viewPadding: scaleInsets(sourceMedia.viewPadding),
+                    viewInsets: scaleInsets(sourceMedia.viewInsets),
+                    systemGestureInsets: scaleInsets(sourceMedia.systemGestureInsets),
+                    textScaler: TextScaler.noScaling,
+                  );
+
+                  // Scale the complete app surface, not only its text. Layout
+                  // receives the inverse-sized viewport so cards, fields,
+                  // checkboxes, icons and touch targets scale together.
+                  return ClipRect(
+                    child: OverflowBox(
+                      alignment: Alignment.topLeft,
+                      minWidth: scaledSize.width,
+                      maxWidth: scaledSize.width,
+                      minHeight: scaledSize.height,
+                      maxHeight: scaledSize.height,
+                      child: Transform.scale(
+                        scale: scale,
+                        alignment: Alignment.topLeft,
+                        child: SizedBox(
+                          width: scaledSize.width,
+                          height: scaledSize.height,
+                          child: MediaQuery(
+                            data: scaledMedia,
+                            child: child ?? const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
             home: const PinLockGate(child: HomePage()),
           );
         },
@@ -4609,7 +4679,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onChanged: (v) => setState(() { themeMode = v ?? 'روشن'; darkMode = themeMode == 'تیره'; }),
           ),
           const SizedBox(height: 14),
-          const Text('اندازه نوشته‌ها'),
+          const Text('اندازه رابط کاربری'),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -4618,7 +4688,6 @@ class _SettingsPageState extends State<SettingsPage> {
               (0.92, 'کوچک'),
               (1.0, 'استاندارد'),
               (1.12, 'بزرگ'),
-              (1.28, 'خیلی بزرگ'),
             ].map((option) => ChoiceChip(
               label: Text(option.$2, maxLines: 1, softWrap: false),
               selected: fontScale == option.$1,
