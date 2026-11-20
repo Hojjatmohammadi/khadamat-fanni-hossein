@@ -401,6 +401,190 @@ class AccountingEngine {
     return id;
   }
 
+  /// Posts a sales invoice, its customer balance and stock/COGS movements
+  /// atomically. Each product is aggregated so repeated invoice lines cannot
+  /// violate the unique movement reference or decrement stock twice.
+  static Future<void> postSaleInTransaction(
+    DatabaseExecutor txn, {
+    required String entryNumber,
+    required String sourceId,
+    required DateTime occurredAt,
+    required double gross,
+    required double discount,
+    required double tax,
+    required double depositApplied,
+    required double received,
+    required String paymentMethod,
+    required int? customerId,
+    required String customerName,
+    required List<Map<String, Object?>> productLines,
+  }) async {
+    final values = [gross, discount, tax, depositApplied, received];
+    if (values.any((value) => !value.isFinite || value < 0) ||
+        gross <= 0 || discount > gross) {
+      throw ArgumentError('مبالغ فاکتور فروش معتبر نیستند.');
+    }
+    final net = gross - discount + tax;
+    if (net <= 0 || depositApplied > net + 0.01) {
+      throw ArgumentError('مبلغ نهایی یا بیعانه تخصیص‌یافته معتبر نیست.');
+    }
+
+    final receivableAccount = await accountId(txn, '1100');
+    final customerCreditAccount = await accountId(txn, '2010');
+    var availableCredit = 0.0;
+    if (depositApplied > 0) {
+      if (customerId == null) {
+        throw StateError('برای مصرف بیعانه، پرونده مشتری باید مشخص باشد.');
+      }
+      final customer = await txn.query(
+        'customers',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [customerId],
+        limit: 1,
+      );
+      if (customer.isEmpty) throw StateError('پرونده مشتری برای تخصیص بیعانه پیدا نشد.');
+      final creditRows = await txn.rawQuery(
+        '''SELECT COALESCE(SUM(credit - debit), 0) AS available
+           FROM journal_lines
+           WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+        [customerCreditAccount, customerId],
+      );
+      availableCredit = (creditRows.first['available'] as num).toDouble()
+          .clamp(0, double.infinity).toDouble();
+      if (depositApplied > availableCredit + 0.01) {
+        throw StateError('اعتبار یا بیعانه قابل استفاده مشتری کافی نیست.');
+      }
+    }
+
+    final paymentAccountCode = paymentMethod == 'چک'
+        ? '1020'
+        : (paymentMethod.contains('کارت') || paymentMethod.contains('حواله'))
+            ? '1010'
+            : '1000';
+    final lines = <JournalLineInput>[
+      JournalLineInput(
+        accountId: await accountId(txn, '4000'),
+        credit: gross,
+        memo: 'فروش فاکتور ' + entryNumber,
+      ),
+    ];
+    if (discount > 0) {
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, '4110'),
+        debit: discount,
+        memo: 'تخفیف فاکتور ' + entryNumber,
+      ));
+    }
+    if (tax > 0) {
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, '2200'),
+        credit: tax,
+        memo: 'مالیات ارزش افزوده فاکتور ' + entryNumber,
+      ));
+    }
+    if (depositApplied > 0) {
+      lines.add(JournalLineInput(
+        accountId: customerCreditAccount,
+        debit: depositApplied,
+        partyType: 'customer',
+        partyId: customerId,
+        memo: 'مصرف بیعانه قبلی مشتری ' + customerName,
+      ));
+    }
+    if (received > 0) {
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, paymentAccountCode),
+        debit: received,
+        memo: 'دریافت بابت فاکتور ' + entryNumber,
+      ));
+    }
+    final remaining = net - depositApplied - received;
+    if (remaining > 0.01) {
+      lines.add(JournalLineInput(
+        accountId: receivableAccount,
+        debit: remaining,
+        partyType: customerId == null ? '' : 'customer',
+        partyId: customerId,
+        memo: 'مانده دریافتنی فاکتور ' + entryNumber,
+      ));
+    } else if (remaining < -0.01) {
+      lines.add(JournalLineInput(
+        accountId: customerCreditAccount,
+        credit: -remaining,
+        partyType: customerId == null ? '' : 'customer',
+        partyId: customerId,
+        memo: 'اعتبار مازاد پرداخت مشتری در فاکتور ' + entryNumber,
+      ));
+    }
+
+    final quantitiesByProduct = <int, double>{};
+    for (final line in productLines) {
+      final productId = int.tryParse((line['product_id'] ?? '').toString());
+      final quantityValue = line['quantity'];
+      final quantity = quantityValue is num
+          ? quantityValue.toDouble()
+          : double.tryParse((quantityValue ?? '').toString()) ?? 0;
+      if (productId == null) continue;
+      if (!quantity.isFinite || quantity <= 0) {
+        throw ArgumentError('تعداد کالای فاکتور معتبر نیست.');
+      }
+      quantitiesByProduct.update(
+        productId,
+        (current) => current + quantity,
+        ifAbsent: () => quantity,
+      );
+    }
+
+    var totalCostOfGoods = 0.0;
+    for (final entry in quantitiesByProduct.entries) {
+      final productRows = await txn.query(
+        'products',
+        columns: ['purchase_price'],
+        where: 'id = ?',
+        whereArgs: [entry.key],
+        limit: 1,
+      );
+      if (productRows.isEmpty) throw StateError('کالای فاکتور در انبار پیدا نشد.');
+      final fallback = (productRows.first['purchase_price'] as num).toDouble();
+      final unitCost = await averageUnitCost(txn, entry.key, fallback: fallback);
+      await recordStockMovementInTransaction(
+        txn,
+        productId: entry.key,
+        movementType: 'sale',
+        quantityDelta: -entry.value,
+        unitCost: unitCost,
+        referenceType: 'sale',
+        referenceId: sourceId,
+        notes: 'خروج کالا بابت فاکتور ' + entryNumber,
+        occurredAt: occurredAt,
+      );
+      totalCostOfGoods += unitCost * entry.value;
+    }
+    if (totalCostOfGoods > 0.001) {
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, '5000'),
+        debit: totalCostOfGoods,
+        memo: 'بهای تمام‌شده فروش ' + entryNumber,
+      ));
+      lines.add(JournalLineInput(
+        accountId: await accountId(txn, '1200'),
+        credit: totalCostOfGoods,
+        memo: 'خروج بهای موجودی بابت فروش ' + entryNumber,
+      ));
+    }
+
+    await postJournalInTransaction(
+      txn,
+      entryNumber: 'SALE-' + sourceId,
+      occurredAt: occurredAt,
+      description: 'ثبت فاکتور فروش ' + entryNumber,
+      sourceType: 'sale',
+      sourceId: sourceId,
+      lines: lines,
+    );
+  }
+
   /// Calculates moving weighted-average cost from immutable stock movements.
   /// Product master purchase_price is only a fallback for legacy rows without
   /// movement history and is not allowed to rewrite historical unit costs.
