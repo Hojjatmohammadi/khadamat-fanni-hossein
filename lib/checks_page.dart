@@ -236,11 +236,11 @@ class _CheckPageState extends State<CheckPage> {
         _dueDate = DateTime.now().add(const Duration(days: 7));
       });
       await _load();
+      if (!mounted) return;
       widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
               remindersEnabled
                   ? 'چک ثبت شد؛ یادآوری یک‌روز قبل و روزانه از سررسید فعال شد.'
                   : 'چک ثبت شد؛ برای یادآوری خودکار، مجوز اعلان‌ها را فعال کنید.',
@@ -249,6 +249,7 @@ class _CheckPageState extends State<CheckPage> {
         );
       }
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ثبت چک ناموفق بود: $error')),
       );
@@ -308,11 +309,11 @@ class _CheckPageState extends State<CheckPage> {
         reminderSyncFailed = true;
       }
       await _load();
+      if (!mounted) return;
       widget.onChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
               reminderSyncFailed
                   ? 'وضعیت چک ثبت شد؛ به‌روزرسانی یادآوری خودکار ناموفق بود.'
                   : !remindersEnabled
@@ -323,6 +324,7 @@ class _CheckPageState extends State<CheckPage> {
         );
       }
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('تغییر وضعیت چک ناموفق بود: $error')),
       );
