@@ -276,10 +276,34 @@ class AccountingEngine {
     DateTime? from,
     DateTime? to,
   }) async {
-    final clauses = <String>['l.party_type = ?', 'l.party_id = ?'];
-    final args = <Object?>[partyType, partyId];
-    if (from != null) { clauses.add('e.occurred_at >= ?'); args.add(from.toIso8601String()); }
-    if (to != null) { clauses.add('e.occurred_at < ?'); args.add(to.add(const Duration(days: 1)).toIso8601String()); }
+    final partyWhere = 'l.party_type = ? AND l.party_id = ?';
+    final partyArgs = <Object?>[partyType, partyId];
+
+    // A date-filtered ledger must carry forward the balance accumulated before
+    // the selected period; otherwise the first displayed balance is misleading.
+    var balance = 0.0;
+    if (from != null) {
+      final openingRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(l.debit), 0) AS debit_total,
+               COALESCE(SUM(l.credit), 0) AS credit_total
+        FROM journal_lines l
+        JOIN journal_entries e ON e.id = l.entry_id
+        WHERE $partyWhere AND e.occurred_at < ?
+      ''', [...partyArgs, from.toIso8601String()]);
+      balance = (openingRows.first['debit_total'] as num).toDouble() -
+          (openingRows.first['credit_total'] as num).toDouble();
+    }
+
+    final clauses = <String>[partyWhere];
+    final args = <Object?>[...partyArgs];
+    if (from != null) {
+      clauses.add('e.occurred_at >= ?');
+      args.add(from.toIso8601String());
+    }
+    if (to != null) {
+      clauses.add('e.occurred_at < ?');
+      args.add(to.add(const Duration(days: 1)).toIso8601String());
+    }
     final rows = await db.rawQuery('''
       SELECT e.id AS entry_id, e.entry_number, e.occurred_at, e.description,
              l.debit, l.credit, l.memo, a.code AS account_code, a.name AS account_name
@@ -289,7 +313,6 @@ class AccountingEngine {
       WHERE ${clauses.join(' AND ')}
       ORDER BY e.occurred_at ASC, e.id ASC, l.id ASC
     ''', args);
-    var balance = 0.0;
     return rows.map((row) {
       balance += (row['debit'] as num).toDouble() - (row['credit'] as num).toDouble();
       return <String, Object?>{...row, 'running_balance': balance};
