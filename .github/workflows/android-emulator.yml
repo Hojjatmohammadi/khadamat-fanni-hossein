@@ -176,6 +176,10 @@ jobs:
 
       - name: Run app on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # GitHub-hosted Linux runners do not expose a hardware CPU accelerator.
+          # Android Emulator 37 requires explicit opt-in to TCG software emulation.
+          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: 34
           target: google_apis
