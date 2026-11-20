@@ -3756,13 +3756,15 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
         );
         return;
       }
-      _lines.add(TradeLineDraft(
-        productId: productId,
-        quantity: quantity,
-        unitPrice: price,
-      ));
-      _quantityController.text = '1';
-      _priceController.clear();
+      setState(() {
+        _lines.add(TradeLineDraft(
+          productId: productId,
+          quantity: quantity,
+          unitPrice: price,
+        ));
+        _quantityController.text = '1';
+        _priceController.clear();
+      });
     }
 
     if (_partyController.text.trim().isEmpty) {
