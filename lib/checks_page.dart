@@ -223,6 +223,7 @@ class _CheckPageState extends State<CheckPage> {
       } catch (_) {
         // The cheque and its accounting entry are already safely committed.
       }
+      if (!mounted) return;
       _number.clear();
       _bank.clear();
       _drawer.clear();
