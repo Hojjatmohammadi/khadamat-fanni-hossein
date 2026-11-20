@@ -197,7 +197,7 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
       .toInt()
       .toString()
       .replaceAllMapped(
-        RegExp(r'\\B(?=(\\d{3})+(?!\\d))'),
+        RegExp(r'\B(?=(\d{3})+(?!\d))'),
         (match) => ',',
       );
 
@@ -309,8 +309,8 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
                             subtitle: Text(
                               'اصل قرض: ${_money(loan['principal_amount'])} تومان'
                               ' • پرداخت‌شده: ${_money(loan['paid_amount'])} تومان'
-                              '\\nمانده بدهی: ${_money(remaining)} تومان'
-                              '\\nتعداد اقساط: ${loan['installment_count']}',
+                              '\nمانده بدهی: ${_money(remaining)} تومان'
+                              '\nتعداد اقساط: ${loan['installment_count']}',
                             ),
                             isThreeLine: true,
                             trailing: remaining > 0
