@@ -8,7 +8,8 @@ on:
 # Pushes to the work branch are the single source of automated validation.
 # Manual dispatch remains available for an intentional rerun.
 concurrency:
-  group: android-emulator-${{ github.ref }}
+  # Separate the software-emulation runner from older hung hardware-acceleration attempts.
+  group: android-emulator-tcg-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
