@@ -636,7 +636,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         initialMessage: DemoStore.backupStartupNotice,
         onRestored: () async {
           await DemoStore.refreshAfterRestore();
-          if (!mounted) return;
+          if (!context.mounted) return;
           setState(() {
             tab = 0;
             _tabHistory.clear();
@@ -1180,6 +1180,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final repairCustomerOptions = widget.title == 'پذیرش تعمیر'
         ? await DemoStore.parties.getParties(partyType: 'customer')
         : <Map<String, Object?>>[];
+    if (!context.mounted) return;
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> addRepairCustomer() async {
@@ -1437,9 +1438,10 @@ class _SimpleListPageState extends State<SimpleListPage> {
                   DemoStore.add(category, item).then((_) {
                     if (dialogContext.mounted) Navigator.pop(dialogContext, true);
                   }).catchError((Object error, StackTrace stackTrace) {
-                    if (dialogContext.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')));
-                    }
+                    if (!dialogContext.mounted) return;
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('ذخیره اطلاعات ناموفق بود: $error')),
+                    );
                   });
                 } else {
                   Navigator.pop(dialogContext, false);
@@ -1850,8 +1852,8 @@ class _ProductPageState extends State<ProductPage> {
                         Navigator.pop(dialogContext, true);
                       }
                     } catch (error) {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (!dialogContext.mounted) return;
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
                         SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
                       );
                     }
@@ -2603,7 +2605,7 @@ class _ProductPageState extends State<ProductPage> {
 
 class CustomerPage extends StatelessWidget {
   final VoidCallback onChanged;
-  final GlobalKey<_SimpleListPageState> listKey;
+  final GlobalKey listKey;
   const CustomerPage({super.key, required this.onChanged, required this.listKey});
 
   @override
@@ -2836,7 +2838,7 @@ class _RepairPageState extends State<RepairPage> {
                       Navigator.pop(dialogContext, true);
                     }
                   } catch (error) {
-                    if (!mounted) return;
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('ثبت مصرف قطعه ناموفق بود: $error')),
                     );
