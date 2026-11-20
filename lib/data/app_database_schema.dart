@@ -128,7 +128,7 @@ class AppDatabaseSchema {
     String phone = '',
     String address = '',
   }) async {
-    final name = supplierName.trim().replaceAll(RegExp(r'\\s+'), ' ');
+    final name = supplierName.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (name.isEmpty) throw ArgumentError('نام فروشنده الزامی است.');
     final normalized = name.toLowerCase();
     final existing = await db.query(
