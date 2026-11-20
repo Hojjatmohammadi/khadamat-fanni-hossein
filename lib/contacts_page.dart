@@ -409,7 +409,7 @@ class _ContactsPageState extends State<ContactsPage> {
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: DropdownButtonFormField<String>(
-          value: _roleFilter,
+          initialValue: _roleFilter,
           isExpanded: true,
           decoration: const InputDecoration(
             labelText: 'فیلتر نقش مخاطب',
