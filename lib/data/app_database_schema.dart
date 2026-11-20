@@ -1535,6 +1535,20 @@ class AppDatabaseSchema {
           'برای فاکتور دارای مانده بدهی، بستانکاری یا بیعانه، پرونده مشتری را انتخاب کنید.',
         );
       }
+      if (depositApplied > 0.01) {
+        final customerCreditAccountId = await AccountingEngine.accountId(db, '2010');
+        final creditRows = await db.rawQuery(
+          '''SELECT COALESCE(SUM(credit - debit), 0) AS available
+             FROM journal_lines
+             WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+          [customerCreditAccountId, customerIdValue],
+        );
+        final availableCredit = (creditRows.first['available'] as num).toDouble()
+            .clamp(0, double.infinity).toDouble();
+        if (depositApplied > availableCredit + 0.01) {
+          throw StateError('اعتبار یا بیعانه قابل استفاده مشتری برای این فاکتور کافی نیست.');
+        }
+      }
       final invoiceNumber = _text(data, 'شماره فاکتور').isEmpty
           ? 'LEGACY-' + sourceId.toString()
           : _text(data, 'شماره فاکتور');
