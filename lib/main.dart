@@ -3343,8 +3343,9 @@ class _SimpleListPageState extends State<SimpleListPage> {
         if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
         final tax = _ledgerAmount(data['مبلغ مالیات']);
         if (tax > 0) rows.add({'date':date,'description':'مالیات بر ارزش افزوده فاکتور','method':'','debit':tax,'credit':0.0});
-        final deposit = _ledgerAmount(data['بیعانه تخصیص‌یافته']);
-        if (deposit > 0) rows.add({'date':date,'description':'مصرف بیعانه / اعتبار قبلی مشتری','method':'','debit':0.0,'credit':deposit});
+        // The original deposit/credit operation is already present in this
+        // ledger. The invoice field only allocates that existing credit and
+        // must not create a second credit movement here.
         if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
         continue;
       } else if (record['category'] == 'repairs') {
