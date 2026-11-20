@@ -3298,6 +3298,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
       [customerName],
     );
     final sameNameCount = (sameNameRows.first['total'] as num?)?.toInt() ?? 0;
+    if (customerId == null && sameNameCount == 1) {
+      final uniqueMatch = await DemoStore.database.query(
+        'customers',
+        columns: ['id'],
+        where: "TRIM(first_name || ' ' || last_name) = ?",
+        whereArgs: [customerName],
+        limit: 2,
+      );
+      if (uniqueMatch.length == 1) customerId = uniqueMatch.first['id'] as int;
+    }
     final records = await DemoStore.database.query('records', columns: ['id','category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
     if (!mounted) return;
     final invoicedRepairIds = <String>{};
@@ -3309,65 +3319,88 @@ class _SimpleListPageState extends State<SimpleListPage> {
       } catch (_) {}
     }
     final rows = <Map<String,Object?>>[];
-    for (final record in records) {
-      Map<String,dynamic> data;
-      try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
-      final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
-      if (record['category'] == 'operations') {
-        final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
-        if (customerId != null && linkedId != null) {
-          if (linkedId != customerId) continue;
-        } else if (sameNameCount > 1 || person != customerName) {
-          continue;
+    final normalizedLedgerRows = customerId == null
+        ? <Map<String, Object?>>[]
+        : await AccountingEngine.partyLedger(
+            DemoStore.database,
+            partyType: 'customer',
+            partyId: customerId!,
+            accountCodes: const ['1100', '2010'],
+          );
+    if (normalizedLedgerRows.isNotEmpty) {
+      for (final entry in normalizedLedgerRows) {
+        final description = (entry['description'] ?? '').toString();
+        final memo = (entry['memo'] ?? '').toString();
+        rows.add({
+          'date': DateTime.tryParse((entry['occurred_at'] ?? '').toString()) ?? DateTime.now(),
+          'description': memo.isEmpty || memo == description ? description : '$description — $memo',
+          'method': (entry['account_name'] ?? '').toString(),
+          'debit': (entry['debit'] as num).toDouble(),
+          'credit': (entry['credit'] as num).toDouble(),
+        });
+      }
+    } else {
+      for (final record in records) {
+        Map<String,dynamic> data;
+        try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
+        final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
+        if (record['category'] == 'operations') {
+          final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
+          if (customerId != null && linkedId != null) {
+            if (linkedId != customerId) continue;
+          } else if (sameNameCount > 1 || person != customerName) {
+            continue;
+          }
+        } else {
+          final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
+          if (customerId != null && linkedId != null) {
+            if (linkedId != customerId) continue;
+          } else if (sameNameCount > 1 || person != customerName) {
+            continue;
+          }
         }
-      } else {
-        final linkedId = int.tryParse((data['شناسه مشتری'] ?? '').toString());
-        if (customerId != null && linkedId != null) {
-          if (linkedId != customerId) continue;
-        } else if (sameNameCount > 1 || person != customerName) {
-          continue;
+        if (record['category'] == 'operations') {
+          final type = (data['نوع عملیات'] ?? '').toString();
+          final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
+          if (partyType != 'مشتری') continue;
         }
+        final date = _ledgerDate(data['تاریخ']) ?? _ledgerDate(record['created_at']) ?? DateTime.now();
+        double debit = 0, credit = 0; String desc = '', method = '';
+        if (record['category'] == 'sales') {
+          final gross = _ledgerAmount(data['مبلغ کل']);
+          final discount = _ledgerAmount(data['تخفیف']).clamp(0, gross).toDouble();
+          final received = _ledgerAmount(data['مبلغ دریافتی']);
+          if (gross <= 0 && received <= 0) continue;
+          desc = 'فاکتور فروش: ' + (data['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمت').toString();
+          if (gross > 0) rows.add({'date':date,'description':desc,'method':'','debit':gross,'credit':0.0});
+          if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
+          final tax = _ledgerAmount(data['مبلغ مالیات']);
+          if (tax > 0) rows.add({'date':date,'description':'مالیات بر ارزش افزوده فاکتور','method':'','debit':tax,'credit':0.0});
+          // The original deposit/credit operation is already present in this
+          // ledger. The invoice field only allocates that existing credit and
+          // must not create a second credit movement here.
+          if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
+          continue;
+        } else if (record['category'] == 'repairs') {
+          if (invoicedRepairIds.contains(record['id'].toString())) continue;
+          final wage = _ledgerAmount(data['اجرت']);
+          if (wage <= 0) continue;
+          debit = wage;
+          desc = 'اجرت تعمیر: ' + (data['نوع دستگاه'] ?? 'تعمیر دستگاه').toString();
+          final fault = (data['شرح عیب'] ?? '').toString().trim();
+          if (fault.isNotEmpty) desc += ' ـ ' + fault;
+        } else {
+          final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
+          if (value <= 0) continue;
+          if (['متفرقه شخص بدهکار','پرداخت وجه'].contains(type)) debit = value;
+          else if (['متفرقه شخص بستانکار','دریافت وجه','ثبت بیعانه','تخفیف دادن'].contains(type)) credit = value;
+          else continue;
+          desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
+          method = (data['روش'] ?? '').toString();
+        }
+        rows.add({'date':date,'description':desc,'method':method,'debit':debit,'credit':credit});
       }
-      if (record['category'] == 'operations') {
-        final type = (data['نوع عملیات'] ?? '').toString();
-        final partyType = (data['نوع طرف حساب'] ?? (type == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
-        if (partyType != 'مشتری') continue;
-      }
-      final date = _ledgerDate(data['تاریخ']) ?? _ledgerDate(record['created_at']) ?? DateTime.now();
-      double debit = 0, credit = 0; String desc = '', method = '';
-      if (record['category'] == 'sales') {
-        final gross = _ledgerAmount(data['مبلغ کل']);
-        final discount = _ledgerAmount(data['تخفیف']).clamp(0, gross).toDouble();
-        final received = _ledgerAmount(data['مبلغ دریافتی']);
-        if (gross <= 0 && received <= 0) continue;
-        desc = 'فاکتور فروش: ' + (data['شرح کالا/خدمت'] ?? 'فروش کالا یا خدمت').toString();
-        if (gross > 0) rows.add({'date':date,'description':desc,'method':'','debit':gross,'credit':0.0});
-        if (discount > 0) rows.add({'date':date,'description':'تخفیف فروش به مشتری','method':'','debit':0.0,'credit':discount});
-        final tax = _ledgerAmount(data['مبلغ مالیات']);
-        if (tax > 0) rows.add({'date':date,'description':'مالیات بر ارزش افزوده فاکتور','method':'','debit':tax,'credit':0.0});
-        // The original deposit/credit operation is already present in this
-        // ledger. The invoice field only allocates that existing credit and
-        // must not create a second credit movement here.
-        if (received > 0) rows.add({'date':date,'description':'دریافت بابت فاکتور فروش','method':(data['روش پرداخت'] ?? '').toString(),'debit':0.0,'credit':received});
-        continue;
-      } else if (record['category'] == 'repairs') {
-        if (invoicedRepairIds.contains(record['id'].toString())) continue;
-        final wage = _ledgerAmount(data['اجرت']);
-        if (wage <= 0) continue;
-        debit = wage;
-        desc = 'اجرت تعمیر: ' + (data['نوع دستگاه'] ?? 'تعمیر دستگاه').toString();
-        final fault = (data['شرح عیب'] ?? '').toString().trim();
-        if (fault.isNotEmpty) desc += ' ـ ' + fault;
-      } else {
-        final type = (data['نوع عملیات'] ?? '').toString(), value = _ledgerAmount(data['مبلغ']);
-        if (value <= 0) continue;
-        if (['متفرقه شخص بدهکار','پرداخت وجه'].contains(type)) debit = value;
-        else if (['متفرقه شخص بستانکار','دریافت وجه','ثبت بیعانه','تخفیف دادن'].contains(type)) credit = value;
-        else continue;
-        desc = type; final extra = (data['توضیحات'] ?? '').toString().trim(); if (extra.isNotEmpty) desc += ' ـ ' + extra;
-        method = (data['روش'] ?? '').toString();
-      }
-      rows.add({'date':date,'description':desc,'method':method,'debit':debit,'credit':credit});
+  
     }
     rows.sort((a,b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
     double balance = 0, debitTotal = 0, creditTotal = 0;
@@ -5317,34 +5350,82 @@ class _OperationsPageState extends State<OperationsPage> {
     final name = (selected['نام شخص'] ?? '').trim();
     if (name.isEmpty) return;
     final type = (selected['نوع طرف حساب'] ?? ((selected['نوع عملیات'] == 'تخفیف گرفتن') ? 'فروشنده' : 'مشتری')).toString();
+    final partyKey = type == 'فروشنده' ? 'شناسه فروشنده' : 'شناسه مشتری';
+    int? partyId = int.tryParse((selected[partyKey] ?? '').trim());
+    if (partyId == null && type == 'فروشنده') {
+      final matches = await DemoStore.database.query(
+        'suppliers',
+        columns: ['id'],
+        where: 'name = ?',
+        whereArgs: [name],
+        limit: 2,
+      );
+      if (matches.length == 1) partyId = matches.first['id'] as int;
+    } else if (partyId == null) {
+      final matches = await DemoStore.database.query(
+        'customers',
+        columns: ['id'],
+        where: "TRIM(first_name || ' ' || last_name) = ?",
+        whereArgs: [name],
+        limit: 2,
+      );
+      if (matches.length == 1) partyId = matches.first['id'] as int;
+    }
     final records = await DemoStore.database.query('records', columns: ['data','created_at'], where: 'category = ?', whereArgs: ['operations']);
     final rows = <Map<String,Object?>>[];
-    for (final record in records) {
-      Map<String,dynamic> data;
-      try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
-      if ((data['نام شخص'] ?? '').toString().trim() != name) continue;
-      final op = (data['نوع عملیات'] ?? '').toString();
-      final partyType = (data['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
-      if (partyType != type) continue;
-      var amountText = (data['مبلغ'] ?? '0').toString().trim();
-      const faDigits = '۰۱۲۳۴۵۶۷۸۹', arDigits = '٠١٢٣٤٥٦٧٨٩';
-      for (var i = 0; i < 10; i++) { amountText = amountText.replaceAll(faDigits[i], '$i').replaceAll(arDigits[i], '$i'); }
-      final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
-      if (amount <= 0) continue;
-      final isSupplier = type == 'فروشنده';
-      final paid = double.tryParse((data['مبلغ پرداخت‌شده'] ?? '0').toString().replaceAll(',', '')) ?? 0;
-      final debit = op == 'خرید کالا' && isSupplier
-          ? paid
-          : isSupplier
-              ? (['متفرقه شخص بدهکار','پرداخت وجه','دریافت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
-              : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
-      final credit = op == 'خرید کالا' && isSupplier
-          ? amount
-          : isSupplier
-              ? (['متفرقه شخص بستانکار'].contains(op) ? amount : 0.0)
-              : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
-      if (debit == 0 && credit == 0) continue;
-      rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
+    final ledgerPartyType = type == 'فروشنده' ? 'supplier' : 'customer';
+    final normalizedLedgerRows = partyId == null
+        ? <Map<String, Object?>>[]
+        : await AccountingEngine.partyLedger(
+            DemoStore.database,
+            partyType: ledgerPartyType,
+            partyId: partyId!,
+            accountCodes: type == 'فروشنده'
+                ? const ['2000', '1110']
+                : const ['1100', '2010'],
+          );
+    if (normalizedLedgerRows.isNotEmpty) {
+      for (final entry in normalizedLedgerRows) {
+        final description = (entry['description'] ?? '').toString();
+        final memo = (entry['memo'] ?? '').toString();
+        rows.add({
+          'date': DateTime.tryParse((entry['occurred_at'] ?? '').toString()) ?? DateTime.now(),
+          'op': memo.isEmpty || memo == description ? description : '$description — $memo',
+          'debit': (entry['debit'] as num).toDouble(),
+          'credit': (entry['credit'] as num).toDouble(),
+          'method': (entry['account_name'] ?? '').toString(),
+          'note': memo,
+        });
+      }
+    } else {
+      for (final record in records) {
+        Map<String,dynamic> data;
+        try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
+        if ((data['نام شخص'] ?? '').toString().trim() != name) continue;
+        final op = (data['نوع عملیات'] ?? '').toString();
+        final partyType = (data['نوع طرف حساب'] ?? (op == 'تخفیف گرفتن' ? 'فروشنده' : 'مشتری')).toString();
+        if (partyType != type) continue;
+        var amountText = (data['مبلغ'] ?? '0').toString().trim();
+        const faDigits = '۰۱۲۳۴۵۶۷۸۹', arDigits = '٠١٢٣٤٥٦٧٨٩';
+        for (var i = 0; i < 10; i++) { amountText = amountText.replaceAll(faDigits[i], '$i').replaceAll(arDigits[i], '$i'); }
+        final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
+        if (amount <= 0) continue;
+        final isSupplier = type == 'فروشنده';
+        final paid = double.tryParse((data['مبلغ پرداخت‌شده'] ?? '0').toString().replaceAll(',', '')) ?? 0;
+        final debit = op == 'خرید کالا' && isSupplier
+            ? paid
+            : isSupplier
+                ? (['متفرقه شخص بدهکار','پرداخت وجه','دریافت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
+                : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
+        final credit = op == 'خرید کالا' && isSupplier
+            ? amount
+            : isSupplier
+                ? (['متفرقه شخص بستانکار'].contains(op) ? amount : 0.0)
+                : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
+        if (debit == 0 && credit == 0) continue;
+        rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
+      }
+  
     }
     rows.sort((a,b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
     var balance = 0.0, debits = 0.0, credits = 0.0;
