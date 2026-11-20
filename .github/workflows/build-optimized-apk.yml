@@ -1,0 +1,281 @@
+name: Build optimized Android APK (release mode)
+
+on:
+  push:
+    branches:
+      - fix/dashboard-layout-phase2
+    paths:
+      - '.github/workflows/build-optimized-apk.yml'
+      - 'lib/**'
+      - 'assets/**'
+      - 'test/**'
+      - 'integration_test/**'
+      - 'tool/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-optimized-release
+  cancel-in-progress: true
+
+jobs:
+  build-optimized-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate Android build helpers
+        run: python3 -m unittest discover -s tool -p 'test_*.py' -v
+
+      - name: Validate app identity and version
+        run: python3 tool/android_version.py
+
+      - name: Generate Android platform
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
+          fi
+          python3 tool/android_identity.py
+          python3 tool/android_manifest.py
+          for generated_file in test/widget_test.dart analysis_options.yaml; do
+            if ! git ls-files --error-unmatch "$generated_file" >/dev/null 2>&1; then
+              rm -f "$generated_file"
+            fi
+          done
+
+      - name: Set Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+          content = gradle.read_text(encoding="utf-8")
+          pattern = re.compile(r'(?m)^([ \t]*compileSdk(?:Version)?[ \t]*(?:=[ \t]*)?)(?:flutter[.]compileSdkVersion|[0-9]+)([ \t]*(?:#.*)?$)')
+          content, count = pattern.subn(lambda match: match.group(1) + "36" + match.group(2), content, count=1)
+          if count != 1:
+              raise SystemExit("Could not safely set Android compileSdk to 36")
+          gradle.write_text(content, encoding="utf-8")
+          print(f"Configured compileSdk 36 in {gradle}")
+          PY
+
+      - name: Install Android SDK platform 36
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDK_ROOT="$ANDROID_HOME"
+            for candidate in "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$SDK_ROOT/tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
+            done
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Android sdkmanager was not found"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" "platforms;android-36"
+
+      - name: Enable Android core library desugaring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android app Gradle file was not generated")
+          content = gradle.read_text(encoding="utf-8")
+          is_kotlin = gradle.suffix == ".kts"
+          enabled = "isCoreLibraryDesugaringEnabled = true" if is_kotlin else "coreLibraryDesugaringEnabled true"
+          dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' if is_kotlin else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+          if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
+              content, count = re.subn(r"(compileOptions\s*\{)", r"\1\n        " + enabled, content, count=1)
+              if count != 1:
+                  raise SystemExit("Could not find Android compileOptions block")
+          if "desugar_jdk_libs" not in content:
+              if re.search(r"dependencies\s*\{", content):
+                  content = re.sub(r"(dependencies\s*\{)", r"\1\n    " + dependency, content, count=1)
+              else:
+                  content += "\n\ndependencies {\n    " + dependency + "\n}\n"
+          gradle.write_text(content, encoding="utf-8")
+          print(f"Enabled core library desugaring in {gradle}")
+          PY
+
+      - name: Resolve dependencies and verify committed lockfile
+        run: |
+          flutter pub get
+          git ls-files --error-unmatch pubspec.lock >/dev/null
+          git diff --exit-code -- pubspec.lock
+
+      - name: Generate and verify launcher icons
+        run: |
+          dart run flutter_launcher_icons
+          python3 tool/android_launcher_icons.py
+
+      - name: Align flutter_timezone Java and Kotlin targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          packages = sorted(Path.home().joinpath(".pub-cache/hosted/pub.dev").glob("flutter_timezone-*/android/build.gradle*"))
+          if not packages:
+              raise SystemExit("Could not locate the resolved flutter_timezone Android Gradle file")
+
+          def replace_or_add_block(content, block_name, lines):
+              pattern = re.compile(r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\{.*?^([ ]*)\}")
+              match = pattern.search(content)
+              if match:
+                  indent, close_indent = match.group(1), match.group(2)
+                  body_indent = indent + "    "
+                  replacement = f"{indent}{block_name} {{\n" + "".join(f"{body_indent}{line}\n" for line in lines) + f"{close_indent}}}"
+                  return content[:match.start()] + replacement + content[match.end():]
+              android = re.search(r"(?m)^([ ]*)android[ ]*\{", content)
+              if not android:
+                  raise SystemExit(f"Could not find android block for {block_name}")
+              indent = android.group(1) + "    "
+              insertion = "\n" + indent + block_name + " {\n" + "".join(indent + "    " + line + "\n" for line in lines) + indent + "}\n"
+              return content[:android.end()] + insertion + content[android.end():]
+
+          for gradle in packages:
+              content = gradle.read_text(encoding="utf-8")
+              content = replace_or_add_block(content, "compileOptions", [
+                  "sourceCompatibility = JavaVersion.VERSION_11",
+                  "targetCompatibility = JavaVersion.VERSION_11",
+              ])
+              content = replace_or_add_block(content, "kotlinOptions", [
+                  "jvmTarget = JavaVersion.VERSION_11.toString()",
+              ])
+              gradle.write_text(content, encoding="utf-8")
+              print(f"Aligned Java/Kotlin targets in {gradle}")
+          PY
+
+      - name: Align file_picker Android compile SDK to 36
+        run: python3 tool/android_compile_sdk.py
+
+      - name: Analyze Dart code
+        run: flutter analyze --no-pub --no-fatal-infos
+
+      - name: Run Flutter tests
+        timeout-minutes: 20
+        run: flutter test --no-pub --reporter expanded
+
+      - name: Confirm release candidate uses test-only debug signing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          groovy = Path("android/app/build.gradle")
+          kotlin = Path("android/app/build.gradle.kts")
+          gradle = groovy if groovy.exists() else kotlin
+          if not gradle.exists():
+              raise SystemExit("Android Gradle file is missing")
+          source = gradle.read_text(encoding="utf-8")
+          release = re.search(r"(?ms)^[ \t]*release[ \t]*\{(?P<body>.*?)^[ \t]*\}", source)
+          if release is None:
+              raise SystemExit("Release build type was not found")
+          body = release.group("body")
+          if gradle.suffix == ".kts":
+              valid = re.search(r'signingConfig\s*=\s*signingConfigs\.getByName\(["\']debug["\']\)', body)
+          else:
+              valid = re.search(r"signingConfig\s*=?\s*signingConfigs\.debug", body)
+          if valid is None:
+              raise SystemExit(
+                  "This pipeline may only sign a test Release APK with the generated Debug key. "
+                  "A permanent Cafe Bazaar signing key must be configured in GitHub Secrets "
+                  "before production release."
+              )
+          print("Release build is explicitly configured with the test-only Debug certificate.")
+          PY
+
+      - name: Build optimized ARM64 release-mode APK
+        run: |
+          flutter clean
+          flutter build apk --release \
+            --target-platform=android-arm64 \
+            --tree-shake-icons \
+            --obfuscate \
+            --split-debug-info=build/symbols
+
+      - name: Verify APK contents, alignment, signature and size
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          SDK_ROOT="$ANDROID_HOME"
+          BUILD_TOOLS="$(find "$SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          "$ZIPALIGN" -c -v 4 "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          python3 - <<'PY'
+          import hashlib
+          import zipfile
+          from pathlib import Path
+
+          apk = Path("build/app/outputs/flutter-apk/app-release.apk")
+          with zipfile.ZipFile(apk) as archive:
+              names = set(archive.namelist())
+              if "assets/flutter_assets/kernel_blob.bin" in names:
+                  raise SystemExit("Debug JIT kernel is present in the Release APK.")
+              if "lib/arm64-v8a/libapp.so" not in names:
+                  raise SystemExit("AOT application library for ARM64 is missing.")
+              if "lib/arm64-v8a/libflutter.so" not in names:
+                  raise SystemExit("ARM64 Flutter engine is missing.")
+              if "lib/arm64-v8a/libVkLayer_khronos_validation.so" in names:
+                  raise SystemExit("Vulkan validation layer unexpectedly remains in the Release APK.")
+              abi_dirs = sorted({
+                  item.split("/")[1]
+                  for item in names
+                  if item.startswith("lib/") and len(item.split("/")) > 2
+              })
+              print("Native ABI folders: " + ", ".join(abi_dirs))
+          data = apk.read_bytes()
+          digest = hashlib.sha256(data).hexdigest()
+          apk.with_suffix(apk.suffix + ".sha256").write_text(
+              f"{digest}  {apk.name}\n", encoding="utf-8"
+          )
+          size_mib = len(data) / (1024 * 1024)
+          baseline = 107079415
+          reduction = (1 - len(data) / baseline) * 100
+          print(f"Optimized ARM64 APK size: {len(data):,} bytes ({size_mib:.2f} MiB)")
+          print(f"Size change versus prior 102.1 MiB Debug APK: {reduction:.1f}% smaller")
+          print(f"SHA-256: {digest}")
+          PY
+
+      - name: Upload optimized test APK and symbol files
+        uses: actions/upload-artifact@v4
+        with:
+          name: khadamat-fanni-hossein-optimized-arm64-release-mode-test
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+            build/symbols/**
+          if-no-files-found: error
+          retention-days: 14
