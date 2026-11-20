@@ -70,8 +70,8 @@ void main() {
       expect(dueDate, findsOneWidget);
       expect(find.byTooltip('انتخاب تاریخ شمسی'), findsNWidgets(2));
       expect(
-        tester.widget<TextField>(loanDate).controller!.text,
-        matches(RegExp(r'^\d{4}/\d{2}/\d{2}$')),
+        parseJalaliDate(tester.widget<TextField>(loanDate).controller!.text),
+        isNotNull,
       );
 
       await tester.enterText(_field('نام شخص قرض‌دهنده'), 'قرض‌دهنده آزمایشی');
