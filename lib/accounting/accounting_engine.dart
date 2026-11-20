@@ -50,6 +50,27 @@ class AccountingEngine {
     }
   }
 
+  /// Parses user-entered amounts that may contain Persian/Arabic digits
+  /// and locale-specific grouping or decimal separators.
+  static double parseLocalizedAmount(Object? raw) {
+    var value = (raw ?? '').toString().trim();
+    const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+    const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < 10; i++) {
+      value = value
+          .replaceAll(persianDigits[i], i.toString())
+          .replaceAll(arabicDigits[i], i.toString());
+    }
+    value = value
+        .replaceAll('٬', '')
+        .replaceAll(',', '')
+        .replaceAll('،', '')
+        .replaceAll('\u00A0', '')
+        .replaceAll(' ', '')
+        .replaceAll('٫', '.');
+    return double.tryParse(value) ?? 0;
+  }
+
   static const defaultAccounts = <Map<String, String>>[
     {'code':'1000','name':'صندوق','type':'asset'},
     {'code':'1010','name':'بانک','type':'asset'},
