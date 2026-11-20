@@ -37,14 +37,14 @@ jobs:
       - name: Generate Android project and verify application identity
         run: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --project-name khadamat_fanni_hossein --org com.khadamatfanni .
+            flutter create --platforms=android --project-name khadamat_fanni_hosein --org com.khadamatfanni .
           fi
           python3 tool/android_identity.py
           python3 tool/android_manifest.py
 
       - name: Install Android SDK 36
         run: |
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          SDK_ROOT="$ANDROID_HOME"
           SDKMANAGER="$(command -v sdkmanager || true)"
           if [ -z "$SDKMANAGER" ]; then
             SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
@@ -70,7 +70,7 @@ jobs:
 
           content = gradle.read_text(encoding="utf-8")
           pattern = re.compile(
-              r'(?m)^([ \\t]*compileSdk(?:Version)?[ \\t]*(?:=[ \\t]*)?)(?:flutter[.]compileSdkVersion|[0-9]+)([ \\t]*(?:#.*)?$)'
+              r'(?m)^([ \t]*compileSdk(?:Version)?[ \t]*(?:=[ \t]*)?)(?:flutter[.]compileSdkVersion|[0-9]+)([ \t]*(?:#.*)?$)'
           )
           content, count = pattern.subn(
               lambda match: match.group(1) + "36" + match.group(2),
@@ -93,23 +93,23 @@ jobs:
           )
           if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
               content, count = re.subn(
-                  r"(compileOptions\\s*\\{)",
-                  r"\\1\\n        " + enabled,
+                  r"(compileOptions\s*\{)",
+                  r"\1\n        " + enabled,
                   content,
                   count=1,
               )
               if count != 1:
                   raise SystemExit("Could not find Android compileOptions block")
           if "desugar_jdk_libs" not in content:
-              if re.search(r"dependencies\\s*\\{", content):
+              if re.search(r"dependencies\s*\{", content):
                   content = re.sub(
-                      r"(dependencies\\s*\\{)",
-                      r"\\1\\n    " + dependency,
+                      r"(dependencies\s*\{)",
+                      r"\1\n    " + dependency,
                       content,
                       count=1,
                   )
               else:
-                  content += "\\n\\ndependencies {\\n    " + dependency + "\\n}\\n"
+                  content += "\n\ndependencies {\n    " + dependency + "\n}\n"
 
           gradle.write_text(content, encoding="utf-8")
           print(f"Configured compileSdk 36 and desugaring in {gradle}")
@@ -140,26 +140,26 @@ jobs:
 
           def replace_or_add_block(content, block_name, lines):
               pattern = re.compile(
-                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\\{.*?^([ ]*)\\}"
+                  r"(?ms)^([ ]*)" + re.escape(block_name) + r"[ ]*\{.*?^([ ]*)\}"
               )
               match = pattern.search(content)
               if match:
                   indent, close_indent = match.group(1), match.group(2)
                   body_indent = indent + "    "
                   replacement = (
-                      f"{indent}{block_name} {{\\n"
-                      + "".join(f"{body_indent}{line}\\n" for line in lines)
+                      f"{indent}{block_name} {{\n"
+                      + "".join(f"{body_indent}{line}\n" for line in lines)
                       + f"{close_indent}}}"
                   )
                   return content[:match.start()] + replacement + content[match.end():]
-              android = re.search(r"(?m)^([ ]*)android[ ]*\\{", content)
+              android = re.search(r"(?m)^([ ]*)android[ ]*\{", content)
               if not android:
                   raise SystemExit(f"Could not find android block for {block_name}")
               indent = android.group(1) + "    "
               insertion = (
-                  "\\n" + indent + block_name + " {\\n"
-                  + "".join(indent + "    " + line + "\\n" for line in lines)
-                  + indent + "}\\n"
+                  "\n" + indent + block_name + " {\n"
+                  + "".join(indent + "    " + line + "\n" for line in lines)
+                  + indent + "}\n"
               )
               return content[:android.end()] + insertion + content[android.end():]
 
