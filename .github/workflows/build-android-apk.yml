@@ -8,6 +8,7 @@ on:
       - 'lib/**'
       - 'assets/**'
       - 'test/**'
+      - 'integration_test/**'
       - 'tool/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
