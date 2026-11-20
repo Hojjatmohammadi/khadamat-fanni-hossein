@@ -290,6 +290,92 @@ void main() {
     expect((receivable.single['balance'] as num).toDouble(), 490.0);
   });
 
+  test('linked repair labor is not recognized or receivable twice on its invoice', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'تعمیر',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final repairSourceId = await db.insert('records', {
+      'category': 'repairs',
+      'data': '{}',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    await db.insert('repairs', {
+      'customer_id': customerId,
+      'customer_name_snapshot': 'مشتری تعمیر',
+      'device_type': 'دستگاه آزمایش',
+      'received_at': DateTime(2026, 1, 1).toIso8601String(),
+      'labor_cost': 500.0,
+      'legacy_source_id': repairSourceId,
+    });
+
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final repairIncomeId = await AccountingEngine.accountId(db, '4010');
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'REPAIR-$repairSourceId',
+      occurredAt: DateTime(2026, 1, 1),
+      description: 'اجرت پذیرش تعمیر',
+      sourceType: 'repair',
+      sourceId: repairSourceId.toString(),
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 500,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(accountId: repairIncomeId, credit: 500),
+      ],
+    );
+
+    await db.transaction((txn) => AccountingEngine.postSaleInTransaction(
+      txn,
+      entryNumber: 'HOS-REPAIR-1',
+      sourceId: '504',
+      occurredAt: DateTime(2026, 2, 4),
+      gross: 500,
+      discount: 0,
+      tax: 0,
+      depositApplied: 0,
+      received: 200,
+      paymentMethod: 'نقدی',
+      customerId: customerId,
+      customerName: 'مشتری تعمیر',
+      productLines: const [],
+      linkedRepairSourceId: repairSourceId,
+    ));
+
+    final balanceRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
+         FROM journal_lines
+         WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+      [receivableId, customerId],
+    );
+    expect((balanceRows.single['balance'] as num).toDouble(), 300.0);
+
+    final incomeRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(credit - debit), 0) AS balance
+         FROM journal_lines WHERE account_id = ?''',
+      [repairIncomeId],
+    );
+    expect((incomeRows.single['balance'] as num).toDouble(), 500.0);
+
+    final saleEntry = await db.query(
+      'journal_entries',
+      where: "source_type = 'sale' AND source_id = ?",
+      whereArgs: ['504'],
+    );
+    expect(saleEntry, hasLength(1));
+    final saleLines = await db.query(
+      'journal_lines',
+      where: 'entry_id = ? AND account_id = ?',
+      whereArgs: [saleEntry.single['id'], repairIncomeId],
+    );
+    expect(saleLines, isEmpty);
+  });
+
   test('sale with unpaid balance requires a linked customer record', () async {
     await expectLater(
       db.transaction((txn) => AccountingEngine.postSaleInTransaction(
