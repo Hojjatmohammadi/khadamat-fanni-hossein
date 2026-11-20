@@ -32,7 +32,7 @@ base64 -w 0 hosein-release.jks
 در Windows PowerShell:
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\\hosein-release.jks"))
+[Convert]::ToBase64String([IO.File]::ReadAllBytes(".\hosein-release.jks"))
 ```
 
 مقدار Base64 را فقط در Secret مربوطه وارد کنید؛ آن را در فایل عمومی یا پیام commit قرار ندهید.
