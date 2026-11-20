@@ -197,6 +197,153 @@ void main() {
     expect(cost, closeTo(150, 0.000001));
   });
 
+  test('sales invoice posts balanced accounting and reduces stock atomically', () async {
+    final productId = await addProduct('کالای فروش آزمون');
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'opening_balance',
+      quantityDelta: 10,
+      unitCost: 50,
+      occurredAt: DateTime(2026, 1, 1),
+    );
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'آزمون',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final creditAccount = await AccountingEngine.accountId(db, '2010');
+    final cashAccount = await AccountingEngine.accountId(db, '1000');
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'CUSTOMER-CREDIT-1',
+      occurredAt: DateTime(2026, 1, 2),
+      description: 'بیعانه اولیه',
+      sourceType: 'unit_test',
+      sourceId: 'customer-credit-1',
+      lines: [
+        JournalLineInput(accountId: cashAccount, debit: 200),
+        JournalLineInput(
+          accountId: creditAccount,
+          credit: 200,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+
+    await db.transaction((txn) => AccountingEngine.postSaleInTransaction(
+      txn,
+      entryNumber: 'HOS-00001',
+      sourceId: '501',
+      occurredAt: DateTime(2026, 2, 1),
+      gross: 1000,
+      discount: 100,
+      tax: 90,
+      depositApplied: 200,
+      received: 300,
+      paymentMethod: 'نقدی',
+      customerId: customerId,
+      customerName: 'مشتری آزمون',
+      productLines: [
+        {'product_id': productId, 'quantity': 2.0},
+      ],
+    ));
+
+    final quantityRows = await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    );
+    expect((quantityRows.single['quantity'] as num).toDouble(), 8.0);
+
+    final movementRows = await db.query(
+      'stock_movements',
+      where: "reference_type = 'sale' AND reference_id = ?",
+      whereArgs: ['501'],
+    );
+    expect(movementRows, hasLength(1));
+    expect((movementRows.single['total_cost'] as num).toDouble(), 100.0);
+
+    final entryRows = await db.query(
+      'journal_entries',
+      where: "source_type = 'sale' AND source_id = ?",
+      whereArgs: ['501'],
+    );
+    expect(entryRows, hasLength(1));
+    final entryId = entryRows.single['id'] as int;
+    final totals = await db.rawQuery(
+      '''SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total
+         FROM journal_lines WHERE entry_id = ?''',
+      [entryId],
+    );
+    expect(
+      (totals.single['debit_total'] as num).toDouble(),
+      closeTo((totals.single['credit_total'] as num).toDouble(), 0.001),
+    );
+    final receivable = await db.rawQuery(
+      '''SELECT SUM(debit - credit) AS balance FROM journal_lines
+         WHERE entry_id = ? AND account_id = ?''',
+      [entryId, await AccountingEngine.accountId(db, '1100')],
+    );
+    expect((receivable.single['balance'] as num).toDouble(), 490.0);
+  });
+
+  test('failed sale stock deduction rolls back journal and inventory changes', () async {
+    final productId = await addProduct('کالای ناموجود آزمون');
+    await db.update(
+      'products',
+      {'quantity': 1.0, 'purchase_price': 25.0},
+      where: 'id = ?',
+      whereArgs: [productId],
+    );
+    await expectLater(
+      db.transaction((txn) => AccountingEngine.postSaleInTransaction(
+        txn,
+        entryNumber: 'HOS-00002',
+        sourceId: '502',
+        occurredAt: DateTime(2026, 2, 2),
+        gross: 100,
+        discount: 0,
+        tax: 0,
+        depositApplied: 0,
+        received: 0,
+        paymentMethod: 'نقدی',
+        customerId: null,
+        customerName: 'مشتری آزمون',
+        productLines: [
+          {'product_id': productId, 'quantity': 2.0},
+        ],
+      )),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(
+      await db.query(
+        'journal_entries',
+        where: "source_type = 'sale' AND source_id = ?",
+        whereArgs: ['502'],
+      ),
+      isEmpty,
+    );
+    expect(
+      await db.query(
+        'stock_movements',
+        where: "reference_type = 'sale' AND reference_id = ?",
+        whereArgs: ['502'],
+      ),
+      isEmpty,
+    );
+    final product = await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    );
+    expect((product.single['quantity'] as num).toDouble(), 1.0);
+  });
+
   test('balanced journal is stored and unbalanced journal is rejected',
       () async {
     final cashId = await AccountingEngine.accountId(db, '1000');
