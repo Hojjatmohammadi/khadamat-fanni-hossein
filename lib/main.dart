@@ -1184,6 +1184,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
     final focusNodes = widget.fields.map((_) => FocusNode()).toList();
 
     Future<void> addRepairCustomer() async {
+      if (!mounted) return;
       final nameController = TextEditingController();
       final phoneController = TextEditingController();
       final addressController = TextEditingController();
