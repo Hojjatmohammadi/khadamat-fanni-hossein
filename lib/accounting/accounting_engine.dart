@@ -23,6 +23,33 @@ class JournalLineInput {
 class AccountingEngine {
   AccountingEngine._();
 
+  /// Validates cheque status transitions before any accounting entry is posted.
+  /// A cleared cheque can later be marked bounced, but must not be cancelled:
+  /// cancellation is only valid before bank settlement.
+  static void validateCheckStatusTransition({
+    required String direction,
+    required String oldStatus,
+    required String nextStatus,
+  }) {
+    const transitions = <String, Map<String, Set<String>>>{
+      'received': {
+        'pending': {'deposited', 'cashed', 'bounced', 'cancelled'},
+        'deposited': {'cashed', 'bounced', 'cancelled'},
+        'cashed': {'bounced'},
+      },
+      'issued': {
+        'pending': {'spent', 'bounced', 'cancelled'},
+        'spent': {'bounced'},
+      },
+    };
+
+    if (!(transitions[direction]?[oldStatus]?.contains(nextStatus) ?? false)) {
+      throw StateError(
+        'تغییر وضعیت انتخاب‌شده مجاز نیست. چک وصول‌شده فقط در صورت برگشت بانکی قابل اصلاح است و وضعیت‌های نهایی قابل بازگشت نیستند.',
+      );
+    }
+  }
+
   static const defaultAccounts = <Map<String, String>>[
     {'code':'1000','name':'صندوق','type':'asset'},
     {'code':'1010','name':'بانک','type':'asset'},
