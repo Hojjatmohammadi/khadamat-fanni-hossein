@@ -302,9 +302,14 @@ class AccountingEngine {
     required int partyId,
     DateTime? from,
     DateTime? to,
+    List<String> accountCodes = const [],
   }) async {
     final partyWhere = 'l.party_type = ? AND l.party_id = ?';
     final partyArgs = <Object?>[partyType, partyId];
+    final codes = accountCodes.map((code) => code.trim()).where((code) => code.isNotEmpty).toList();
+    final accountFilter = codes.isEmpty
+        ? ''
+        : ' AND a.code IN (${List.filled(codes.length, '?').join(',')})';
 
     // A date-filtered ledger must carry forward the balance accumulated before
     // the selected period; otherwise the first displayed balance is misleading.
@@ -315,8 +320,9 @@ class AccountingEngine {
                COALESCE(SUM(l.credit), 0) AS credit_total
         FROM journal_lines l
         JOIN journal_entries e ON e.id = l.entry_id
-        WHERE $partyWhere AND e.occurred_at < ?
-      ''', [...partyArgs, from.toIso8601String()]);
+        JOIN accounts a ON a.id = l.account_id
+        WHERE $partyWhere AND e.occurred_at < ?$accountFilter
+      ''', [...partyArgs, from.toIso8601String(), ...codes]);
       balance = (openingRows.first['debit_total'] as num).toDouble() -
           (openingRows.first['credit_total'] as num).toDouble();
     }
@@ -330,6 +336,10 @@ class AccountingEngine {
     if (to != null) {
       clauses.add('e.occurred_at < ?');
       args.add(to.add(const Duration(days: 1)).toIso8601String());
+    }
+    if (codes.isNotEmpty) {
+      clauses.add('a.code IN (${List.filled(codes.length, '?').join(',')})');
+      args.addAll(codes);
     }
     final rows = await db.rawQuery('''
       SELECT e.id AS entry_id, e.entry_number, e.occurred_at, e.description,
