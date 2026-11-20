@@ -10,7 +10,7 @@ on:
 concurrency:
   # Separate the software-emulation runner from older hung hardware-acceleration attempts.
   group: android-emulator-tcg-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
