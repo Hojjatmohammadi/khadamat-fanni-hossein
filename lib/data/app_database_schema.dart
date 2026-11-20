@@ -1511,6 +1511,30 @@ class AppDatabaseSchema {
       }
       final total = gross - discount + tax;
       final customerIdValue = int.tryParse(_text(data, 'شناسه مشتری'));
+      final depositApplied = _number(data, 'بیعانه تخصیص‌یافته');
+      if (!depositApplied.isFinite || depositApplied < 0 ||
+          depositApplied > total + 0.01) {
+        throw StateError('مبلغ بیعانه تخصیص‌یافته به فاکتور نامعتبر است.');
+      }
+      if (customerIdValue != null) {
+        final customerRows = await db.query(
+          'customers',
+          columns: ['id'],
+          where: 'id = ?',
+          whereArgs: [customerIdValue],
+          limit: 1,
+        );
+        if (customerRows.isEmpty) {
+          throw StateError('پرونده مشتری انتخاب‌شده برای فاکتور پیدا نشد.');
+        }
+      }
+      final openCustomerBalance = total - received - depositApplied;
+      if (customerIdValue == null &&
+          (depositApplied > 0.01 || openCustomerBalance.abs() > 0.01)) {
+        throw StateError(
+          'برای فاکتور دارای مانده بدهی، بستانکاری یا بیعانه، پرونده مشتری را انتخاب کنید.',
+        );
+      }
       final invoiceNumber = _text(data, 'شماره فاکتور').isEmpty
           ? 'LEGACY-' + sourceId.toString()
           : _text(data, 'شماره فاکتور');
@@ -1744,10 +1768,6 @@ class AppDatabaseSchema {
           debit: received,
           memo: 'دریافت فاکتور ' + invoiceNumber,
         ));
-      }
-      final depositApplied = _number(data, 'بیعانه تخصیص‌یافته');
-      if (depositApplied < 0 || depositApplied > total + 0.01) {
-        throw StateError('مبلغ بیعانه تخصیص‌یافته به فاکتور نامعتبر است.');
       }
       if (depositApplied > 0) {
         lines.add(JournalLineInput(
