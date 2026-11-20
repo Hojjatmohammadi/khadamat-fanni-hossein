@@ -72,11 +72,13 @@ class _LoanManagementPageState extends State<LoanManagementPage> {
 
     final amount = _number(_amount.text);
     final count = _number(_count.text) ?? 0;
+    final loanDay = DateTime(_loanDate.year, _loanDate.month, _loanDate.day);
+    final dueDay = DateTime(_dueDate.year, _dueDate.month, _dueDate.day);
     if (_party.text.trim().isEmpty ||
         amount == null ||
         amount <= 0 ||
         count < 1 ||
-        _dueDate.isBefore(_loanDate)) {
+        dueDay.isBefore(loanDay)) {
       _message('نام قرض‌دهنده، مبلغ، تاریخ دریافت، سررسید و تعداد اقساط را صحیح وارد کنید');
       return;
     }
