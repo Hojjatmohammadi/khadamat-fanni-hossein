@@ -3743,9 +3743,37 @@ class _TradeEntryPageState extends State<TradeEntryPage> {
 
   Future<void> _saveDocument() async {
     if (_saving) return;
-    if (_partyController.text.trim().isEmpty || _lines.isEmpty) {
+
+    // اگر کاربر کالا، تعداد و قیمت را وارد کرده اما دکمه «افزودن کالا به فاکتور»
+    // را نزده باشد، همان ردیفِ آماده را هنگام ثبت نهایی به فاکتور اضافه کن.
+    if (_priceController.text.trim().isNotEmpty) {
+      final productId = _selectedProductId;
+      final quantity = _double(_quantityController);
+      final price = _int(_priceController);
+      if (productId == null || quantity <= 0 || price < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('کالا، تعداد و قیمت ردیف واردشده را بررسی کنید')),
+        );
+        return;
+      }
+      _lines.add(TradeLineDraft(
+        productId: productId,
+        quantity: quantity,
+        unitPrice: price,
+      ));
+      _quantityController.text = '1';
+      _priceController.clear();
+    }
+
+    if (_partyController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('نام شخص، تاریخ و حداقل یک ردیف کالا الزامی است')),
+        SnackBar(content: Text('لطفاً ${_partyLabel} را وارد یا از اشخاص ثبت‌شده انتخاب کنید')),
+      );
+      return;
+    }
+    if (_lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ابتدا کالا، تعداد و قیمت را وارد کنید؛ سپس افزودن کالا به فاکتور یا ثبت قطعی را بزنید')),
       );
       return;
     }
