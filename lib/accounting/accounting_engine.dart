@@ -51,6 +51,49 @@ class AccountingEngine {
   }
 
 
+
+  /// Prevents a return from being posted while its originating cheque can
+  /// still settle. A sale return is blocked by received cheques; a purchase
+  /// return is blocked by issued cheques. Cancelled, bounced, cashed or spent
+  /// cheques do not block the return.
+  static Future<void> ensureNoOutstandingChecksForReturn(
+    DatabaseExecutor txn, {
+    required String originalCategory,
+    required int originalSourceId,
+  }) async {
+    if (!['sales', 'operations'].contains(originalCategory)) {
+      throw ArgumentError('نوع سند برای کنترل چک‌های برگشت معتبر نیست.');
+    }
+    final isSale = originalCategory == 'sales';
+    final rows = await txn.query(
+      'checks_register',
+      columns: ['check_number'],
+      where: "source_type = ? AND source_id = ? AND direction = ? AND status IN ('pending','deposited')",
+      whereArgs: [
+        isSale ? 'sale' : 'purchase',
+        originalSourceId.toString(),
+        isSale ? 'received' : 'issued',
+      ],
+      orderBy: 'id ASC',
+      limit: 5,
+    );
+    if (rows.isEmpty) return;
+    final numbers = rows
+        .map((row) => (row['check_number'] ?? '').toString())
+        .where((number) => number.isNotEmpty)
+        .join('، ');
+    if (isSale) {
+      throw StateError(
+        'برای برگشت این فروش، ابتدا چک‌های دریافتی در انتظار را باطل یا تعیین‌تکلیف کنید: ' +
+            numbers,
+      );
+    }
+    throw StateError(
+      'برای برگشت این خرید، ابتدا چک‌های پرداختی در انتظار را لغو یا تعیین‌تکلیف کنید: ' +
+          numbers,
+    );
+  }
+
   /// Atomically changes a cheque status, posts its accounting consequence,
   /// and appends the immutable status history record.
   ///

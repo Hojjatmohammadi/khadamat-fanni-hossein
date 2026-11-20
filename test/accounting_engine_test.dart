@@ -249,6 +249,123 @@ void main() {
   });
 
 
+
+  test('sale return is blocked while a received cheque is pending or deposited', () async {
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'SALE-RETURN-OPEN',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'مشتری برگشت',
+      amount: 180,
+      issueDate: DateTime(2026, 10, 1),
+      dueDate: DateTime(2026, 11, 1),
+      sourceType: 'sale',
+      sourceId: 'sale-return-source-1',
+    );
+
+    await expectLater(
+      AccountingEngine.ensureNoOutstandingChecksForReturn(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: 1,
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('SALE-RETURN-OPEN'),
+      )),
+    );
+
+    await db.update(
+      'checks_register',
+      {'status': 'deposited'},
+      where: 'id = ?',
+      whereArgs: [checkId],
+    );
+    await expectLater(
+      AccountingEngine.ensureNoOutstandingChecksForReturn(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: 1,
+      ),
+      throwsStateError,
+    );
+
+    await db.update(
+      'checks_register',
+      {'status': 'cancelled'},
+      where: 'id = ?',
+      whereArgs: [checkId],
+    );
+    await expectLater(
+      AccountingEngine.ensureNoOutstandingChecksForReturn(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: 1,
+      ),
+      completes,
+    );
+  });
+
+  test('purchase return guard continues to block an unsettled issued cheque', () async {
+    await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'PURCHASE-RETURN-OPEN',
+      direction: 'issued',
+      partyType: 'supplier',
+      partyName: 'فروشنده برگشت',
+      amount: 220,
+      issueDate: DateTime(2026, 10, 1),
+      dueDate: DateTime(2026, 11, 1),
+      sourceType: 'purchase',
+      sourceId: 'purchase-return-source-1',
+    );
+
+    await expectLater(
+      AccountingEngine.ensureNoOutstandingChecksForReturn(
+        db,
+        originalCategory: 'operations',
+        originalSourceId: 1,
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('PURCHASE-RETURN-OPEN'),
+      )),
+    );
+  });
+
+  test('settled sale cheques do not block a return', () async {
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'SALE-RETURN-SETTLED',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'مشتری تسویه‌شده',
+      amount: 90,
+      issueDate: DateTime(2026, 10, 1),
+      dueDate: DateTime(2026, 11, 1),
+      sourceType: 'sale',
+      sourceId: 'sale-return-source-2',
+    );
+    await db.update(
+      'checks_register',
+      {'status': 'cashed'},
+      where: 'id = ?',
+      whereArgs: [checkId],
+    );
+
+    await expectLater(
+      AccountingEngine.ensureNoOutstandingChecksForReturn(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: 2,
+      ),
+      completes,
+    );
+  });
+
   test('bouncing a sale cheque consumes the applied customer credit before restoring receivable', () async {
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
