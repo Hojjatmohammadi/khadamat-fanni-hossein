@@ -111,6 +111,181 @@ void main() {
     );
   });
 
+
+  test('bouncing a received operation cheque restores the customer receivable once', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'احمد',
+      'last_name': 'آزمایشی',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final receivedAt = DateTime(2026, 2, 1);
+    const amount = 250.0;
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-RECEIPT-1',
+      occurredAt: receivedAt,
+      description: 'دریافت آزمایشی چک از مشتری',
+      sourceType: 'operation',
+      sourceId: 'test-received-check-1',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1020'),
+          debit: amount,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1100'),
+          credit: amount,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'RC-1001',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'احمد آزمایشی',
+      partyId: customerId,
+      amount: amount,
+      issueDate: receivedAt,
+      dueDate: DateTime(2026, 3, 1),
+      sourceType: 'operation',
+      sourceId: 'test-received-check-1',
+    );
+
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'pending',
+      nextStatus: 'bounced',
+      occurredAt: DateTime(2026, 3, 2),
+    ));
+
+    final check = (await db.query('checks_register', where: 'id = ?', whereArgs: [checkId])).single;
+    expect(check['status'], 'bounced');
+    expect(await db.query('checks_history', where: 'check_id = ?', whereArgs: [checkId]), hasLength(2));
+    final balances = await db.rawQuery(
+      '''SELECT a.code, COALESCE(SUM(l.debit - l.credit), 0) AS balance
+         FROM journal_lines l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE (a.code = '1020' OR (a.code = '1100' AND l.party_type = 'customer' AND l.party_id = ?))
+         GROUP BY a.code''',
+      [customerId],
+    );
+    final byCode = {for (final row in balances) row['code']: (row['balance'] as num).toDouble()};
+    expect(byCode['1020'], closeTo(0, 0.001));
+    expect(byCode['1100'], closeTo(0, 0.001));
+    final statusEntries = await db.query(
+      'journal_entries',
+      where: "source_type = 'check_status' AND source_id = ?",
+      whereArgs: ['$checkId:bounced'],
+    );
+    expect(statusEntries, hasLength(1));
+  });
+
+  test('cancelling a pending issued purchase cheque restores supplier payable', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده آزمایشی');
+    final issuedAt = DateTime(2026, 4, 1);
+    const amount = 450.0;
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-PURCHASE-CHECK-1',
+      occurredAt: issuedAt,
+      description: 'ثبت آزمایشی بدهی و چک پرداختی',
+      sourceType: 'purchase',
+      sourceId: 'test-purchase-check-1',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2000'),
+          debit: amount,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2110'),
+          credit: amount,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'PC-2001',
+      direction: 'issued',
+      partyType: 'supplier',
+      partyName: 'فروشنده آزمایشی',
+      partyId: supplierId,
+      amount: amount,
+      issueDate: issuedAt,
+      dueDate: DateTime(2026, 5, 1),
+      sourceType: 'purchase',
+      sourceId: 'test-purchase-check-1',
+    );
+
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'pending',
+      nextStatus: 'cancelled',
+      occurredAt: DateTime(2026, 5, 2),
+    ));
+
+    final check = (await db.query('checks_register', where: 'id = ?', whereArgs: [checkId])).single;
+    expect(check['status'], 'cancelled');
+    final balances = await db.rawQuery(
+      '''SELECT a.code, COALESCE(SUM(l.debit - l.credit), 0) AS balance
+         FROM journal_lines l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE a.code IN ('2000', '2110')
+         GROUP BY a.code''',
+    );
+    final byCode = {for (final row in balances) row['code']: (row['balance'] as num).toDouble()};
+    expect(byCode['2000'], closeTo(0, 0.001));
+    expect(byCode['2110'], closeTo(0, 0.001));
+    final history = await db.query('checks_history', where: 'check_id = ?', whereArgs: [checkId]);
+    expect(history, hasLength(2));
+  });
+
+  test('stale cheque status update is rejected without changing status or history', () async {
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'RC-STALE',
+      direction: 'received',
+      partyType: 'customer',
+      partyName: 'مشتری آزمایشی',
+      amount: 100,
+      issueDate: DateTime(2026, 6, 1),
+      dueDate: DateTime(2026, 7, 1),
+    );
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'pending',
+      nextStatus: 'deposited',
+      occurredAt: DateTime(2026, 6, 2),
+    ));
+
+    await expectLater(
+      db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+        txn,
+        checkId: checkId,
+        expectedOldStatus: 'pending',
+        nextStatus: 'cashed',
+        occurredAt: DateTime(2026, 6, 3),
+      )),
+      throwsStateError,
+    );
+    final check = (await db.query('checks_register', where: 'id = ?', whereArgs: [checkId])).single;
+    expect(check['status'], 'deposited');
+    expect(await db.query('checks_history', where: 'check_id = ?', whereArgs: [checkId]), hasLength(2));
+    expect(
+      await db.query('journal_entries', where: "source_type = 'check_status' AND source_id LIKE ?", whereArgs: ['$checkId:%']),
+      isEmpty,
+    );
+  });
+
   test('localized amount parser handles Persian and Arabic digits and separators', () {
     expect(AccountingEngine.parseLocalizedAmount('۱۲۳٬۴۵۶'), 123456);
     expect(AccountingEngine.parseLocalizedAmount('١٢٣,٤٥٦'), 123456);
