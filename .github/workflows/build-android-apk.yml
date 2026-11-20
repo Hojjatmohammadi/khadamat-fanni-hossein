@@ -69,11 +69,11 @@ jobs:
         run: flutter test --no-pub --reporter expanded
 
       - name: Build installable debug APK
-        run: flutter build apk --debug --release
+        run: flutter build apk --debug
 
       - name: Verify APK output
         run: |
-          test -s build/app/outputs/flutter-apk/app-release.apk
+          test -s build/app/outputs/flutter-apk/app-debug.apk
           ls -lh build/app/outputs/flutter-apk/app-release.apk
           sha256sum build/app/outputs/flutter-apk/app-release.apk
 
