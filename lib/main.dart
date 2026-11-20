@@ -52,6 +52,7 @@ class HoseinApp extends StatelessWidget {
         builder: (context, appName, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: appName,
+        locale: const Locale('fa'),
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
         supportedLocales: const [Locale('fa'), Locale('en')],
         theme: ThemeData(
@@ -211,8 +212,12 @@ class HoseinApp extends StatelessWidget {
             ),
           ),
         ),
-        builder: (context, child) => MaterialUiCompatibilityBridge(
-          child: child ?? const SizedBox.shrink(),
+        builder: (context, child) => Localizations(
+          locale: const Locale('fa'),
+          delegates: GlobalMaterialLocalizations.delegates,
+          child: MaterialUiCompatibilityBridge(
+            child: child ?? const SizedBox.shrink(),
+          ),
         ),
         home: const HomePage(),
         ),
