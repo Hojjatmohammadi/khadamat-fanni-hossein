@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   android-emulator:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
       - name: Check out source
@@ -186,12 +186,12 @@ jobs:
         with:
           api-level: 34
           target: google_apis
-          arch: arm64-v8a
+          arch: x86_64
           profile: pixel_2
           cores: 2
-          ram-size: 4096M
+          ram-size: 3072M
           heap-size: 512M
-          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           emulator-boot-timeout: 1200
           disable-animations: true
           script: |
@@ -205,5 +205,6 @@ jobs:
           name: android-emulator-diagnostics
           path: |
             /home/runner/.android/avd/*.avd/*.log
+            /home/runner/.android/avd/*.avd/*.ini
           if-no-files-found: ignore
           retention-days: 7
