@@ -1850,11 +1850,10 @@ class _ProductPageState extends State<ProductPage> {
                         Navigator.pop(dialogContext, true);
                       }
                     } catch (error) {
-                      if (dialogContext.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
-                        );
-                      }
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('ذخیره کالا ناموفق بود: $error')),
+                      );
                     }
                   }
 
@@ -2053,11 +2052,10 @@ class _ProductPageState extends State<ProductPage> {
                     Navigator.pop(dialogContext, true);
                   }
                 } catch (error) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('انبارگردانی ثبت نشد: $error')),
-                    );
-                  }
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('انبارگردانی ثبت نشد: $error')),
+                  );
                 }
               },
               child: const Text('ثبت اصلاح موجودی'),
@@ -2838,6 +2836,7 @@ class _RepairPageState extends State<RepairPage> {
                       Navigator.pop(dialogContext, true);
                     }
                   } catch (error) {
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('ثبت مصرف قطعه ناموفق بود: $error')),
                     );
@@ -2918,9 +2917,11 @@ class _RepairPageState extends State<RepairPage> {
         idempotencyKey: 'repair-service-income-' + repairId,
         repairId: repairId,
       );
+      if (!mounted) return;
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('درآمد اجرت ثبت شد؛ مانده دریافت‌نشده در حساب مشتری باقی ماند')));
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت درآمد ناموفق بود: ' + error.toString())));
     }
   }
@@ -2968,9 +2969,11 @@ class _RepairPageState extends State<RepairPage> {
         cashAccountCode: '1000',
         idempotencyKey: 'repair-service-receipt-' + repairId + '-' + DateTime.now().microsecondsSinceEpoch.toString(),
       );
+      if (!mounted) return;
       widget.onChanged();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('دریافت مانده اجرت ثبت شد')));
     } catch (error) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ثبت دریافت ناموفق بود: ' + error.toString())));
     }
   }
