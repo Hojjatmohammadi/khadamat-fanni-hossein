@@ -170,6 +170,7 @@ class _PartyLedgerPageState extends State<PartyLedgerPage> {
       }
     }
 
+    if (!mounted) return;
     final payment = await showDialog<Map<String, Object?>?>(
       context: context,
       builder: (_) => PartyPaymentDialog(
