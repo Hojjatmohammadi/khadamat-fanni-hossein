@@ -17,11 +17,17 @@ permissions:
 
 jobs:
   android-emulator:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     timeout-minutes: 75
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -177,14 +183,10 @@ jobs:
 
       - name: Run app on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
-        env:
-          # GitHub-hosted Linux runners do not expose a hardware CPU accelerator.
-          # Android Emulator 37 requires explicit opt-in to TCG software emulation.
-          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: 34
           target: google_apis
-          arch: x86_64
+          arch: arm64-v8a
           profile: pixel_2
           cores: 2
           ram-size: 4096M
