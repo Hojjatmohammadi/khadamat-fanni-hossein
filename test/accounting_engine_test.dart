@@ -360,6 +360,68 @@ void main() {
     );
   });
 
+  test('invoice cannot allocate more customer credit than the available balance', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'اعتبار',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final creditId = await AccountingEngine.accountId(db, '2010');
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'CUSTOMER-CREDIT-SMALL',
+      occurredAt: DateTime(2026, 1, 2),
+      description: 'اعتبار محدود مشتری',
+      sourceType: 'unit_test',
+      sourceId: 'customer-credit-small',
+      lines: [
+        JournalLineInput(accountId: cashId, debit: 100),
+        JournalLineInput(
+          accountId: creditId,
+          credit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+
+    final createdAt = DateTime(2026, 2, 4).toIso8601String();
+    final sale = <String, String>{
+      'شماره فاکتور': 'HOS-EXCESS-CREDIT',
+      'نام مشتری': 'مشتری اعتبار',
+      'شناسه مشتری': customerId.toString(),
+      'تعداد': '1',
+      'مبلغ کل': '500',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '0',
+      'بیعانه تخصیص‌یافته': '200',
+      'روش پرداخت': 'نقدی',
+      'تاریخ میلادی': createdAt,
+      'شرح کالا/خدمت': 'خدمت آزمون',
+    };
+
+    await expectLater(
+      db.transaction((txn) async {
+        final sourceId = await txn.insert('records', {
+          'category': 'sales',
+          'data': jsonEncode(sale),
+          'created_at': createdAt,
+        });
+        await AppDatabaseSchema.insertLegacyRecord(
+          txn, 'sales', sale, sourceId, createdAt,
+        );
+      }),
+      throwsA(isA<StateError>()),
+    );
+    expect(await db.query('invoices'), isEmpty);
+    expect(
+      await db.query('journal_entries', where: "source_type = 'sale'"),
+      isEmpty,
+    );
+  });
+
   test('linked repair labor is recognized once and invoice receipt reduces its balance', () async {
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
