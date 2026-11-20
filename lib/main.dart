@@ -1699,17 +1699,18 @@ class _ProductPageState extends State<ProductPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (int i = 0; i < names.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: TextField(
-                          controller: c[i],
-                          keyboardType: i >= 4 ? const TextInputType.numberWithOptions(decimal: true) : numericKeyboardTypeForField(names[i]),
-                          inputFormatters: numericInputFormattersForField(names[i], forceNumeric: i >= 4, allowDecimal: true),
-                          textInputAction: TextInputAction.next,
-                          onChanged: (_) => refresh(() {}),
-                          decoration: InputDecoration(labelText: names[i]),
+                      if (i != 6)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: TextField(
+                            controller: c[i],
+                            keyboardType: i >= 4 ? const TextInputType.numberWithOptions(decimal: true) : numericKeyboardTypeForField(names[i]),
+                            inputFormatters: numericInputFormattersForField(names[i], forceNumeric: i >= 4, allowDecimal: true),
+                            textInputAction: TextInputAction.next,
+                            onChanged: (_) => refresh(() {}),
+                            decoration: InputDecoration(labelText: names[i]),
+                          ),
                         ),
-                      ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
@@ -1789,6 +1790,18 @@ class _ProductPageState extends State<ProductPage> {
                         onChanged: (_) => refresh(() {}),
                         decoration: const InputDecoration(labelText: 'درصد ارزش افزوده', suffixText: '٪'),
                       ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: c[6],
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: numericInputFormattersForField('قیمت فروش', forceNumeric: true, allowDecimal: true),
+                      textInputAction: TextInputAction.next,
+                      onChanged: (_) => refresh(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'قیمت فروش',
+                        helperText: 'قیمت فروش کالا را وارد کنید',
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
