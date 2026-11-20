@@ -118,17 +118,38 @@ void _backgroundTaskDispatcher() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Workmanager().initialize(_backgroundTaskDispatcher);
-  await Workmanager().registerPeriodicTask(
-    'khadamat-daily-local-backup',
-    _dailyBackupTask,
-    frequency: const Duration(hours: 12),
-    existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-  );
+
+  // Background scheduling is an optional service. A plugin or OS scheduling
+  // failure must not prevent the main application from opening.
+  try {
+    await Workmanager().initialize(_backgroundTaskDispatcher);
+    await Workmanager().registerPeriodicTask(
+      'khadamat-daily-local-backup',
+      _dailyBackupTask,
+      frequency: const Duration(hours: 12),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+    );
+  } catch (error) {
+    debugPrint('Background backup scheduling is unavailable: $error');
+  }
+
   await DemoStore.init();
   await AppSettings.load();
-  await _initializeCheckNotifications(requestPermission: true);
-  await DemoStore.autoBackupIfDue();
+
+  // Notification permission/service failures should not leave the user with
+  // a blank screen; reminders can be retried separately.
+  try {
+    await _initializeCheckNotifications(requestPermission: true);
+  } catch (error) {
+    debugPrint('Check notifications could not be initialized: $error');
+  }
+
+  try {
+    await DemoStore.autoBackupIfDue();
+  } catch (error) {
+    debugPrint('Automatic backup could not run during startup: $error');
+  }
+
   runApp(const HoseinApp());
 }
 
