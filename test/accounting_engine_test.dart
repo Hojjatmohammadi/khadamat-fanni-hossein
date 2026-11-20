@@ -41,6 +41,76 @@ void main() {
     });
   }
 
+  test('received cheque cannot be cancelled after bank clearance', () {
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'received',
+        oldStatus: 'pending',
+        nextStatus: 'deposited',
+      ),
+      returnsNormally,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'received',
+        oldStatus: 'cashed',
+        nextStatus: 'bounced',
+      ),
+      returnsNormally,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'received',
+        oldStatus: 'cashed',
+        nextStatus: 'cancelled',
+      ),
+      throwsStateError,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'received',
+        oldStatus: 'cancelled',
+        nextStatus: 'cashed',
+      ),
+      throwsStateError,
+    );
+  });
+
+  test('issued cheque cannot be cancelled after it has been spent', () {
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'issued',
+        oldStatus: 'pending',
+        nextStatus: 'spent',
+      ),
+      returnsNormally,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'issued',
+        oldStatus: 'spent',
+        nextStatus: 'bounced',
+      ),
+      returnsNormally,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'issued',
+        oldStatus: 'spent',
+        nextStatus: 'cancelled',
+      ),
+      throwsStateError,
+    );
+    expect(
+      () => AccountingEngine.validateCheckStatusTransition(
+        direction: 'unknown',
+        oldStatus: 'pending',
+        nextStatus: 'cancelled',
+      ),
+      throwsStateError,
+    );
+  });
+
   test('supplier identity trims and collapses whitespace before deduplication', () async {
     final firstId = await AppDatabaseSchema.ensureSupplier(
       db,
