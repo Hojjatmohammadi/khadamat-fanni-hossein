@@ -111,6 +111,14 @@ void main() {
     );
   });
 
+  test('localized amount parser handles Persian and Arabic digits and separators', () {
+    expect(AccountingEngine.parseLocalizedAmount('۱۲۳٬۴۵۶'), 123456);
+    expect(AccountingEngine.parseLocalizedAmount('١٢٣,٤٥٦'), 123456);
+    expect(AccountingEngine.parseLocalizedAmount('۱۲۳٫۵'), 123.5);
+    expect(AccountingEngine.parseLocalizedAmount('1 234 567'), 1234567);
+    expect(AccountingEngine.parseLocalizedAmount('عدد نامعتبر'), 0);
+  });
+
   test('supplier identity trims and collapses whitespace before deduplication', () async {
     final firstId = await AppDatabaseSchema.ensureSupplier(
       db,
