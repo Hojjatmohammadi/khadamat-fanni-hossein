@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/accounting/accounting_engine.dart';
@@ -197,23 +199,21 @@ void main() {
     expect(cost, closeTo(150, 0.000001));
   });
 
-  test('sales invoice posts balanced accounting and reduces stock atomically', () async {
+  test('normalized sales insert posts invoice stock journal and received cheque once', () async {
     final productId = await addProduct('کالای فروش آزمون');
-    await AccountingEngine.recordStockMovement(
-      db,
-      productId: productId,
-      movementType: 'opening_balance',
-      quantityDelta: 10,
-      unitCost: 50,
-      occurredAt: DateTime(2026, 1, 1),
+    await db.update(
+      'products',
+      {'quantity': 10.0, 'purchase_price': 50.0},
+      where: 'id = ?',
+      whereArgs: [productId],
     );
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
       'last_name': 'آزمون',
       'created_at': DateTime(2026, 1, 1).toIso8601String(),
     });
-    final creditAccount = await AccountingEngine.accountId(db, '2010');
-    final cashAccount = await AccountingEngine.accountId(db, '1000');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final creditId = await AccountingEngine.accountId(db, '2010');
     await AccountingEngine.postJournal(
       db,
       entryNumber: 'CUSTOMER-CREDIT-1',
@@ -222,9 +222,9 @@ void main() {
       sourceType: 'unit_test',
       sourceId: 'customer-credit-1',
       lines: [
-        JournalLineInput(accountId: cashAccount, debit: 200),
+        JournalLineInput(accountId: cashId, debit: 200),
         JournalLineInput(
-          accountId: creditAccount,
+          accountId: creditId,
           credit: 200,
           partyType: 'customer',
           partyId: customerId,
@@ -232,80 +232,151 @@ void main() {
       ],
     );
 
-    await db.transaction((txn) => AccountingEngine.postSaleInTransaction(
-      txn,
-      entryNumber: 'HOS-00001',
-      sourceId: '501',
-      occurredAt: DateTime(2026, 2, 1),
-      gross: 1000,
-      discount: 100,
-      tax: 90,
-      depositApplied: 200,
-      received: 300,
-      paymentMethod: 'نقدی',
-      customerId: customerId,
-      customerName: 'مشتری آزمون',
-      productLines: [
-        {'product_id': productId, 'quantity': 2.0},
-      ],
-    ));
+    final createdAt = DateTime(2026, 2, 1).toIso8601String();
+    final sale = <String, String>{
+      'شماره فاکتور': 'HOS-00001',
+      'نام مشتری': 'مشتری آزمون',
+      'شناسه مشتری': customerId.toString(),
+      'تعداد': '2',
+      'مبلغ کل': '1000',
+      'تخفیف': '100',
+      'مبلغ مالیات': '90',
+      'مبلغ دریافتی': '300',
+      'بیعانه تخصیص‌یافته': '200',
+      'روش پرداخت': 'چک',
+      'شماره چک': 'CHK-TEST-100',
+      'بانک چک': 'بانک آزمون',
+      'تاریخ میلادی': createdAt,
+      'تاریخ سررسید میلادی': DateTime(2026, 3, 2).toIso8601String(),
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'product_id': productId.toString(),
+          'description': 'کالای فروش آزمون',
+          'unit': 'عدد',
+          'quantity': 2,
+          'unit_price': 500,
+          'line_total': 1000,
+          'is_used': '0',
+        },
+      ]),
+    };
 
-    final quantityRows = await db.query(
+    await db.transaction((txn) async {
+      final sourceId = await txn.insert('records', {
+        'category': 'sales',
+        'data': jsonEncode(sale),
+        'created_at': createdAt,
+      });
+      await AppDatabaseSchema.insertLegacyRecord(
+        txn, 'sales', sale, sourceId, createdAt,
+      );
+    });
+
+    final product = await db.query(
       'products',
       columns: ['quantity'],
       where: 'id = ?',
       whereArgs: [productId],
     );
-    expect((quantityRows.single['quantity'] as num).toDouble(), 8.0);
+    expect((product.single['quantity'] as num).toDouble(), 8.0);
 
     final movementRows = await db.query(
       'stock_movements',
-      where: "reference_type = 'sale' AND reference_id = ?",
-      whereArgs: ['501'],
+      where: "reference_type = 'sale'",
     );
     expect(movementRows, hasLength(1));
     expect((movementRows.single['total_cost'] as num).toDouble(), 100.0);
 
-    final entryRows = await db.query(
+    final invoiceRows = await db.query('invoices');
+    expect(invoiceRows, hasLength(1));
+    expect((invoiceRows.single['total'] as num).toDouble(), 990.0);
+    expect(await db.query('invoice_items'), hasLength(1));
+
+    final journalRows = await db.query(
       'journal_entries',
-      where: "source_type = 'sale' AND source_id = ?",
-      whereArgs: ['501'],
+      where: "source_type = 'sale'",
     );
-    expect(entryRows, hasLength(1));
-    final entryId = entryRows.single['id'] as int;
+    expect(journalRows, hasLength(1));
+    final saleJournalId = journalRows.single['id'] as int;
     final totals = await db.rawQuery(
       '''SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total
          FROM journal_lines WHERE entry_id = ?''',
-      [entryId],
+      [saleJournalId],
     );
     expect(
       (totals.single['debit_total'] as num).toDouble(),
       closeTo((totals.single['credit_total'] as num).toDouble(), 0.001),
     );
-    final receivable = await db.rawQuery(
+
+    final receivableRows = await db.rawQuery(
       '''SELECT SUM(debit - credit) AS balance FROM journal_lines
-         WHERE entry_id = ? AND account_id = ?''',
-      [entryId, await AccountingEngine.accountId(db, '1100')],
+         WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+      [await AccountingEngine.accountId(db, '1100'), customerId],
     );
-    expect((receivable.single['balance'] as num).toDouble(), 490.0);
+    expect((receivableRows.single['balance'] as num).toDouble(), 490.0);
+
+    final checks = await db.query(
+      'checks_register',
+      where: "source_type = 'sale' AND source_id = ?",
+      whereArgs: [journalRows.single['source_id']],
+    );
+    expect(checks, hasLength(1));
+    expect(checks.single['direction'], 'received');
+    expect(checks.single['status'], 'pending');
   });
 
-  test('linked repair labor is not recognized or receivable twice on its invoice', () async {
+  test('sales invoice with outstanding balance requires a linked customer', () async {
+    final createdAt = DateTime(2026, 2, 3).toIso8601String();
+    final sale = <String, String>{
+      'شماره فاکتور': 'HOS-UNLINKED',
+      'نام مشتری': 'مشتری بدون پرونده',
+      'تعداد': '1',
+      'مبلغ کل': '100',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '20',
+      'روش پرداخت': 'نقدی',
+      'تاریخ میلادی': createdAt,
+      'شرح کالا/خدمت': 'خدمت آزمون',
+    };
+
+    await expectLater(
+      db.transaction((txn) async {
+        final sourceId = await txn.insert('records', {
+          'category': 'sales',
+          'data': jsonEncode(sale),
+          'created_at': createdAt,
+        });
+        await AppDatabaseSchema.insertLegacyRecord(
+          txn, 'sales', sale, sourceId, createdAt,
+        );
+      }),
+      throwsA(isA<StateError>()),
+    );
+    expect(await db.query('invoices'), isEmpty);
+    expect(
+      await db.query('journal_entries', where: "source_type = 'sale'"),
+      isEmpty,
+    );
+  });
+
+  test('linked repair labor is recognized once and invoice receipt reduces its balance', () async {
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
       'last_name': 'تعمیر',
       'created_at': DateTime(2026, 1, 1).toIso8601String(),
     });
+    final repairCreatedAt = DateTime(2026, 1, 1).toIso8601String();
     final repairSourceId = await db.insert('records', {
       'category': 'repairs',
       'data': '{}',
-      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+      'created_at': repairCreatedAt,
     });
     await db.insert('repairs', {
       'customer_id': customerId,
       'customer_name_snapshot': 'مشتری تعمیر',
       'device_type': 'دستگاه آزمایش',
-      'received_at': DateTime(2026, 1, 1).toIso8601String(),
+      'received_at': repairCreatedAt,
       'labor_cost': 500.0,
       'legacy_source_id': repairSourceId,
     });
@@ -330,22 +401,41 @@ void main() {
       ],
     );
 
-    await db.transaction((txn) => AccountingEngine.postSaleInTransaction(
-      txn,
-      entryNumber: 'HOS-REPAIR-1',
-      sourceId: '504',
-      occurredAt: DateTime(2026, 2, 4),
-      gross: 500,
-      discount: 0,
-      tax: 0,
-      depositApplied: 0,
-      received: 200,
-      paymentMethod: 'نقدی',
-      customerId: customerId,
-      customerName: 'مشتری تعمیر',
-      productLines: const [],
-      linkedRepairSourceId: repairSourceId,
-    ));
+    final createdAt = DateTime(2026, 2, 4).toIso8601String();
+    final sale = <String, String>{
+      'شماره فاکتور': 'HOS-REPAIR-1',
+      'نام مشتری': 'مشتری تعمیر',
+      'شناسه مشتری': customerId.toString(),
+      'پذیرش تعمیر مرتبط': repairSourceId.toString(),
+      'تعداد': '1',
+      'مبلغ کل': '500',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '200',
+      'روش پرداخت': 'نقدی',
+      'تاریخ میلادی': createdAt,
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'product_id': '',
+          'description': 'اجرت تعمیر',
+          'unit': 'خدمت',
+          'quantity': 1,
+          'unit_price': 500,
+          'line_total': 500,
+        },
+      ]),
+    };
+
+    await db.transaction((txn) async {
+      final sourceId = await txn.insert('records', {
+        'category': 'sales',
+        'data': jsonEncode(sale),
+        'created_at': createdAt,
+      });
+      await AppDatabaseSchema.insertLegacyRecord(
+        txn, 'sales', sale, sourceId, createdAt,
+      );
+    });
 
     final balanceRows = await db.rawQuery(
       '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
@@ -361,51 +451,9 @@ void main() {
       [repairIncomeId],
     );
     expect((incomeRows.single['balance'] as num).toDouble(), 500.0);
-
-    final saleEntry = await db.query(
-      'journal_entries',
-      where: "source_type = 'sale' AND source_id = ?",
-      whereArgs: ['504'],
-    );
-    expect(saleEntry, hasLength(1));
-    final saleLines = await db.query(
-      'journal_lines',
-      where: 'entry_id = ? AND account_id = ?',
-      whereArgs: [saleEntry.single['id'], repairIncomeId],
-    );
-    expect(saleLines, isEmpty);
   });
 
-  test('sale with unpaid balance requires a linked customer record', () async {
-    await expectLater(
-      db.transaction((txn) => AccountingEngine.postSaleInTransaction(
-        txn,
-        entryNumber: 'HOS-UNLINKED',
-        sourceId: '503',
-        occurredAt: DateTime(2026, 2, 3),
-        gross: 100,
-        discount: 0,
-        tax: 0,
-        depositApplied: 0,
-        received: 20,
-        paymentMethod: 'نقدی',
-        customerId: null,
-        customerName: 'مشتری بدون پرونده',
-        productLines: const [],
-      )),
-      throwsA(isA<StateError>()),
-    );
-    expect(
-      await db.query(
-        'journal_entries',
-        where: "source_type = 'sale' AND source_id = ?",
-        whereArgs: ['503'],
-      ),
-      isEmpty,
-    );
-  });
-
-  test('failed sale stock deduction rolls back journal and inventory changes', () async {
+  test('failed stock deduction rolls back normalized invoice and journal', () async {
     final productId = await addProduct('کالای ناموجود آزمون');
     await db.update(
       'products',
@@ -413,41 +461,45 @@ void main() {
       where: 'id = ?',
       whereArgs: [productId],
     );
+    final createdAt = DateTime(2026, 2, 5).toIso8601String();
+    final sale = <String, String>{
+      'شماره فاکتور': 'HOS-NO-STOCK',
+      'تعداد': '2',
+      'مبلغ کل': '200',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '200',
+      'روش پرداخت': 'نقدی',
+      'تاریخ میلادی': createdAt,
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'product_id': productId.toString(),
+          'description': 'کالای ناموجود آزمون',
+          'unit': 'عدد',
+          'quantity': 2,
+          'unit_price': 100,
+          'line_total': 200,
+        },
+      ]),
+    };
+
     await expectLater(
-      db.transaction((txn) => AccountingEngine.postSaleInTransaction(
-        txn,
-        entryNumber: 'HOS-00002',
-        sourceId: '502',
-        occurredAt: DateTime(2026, 2, 2),
-        gross: 100,
-        discount: 0,
-        tax: 0,
-        depositApplied: 0,
-        received: 0,
-        paymentMethod: 'نقدی',
-        customerId: null,
-        customerName: 'مشتری آزمون',
-        productLines: [
-          {'product_id': productId, 'quantity': 2.0},
-        ],
-      )),
+      db.transaction((txn) async {
+        final sourceId = await txn.insert('records', {
+          'category': 'sales',
+          'data': jsonEncode(sale),
+          'created_at': createdAt,
+        });
+        await AppDatabaseSchema.insertLegacyRecord(
+          txn, 'sales', sale, sourceId, createdAt,
+        );
+      }),
       throwsA(isA<StateError>()),
     );
-
+    expect(await db.query('invoices'), isEmpty);
+    expect(await db.query('invoice_items'), isEmpty);
     expect(
-      await db.query(
-        'journal_entries',
-        where: "source_type = 'sale' AND source_id = ?",
-        whereArgs: ['502'],
-      ),
-      isEmpty,
-    );
-    expect(
-      await db.query(
-        'stock_movements',
-        where: "reference_type = 'sale' AND reference_id = ?",
-        whereArgs: ['502'],
-      ),
+      await db.query('journal_entries', where: "source_type = 'sale'"),
       isEmpty,
     );
     final product = await db.query(
