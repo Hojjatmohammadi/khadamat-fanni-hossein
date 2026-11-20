@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -119,8 +120,24 @@ void _backgroundTaskDispatcher() {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Background scheduling is an optional service. A plugin or OS scheduling
-  // failure must not prevent the main application from opening.
+  // Database and local settings are required before the home screen can work.
+  // Show a recoverable error page instead of leaving a blank launch screen.
+  try {
+    await DemoStore.init();
+    await AppSettings.load();
+  } catch (error, stackTrace) {
+    debugPrint('App startup failed: $error\n$stackTrace');
+    runApp(StartupFailureApp(error: error.toString()));
+    return;
+  }
+
+  // Open the UI as soon as its required local data is ready. Notifications,
+  // periodic work and the first automatic backup are optional enhancements.
+  runApp(const HoseinApp());
+  unawaited(_initializeOptionalStartupServices());
+}
+
+Future<void> _initializeOptionalStartupServices() async {
   try {
     await Workmanager().initialize(_backgroundTaskDispatcher);
     await Workmanager().registerPeriodicTask(
@@ -133,11 +150,6 @@ Future<void> main() async {
     debugPrint('Background backup scheduling is unavailable: $error');
   }
 
-  await DemoStore.init();
-  await AppSettings.load();
-
-  // Notification permission/service failures should not leave the user with
-  // a blank screen; reminders can be retried separately.
   try {
     await _initializeCheckNotifications(requestPermission: true);
   } catch (error) {
@@ -147,10 +159,60 @@ Future<void> main() async {
   try {
     await DemoStore.autoBackupIfDue();
   } catch (error) {
-    debugPrint('Automatic backup could not run during startup: $error');
+    debugPrint('Automatic backup could not run after startup: $error');
   }
+}
 
-  runApp(const HoseinApp());
+class StartupFailureApp extends StatelessWidget {
+  final String error;
+
+  const StartupFailureApp({super.key, required this.error});
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 56,
+                        color: Colors.redAccent,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'راه‌اندازی برنامه کامل نشد',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'اطلاعات شما حذف نشده است. پس از بررسی خطا، دوباره تلاش کنید.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      SelectableText(error, textAlign: TextAlign.center),
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        onPressed: () => unawaited(main()),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('تلاش مجدد'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 const yellow = Color(0xFFFFD400);
