@@ -168,13 +168,13 @@ jobs:
                   raise SystemExit("Unexpected Kotlin Gradle structure; release signing was not changed")
               source = source.replace("android {", prefix + "android {", 1)
               signing = '''signingConfigs {
-              create("release") {
-                  keyAlias = signingProperties.getProperty("keyAlias")
-                  keyPassword = signingProperties.getProperty("keyPassword")
-                  storeFile = rootProject.file(signingProperties.getProperty("storeFile"))
-                  storePassword = signingProperties.getProperty("storePassword")
-          }
+              release {
+                  keyAlias signingProperties['keyAlias']
+                  keyPassword signingProperties['keyPassword']
+                  storeFile rootProject.file(signingProperties['storeFile'])
+                  storePassword signingProperties['storePassword']
               }
+          }
 
               '''
               source = source.replace("    buildTypes {", "    " + signing.replace("\n", "\n    ").rstrip() + "\n    buildTypes {", 1)
