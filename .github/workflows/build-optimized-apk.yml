@@ -215,7 +215,6 @@ jobs:
 
       - name: Build optimized ARM64 release-mode APK
         run: |
-          flutter clean
           flutter build apk --release \
             --target-platform=android-arm64 \
             --tree-shake-icons \
