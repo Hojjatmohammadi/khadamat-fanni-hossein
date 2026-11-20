@@ -3040,8 +3040,25 @@ class _SimpleListPageState extends State<SimpleListPage> {
                         child: OutlinedButton.icon(
                           onPressed: () async {
                             try {
+                              // Launch the native contact picker first so the
+                              // user sees the phone's contact list immediately.
                               final selected = await FlutterContacts.openExternalPick();
                               if (selected == null || !dialogContext.mounted) return;
+
+                              // Reading the selected contact's phone details
+                              // requires runtime READ_CONTACTS permission.
+                              final hasReadPermission =
+                                  await FlutterContacts.requestPermission(readonly: true);
+                              if (!dialogContext.mounted) return;
+                              if (!hasReadPermission) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('برای خواندن شماره تلفن مخاطب، مجوز دسترسی به مخاطبین لازم است.'),
+                                  ),
+                                );
+                                return;
+                              }
+
                               final contact = await FlutterContacts.getContact(
                                 selected.id,
                                 withProperties: true,
