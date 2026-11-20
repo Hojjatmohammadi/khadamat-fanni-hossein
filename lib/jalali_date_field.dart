@@ -117,6 +117,7 @@ class _JalaliDateFieldState extends State<JalaliDateField> {
   Widget build(BuildContext context) => TextField(
         controller: _controller,
         keyboardType: TextInputType.datetime,
+        textInputAction: TextInputAction.next,
         inputFormatters: const [NumericDateInputFormatter(separator: '/')],
         textDirection: TextDirection.ltr,
         decoration: InputDecoration(
