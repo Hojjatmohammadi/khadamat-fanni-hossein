@@ -255,7 +255,16 @@ class AppSettings {
     }
     return nearest;
   }
-  static String productImageMode = 'عکس پیش‌فرض';
+  static const productImageModes = <String>[
+    'عدم نمایش عکس کالا',
+    'پیش‌فرض عکس کالا',
+    'کوچک کردن عکس کالا',
+  ];
+
+  static String normalizeProductImageMode(String? value) =>
+      productImageModes.contains(value) ? value! : 'پیش‌فرض عکس کالا';
+
+  static String productImageMode = 'پیش‌فرض عکس کالا';
   static Map<String, List<String>> productGroups = {
     'قطعات الکترونیکی': ['خازن‌ها', 'دیودها', 'آی‌سی‌ها', 'مقاومت‌ها', 'ترانزیستورها'],
     'قطعات مکانیکی': ['بلبرینگ', 'چرخ‌دنده', 'شفت', 'بوش'],
@@ -286,7 +295,11 @@ class AppSettings {
     if (fontScale != savedFontScale) {
       await _prefs.setDouble('font_scale', fontScale);
     }
-    productImageMode = _prefs.getString('product_image_mode') ?? 'عکس پیش‌فرض';
+    final savedProductImageMode = _prefs.getString('product_image_mode');
+    productImageMode = normalizeProductImageMode(savedProductImageMode);
+    if (productImageMode != savedProductImageMode) {
+      await _prefs.setString('product_image_mode', productImageMode);
+    }
     final savedGroups = _prefs.getString('product_groups');
     if (savedGroups != null) {
       try {
@@ -347,8 +360,8 @@ class AppSettings {
   }
 
   static Future<void> saveProductImageMode(String mode) async {
-    productImageMode = mode;
-    await _prefs.setString('product_image_mode', mode);
+    productImageMode = normalizeProductImageMode(mode);
+    await _prefs.setString('product_image_mode', productImageMode);
     revision.value++;
   }
 
@@ -387,7 +400,7 @@ class AppSettings {
     if (data['invoice_stamp_image'] is String) { stampImage = data['invoice_stamp_image']; await _prefs.setString('invoice_stamp_image', stampImage); }
     if (data['invoice_signature_image'] is String) { signatureImage = data['invoice_signature_image']; await _prefs.setString('invoice_signature_image', signatureImage); }
     if (data['font_scale'] is num) { fontScale = normalizeFontScale((data['font_scale'] as num).toDouble()); await _prefs.setDouble('font_scale', fontScale); }
-    if (data['product_image_mode'] is String) { productImageMode = data['product_image_mode']; await _prefs.setString('product_image_mode', productImageMode); }
+    if (data['product_image_mode'] is String) { productImageMode = normalizeProductImageMode(data['product_image_mode'] as String); await _prefs.setString('product_image_mode', productImageMode); }
     if (data['product_groups'] is Map) {
       productGroups = (data['product_groups'] as Map).map((k,v)=>MapEntry(k.toString(), (v as List).map((x)=>x.toString()).toList()));
       await _prefs.setString('product_groups', jsonEncode(productGroups));
@@ -2114,7 +2127,7 @@ class _HomePageState extends State<HomePage> {
                     if (mounted) setState(() {});
                   },
                   itemBuilder: (context) => [
-                    for (final option in ['عدم نمایش عکس کالا', 'عکس پیش‌فرض', 'کوچک کردن عکس کالا'])
+                    for (final option in AppSettings.productImageModes)
                       PopupMenuItem<String>(value: option, child: Row(children: [
                         Expanded(child: Text(option)),
                         if (AppSettings.productImageMode == option) const Icon(Icons.check, size: 18),
@@ -3506,7 +3519,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           ),
         if (rows.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('هنوز گردش مالی برای این مشتری ثبت نشده است.'))
         else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(
-          columnSpacing: 10, columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))],
+          columnSpacing: 10, columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('حساب / روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))],
           rows: rows.map((row) { final date = Jalali.fromDateTime(row['date'] as DateTime).formatCompactDate(); final b = row['balance'] as double; return DataRow(cells: [
             DataCell(Text(date)), DataCell(SizedBox(width:120,child:Text(row['description'] as String,maxLines:2,overflow:TextOverflow.ellipsis))), DataCell(Text((row['method'] as String).isEmpty ? '—' : row['method'] as String)),
             DataCell(Text((row['debit'] as double).toStringAsFixed(0))), DataCell(Text((row['credit'] as double).toStringAsFixed(0))), DataCell(Text(b.abs().toStringAsFixed(0) + ' ' + (b > 0.009 ? 'بدهکار' : b < -0.009 ? 'بستانکار' : 'تسویه'))),
