@@ -5,7 +5,6 @@ import 'backup_service.dart';
 import 'phone_contact_picker.dart';
 import 'backup_page.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart' as flutter_localizations;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'app_database.dart';
@@ -53,7 +52,7 @@ class HoseinApp extends StatelessWidget {
         builder: (context, appName, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: appName,
-        localizationsDelegates: flutter_localizations.GlobalMaterialLocalizations.delegates,
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         supportedLocales: const [Locale('fa'), Locale('en')],
         theme: ThemeData(
           useMaterial3: true,
@@ -211,6 +210,9 @@ class HoseinApp extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
             ),
           ),
+        ),
+        builder: (context, child) => MaterialUiCompatibilityBridge(
+          child: child ?? const SizedBox.shrink(),
         ),
         home: const HomePage(),
         ),
