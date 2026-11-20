@@ -274,14 +274,15 @@ class Dashboard extends StatelessWidget {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 2,
-          childAspectRatio: 1.20,
+          // کارت‌های آماری کمی کوتاه‌تر؛ اندازه فونت‌ها بدون تغییر می‌ماند.
+          childAspectRatio: 1.32,
           crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
+          mainAxisSpacing: 8,
           children: [
             for (final s in stats)
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(9),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
@@ -301,6 +302,10 @@ class Dashboard extends StatelessWidget {
         for (final e in [(1, 'ثبت کالا'), (2, 'ثبت مشتری'), (3, 'پذیرش تعمیر'), (4, 'صدور فاکتور')])
           Card(
             child: ListTile(
+              dense: true,
+              visualDensity: const VisualDensity(vertical: -1),
+              minVerticalPadding: 4,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
               title: Text(e.$2),
               trailing: const Icon(Icons.chevron_left),
               onTap: () => onSelect(e.$1),
