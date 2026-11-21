@@ -467,7 +467,7 @@ String normalizeIranianMobileNumber(String raw) {
         .replaceAll(arabicDigits[i], i.toString());
   }
   digits = digits.replaceAll(RegExp(r'[^0-9]'), '');
-  if (digits.startsWith('0098') && digits.length == 13) {
+  if (digits.startsWith('0098') && digits.length == 14) {
     digits = '0' + digits.substring(4);
   } else if (digits.startsWith('98') && digits.length == 12) {
     digits = '0' + digits.substring(2);
