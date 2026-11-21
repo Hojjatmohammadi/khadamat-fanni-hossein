@@ -39,6 +39,23 @@ void main() {
     controller.dispose();
   });
 
+  test('report date prefers transaction timestamp over record creation timestamp', () {
+    final date = reportRecordDate({
+      'created_at': '2026-11-21T10:00:00.000',
+      'data': '{"تاریخ میلادی":"2025-03-20T08:30:00.000","تاریخ":"1404/01/01"}',
+    });
+    expect(date, DateTime(2025, 3, 20, 8, 30));
+  });
+
+  test('report date parses Persian Jalali digits when no ISO timestamp exists', () {
+    final date = reportRecordDate({
+      'created_at': '2026-11-21T10:00:00.000',
+      'data': '{"تاریخ":"۱۴۰۵/۰۸/۲۳"}',
+    });
+    expect(date, isNotNull);
+    expect(date!.year, 2026);
+  });
+
   test('Iranian mobile numbers normalize Persian and Arabic digits and country prefixes', () {
     expect(normalizeIranianMobileNumber('۰۹۱۲ ۳۴۵ ۶۷۸۹'), '09123456789');
     expect(normalizeIranianMobileNumber('٠٩١٢-٣٤٥-٦٧٨٩'), '09123456789');
