@@ -66,9 +66,9 @@ void main() {
       ),
     );
 
-    final bytes = await tester.runAsync(
-      () => captureBoundaryPng(boundaryKey, pixelRatio: 1),
-    );
+    final capture = captureBoundaryPng(boundaryKey, pixelRatio: 1);
+    await tester.pump();
+    final bytes = await tester.runAsync(() => capture);
     expect(bytes, isNotNull);
     expect(
       bytes!.take(8).toList(),
