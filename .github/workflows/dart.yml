@@ -267,9 +267,11 @@ jobs:
             build/app/outputs/flutter-apk/app-x86_64-release.apk; do
             test -s "$apk"
             "$apksigner" verify --verbose "$apk"
-            fingerprint="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-            if [ -z "$fingerprint" ]; then
-              echo "::error::Could not read the APK signing certificate: $apk"
+            certificate_report="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            fingerprint="$(printf '%s\n' "$certificate_report" | sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]:]+).*/\1/p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+            if ! [[ "$fingerprint" =~ ^[0-9A-F]{64}$ ]]; then
+              echo "::error::Could not parse a valid SHA-256 certificate fingerprint from apksigner output: $apk"
+              printf '%s\n' "$certificate_report"
               exit 1
             fi
             if [ "$fingerprint" != "$keystore_fingerprint" ]; then
