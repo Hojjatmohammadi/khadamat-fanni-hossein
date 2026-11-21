@@ -68,7 +68,12 @@ void main() {
 
     final capture = captureBoundaryPng(boundaryKey, pixelRatio: 1);
     await tester.pump();
-    final bytes = await tester.runAsync(() => capture);
+    final bytes = await tester.runAsync(
+      () => capture.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => throw TimeoutException('PNG report capture exceeded 20 seconds.'),
+      ),
+    );
     expect(bytes, isNotNull);
     expect(
       bytes!.take(8).toList(),
