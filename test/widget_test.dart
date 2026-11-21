@@ -1,4 +1,6 @@
+import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:khadamat_fanni_hosein/main.dart';
 
@@ -33,4 +35,62 @@ void main() {
     expect(controller.text, '۱۴۰۵/۰۸/۲۳');
     controller.dispose();
   });
+
+  test('Iranian mobile numbers normalize Persian and Arabic digits and country prefixes', () {
+    expect(normalizeIranianMobileNumber('۰۹۱۲ ۳۴۵ ۶۷۸۹'), '09123456789');
+    expect(normalizeIranianMobileNumber('٠٩١٢-٣٤٥-٦٧٨٩'), '09123456789');
+    expect(normalizeIranianMobileNumber('+98 912 345 6789'), '09123456789');
+    expect(normalizeIranianMobileNumber('0098 912 345 6789'), '09123456789');
+    expect(normalizeIranianMobileNumber('9123456789'), '09123456789');
+    expect(normalizeIranianMobileNumber('123'), '123');
+  });
+
+  testWidgets('report capture helper produces a valid PNG image', (tester) async {
+    final boundaryKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: RepaintBoundary(
+            key: boundaryKey,
+            child: const SizedBox(
+              width: 120,
+              height: 60,
+              child: ColoredBox(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+    final capture = captureBoundaryPng(boundaryKey, pixelRatio: 1);
+    await tester.pump();
+    final bytes = await capture;
+    expect(bytes.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(bytes.length, greaterThan(8));
+  });
+
+  test('PDF package produces a readable PDF document', () async {
+    final document = pw.Document();
+    document.addPage(
+      pw.Page(
+        build: (_) => pw.Center(child: pw.Text('Report export smoke test')),
+      ),
+    );
+    final bytes = await document.save();
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
+
+  test('Excel package produces a readable XLSX workbook', () {
+    final workbook = Excel.createExcel();
+    workbook['Sheet1'].appendRow([
+      TextCellValue('Report'),
+      TextCellValue('Value'),
+    ]);
+    final bytes = workbook.encode();
+    expect(bytes, isNotNull);
+    final encoded = bytes!;
+    expect(encoded.take(4).toList(), [0x50, 0x4B, 0x03, 0x04]);
+    final reopened = Excel.decodeBytes(encoded);
+    expect(reopened.tables['Sheet1']?.rows, isNotEmpty);
+  });
+
 }
