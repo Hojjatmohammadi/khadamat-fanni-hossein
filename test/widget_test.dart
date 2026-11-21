@@ -63,8 +63,9 @@ void main() {
     );
     final capture = captureBoundaryPng(boundaryKey, pixelRatio: 1);
     await tester.pump();
-    final bytes = await capture;
-    expect(bytes.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
+    final bytes = await tester.runAsync(() => capture);
+    expect(bytes, isNotNull);
+    expect(bytes!.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
     expect(bytes.length, greaterThan(8));
   });
 
