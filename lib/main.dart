@@ -6185,6 +6185,708 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
   );
 }
 
+DateTime? reportRecordDate(Map<String, Object?> record) {
+  try {
+    final raw = record['data'];
+    if (raw is String && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        // Prefer the transaction's own timestamp over the row creation time.
+        // Imported/back-dated records must stay in their actual reporting period.
+        for (final key in [
+          'تاریخ میلادی',
+          'تاریخ ثبت کالا',
+          'تاریخ',
+          'تاریخ فاکتور',
+          'تاریخ پذیرش',
+        ]) {
+          var value = (decoded[key] ?? '').toString().trim();
+          if (value.isEmpty) continue;
+          const fa = '۰۱۲۳۴۵۶۷۸۹';
+          const ar = '٠١٢٣٤٥٦٧٨٩';
+          for (var i = 0; i < 10; i++) {
+            value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
+          }
+          final jalaliMatch =
+              RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})
+  const ReportsPage({super.key});
+  @override
+  State<ReportsPage> createState() => _ReportsPageState();
+}
+
+class _ReportsPageState extends State<ReportsPage> {
+  final GlobalKey _reportKey = GlobalKey();
+  Jalali? _fromDate;
+  Jalali? _toDate;
+  late Future<List<Map<String, Object?>>> _recordsFuture;
+  late Future<Map<String, double>> _financialTotalsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = _loadRecords();
+    _financialTotalsFuture = _loadFinancialTotals();
+  }
+
+  Future<List<Map<String, Object?>>> _loadRecords() => DemoStore.database.query(
+    'records',
+    columns: ['category', 'created_at', 'data'],
+    orderBy: 'created_at DESC',
+  );
+
+  Future<Map<String, double>> _loadFinancialTotals() async {
+    final where = <String>[];
+    final args = <Object?>[];
+    if (_fromDate != null) {
+      where.add('e.occurred_at >= ?');
+      args.add(_fromDate!.toDateTime().toIso8601String());
+    }
+    if (_toDate != null) {
+      where.add('e.occurred_at < ?');
+      args.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
+    }
+    final sqlWhere = where.isEmpty ? '' : 'WHERE ' + where.join(' AND ');
+    final accountRows = await DemoStore.database.rawQuery('''
+      SELECT a.code, a.type,
+        COALESCE(SUM(l.debit), 0) AS debit,
+        COALESCE(SUM(l.credit), 0) AS credit
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.entry_id
+      JOIN accounts a ON a.id = l.account_id
+      $sqlWhere
+      GROUP BY a.code, a.type
+    ''', args);
+    var income = 0.0;
+    var expenses = 0.0;
+    var costOfGoods = 0.0;
+    for (final row in accountRows) {
+      final code = row['code'].toString();
+      final type = row['type'].toString();
+      final debit = (row['debit'] as num).toDouble();
+      final credit = (row['credit'] as num).toDouble();
+      if (type == 'income') income += credit - debit;
+      if (code == '5000') {
+        costOfGoods += debit - credit;
+      } else if (type == 'expense') {
+        expenses += debit - credit;
+      }
+    }
+    final movementWhere = <String>["movement_type IN ('purchase', 'purchase_return')"];
+    final movementArgs = <Object?>[];
+    if (_fromDate != null) {
+      movementWhere.add('occurred_at >= ?');
+      movementArgs.add(_fromDate!.toDateTime().toIso8601String());
+    }
+    if (_toDate != null) {
+      movementWhere.add('occurred_at < ?');
+      movementArgs.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
+    }
+    final purchaseRows = await DemoStore.database.rawQuery(
+      "SELECT COALESCE(SUM(CASE WHEN movement_type = 'purchase_return' THEN -total_cost ELSE total_cost END), 0) AS total FROM stock_movements WHERE " + movementWhere.join(' AND '),
+      movementArgs,
+    );
+    final stockCutoff = _toDate?.toDateTime().add(const Duration(days: 1));
+    final stockRows = stockCutoff == null
+        ? await DemoStore.database.rawQuery(
+            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+                 THEN total_cost ELSE -total_cost END), 0) AS total
+               FROM stock_movements''',
+          )
+        : await DemoStore.database.rawQuery(
+            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+                 THEN total_cost ELSE -total_cost END), 0) AS total
+               FROM stock_movements WHERE occurred_at < ?''',
+            [stockCutoff.toIso8601String()],
+          );
+    final expenseRows = await DemoStore.database.query(
+      'records',
+      columns: ['data', 'created_at'],
+      where: 'category = ?',
+      whereArgs: ['operations'],
+      orderBy: 'created_at ASC',
+    );
+    final expenseCategoryTotals = <String, double>{};
+    for (final row in expenseRows) {
+      try {
+        final data = jsonDecode(row['data'] as String) as Map;
+        if ((data['نوع عملیات'] ?? '').toString() != 'ثبت هزینه') continue;
+        final occurredAt = DateTime.tryParse((data['تاریخ میلادی'] ?? row['created_at'] ?? '').toString())
+            ?? DateTime.tryParse((row['created_at'] ?? '').toString());
+        if (occurredAt == null) continue;
+        if (_fromDate != null && occurredAt.isBefore(_fromDate!.toDateTime())) continue;
+        if (_toDate != null && !occurredAt.isBefore(_toDate!.toDateTime().add(const Duration(days: 1)))) continue;
+        final category = (data['دسته هزینه'] ?? 'سایر').toString();
+        final amount = AccountingEngine.parseLocalizedAmount(data['مبلغ']);
+        if (amount > 0 && amount.isFinite) {
+          expenseCategoryTotals[category] = (expenseCategoryTotals[category] ?? 0) + amount;
+        }
+      } catch (_) {}
+    }
+    return {
+      for (final entry in expenseCategoryTotals.entries)
+        'expenseCategory:' + entry.key: entry.value,
+      'salesNet': income,
+      'expenses': expenses,
+      'costOfGoods': costOfGoods,
+      'grossProfit': income - costOfGoods,
+      'netProfit': income - costOfGoods - expenses,
+      'purchases': (purchaseRows.first['total'] as num).toDouble(),
+      'inventoryValue': (stockRows.first['total'] as num).toDouble(),
+    };
+  }
+
+  Future<void> _showTrialBalance() async {
+    final rows = await AccountingEngine.trialBalance(DemoStore.database);
+    if (!mounted) return;
+    final debitTotal = rows.fold<double>(0, (sum, row) => sum + (row['debit_total'] as num).toDouble());
+    final creditTotal = rows.fold<double>(0, (sum, row) => sum + (row['credit_total'] as num).toDouble());
+    await showDialog<void>(
+      context: context,
+      builder: (d) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تراز آزمایشی دفتر کل'),
+          content: SizedBox(
+            width: 620,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('کد')),
+                  DataColumn(label: Text('حساب')),
+                  DataColumn(label: Text('بدهکار')),
+                  DataColumn(label: Text('بستانکار')),
+                ],
+                rows: [
+                  for (final row in rows)
+                    DataRow(cells: [
+                      DataCell(Text(row['code'].toString())),
+                      DataCell(Text(row['name'].toString())),
+                      DataCell(Text((row['debit_total'] as num).toStringAsFixed(0))),
+                      DataCell(Text((row['credit_total'] as num).toStringAsFixed(0))),
+                    ]),
+                  DataRow(
+                    cells: [
+                      const DataCell(Text('')),
+                      const DataCell(Text('جمع کل', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataCell(Text(debitTotal.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.bold))),
+                      DataCell(Text(creditTotal.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            Text(
+              'اختلاف تراز: ' + (debitTotal - creditTotal).abs().toStringAsFixed(2) + ' تومان',
+              style: TextStyle(
+                color: (debitTotal - creditTotal).abs() < 0.01 ? Colors.green : Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showStockCardex() async {
+    final products = await DemoStore.database.query(
+      'products',
+      columns: ['id', 'name', 'code', 'quantity', 'unit'],
+      orderBy: 'name COLLATE NOCASE ASC',
+    );
+    if (!mounted) return;
+    if (products.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کالایی برای نمایش کارتکس وجود ندارد.')));
+      return;
+    }
+    var selectedId = products.first['id'] as int;
+    var movements = await AccountingEngine.stockCardex(
+      DemoStore.database,
+      selectedId,
+      from: _fromDate?.toDateTime(),
+      to: _toDate?.toDateTime(),
+    );
+    const movementLabels = <String, String>{
+      'purchase': 'خرید',
+      'sale': 'فروش',
+      'sale_return': 'برگشت از فروش',
+      'purchase_return': 'برگشت به فروشنده',
+      'manual_adjustment': 'اصلاح دستی',
+    };
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, refresh) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('کارتکس و گردش تاریخی کالا'),
+            content: SizedBox(
+              width: 620,
+              height: 460,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    value: selectedId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'انتخاب کالا'),
+                    items: products.map((product) => DropdownMenuItem<int>(
+                      value: product['id'] as int,
+                      child: Text((product['name'] ?? '').toString() + ' • کد ' + (product['code'] ?? '').toString()),
+                    )).toList(),
+                    onChanged: (value) async {
+                      if (value == null) return;
+                      final next = await AccountingEngine.stockCardex(
+                        DemoStore.database,
+                        value,
+                        from: _fromDate?.toDateTime(),
+                        to: _toDate?.toDateTime(),
+                      );
+                      refresh(() {
+                        selectedId = value;
+                        movements = next;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'موجودی فعلی: ' +
+                    (products.firstWhere((product) => product['id'] == selectedId)['quantity'] ?? 0).toString() +
+                    ' ' +
+                    (products.firstWhere((product) => product['id'] == selectedId)['unit'] ?? 'عدد').toString(),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: movements.isEmpty
+                        ? const Center(child: Text('در بازه انتخاب‌شده گردش ثبت‌شده‌ای وجود ندارد.'))
+                        : ListView.builder(
+                            itemCount: movements.length,
+                            itemBuilder: (context, index) {
+                              final movement = movements[index];
+                              final delta = (movement['quantity_delta'] as num).toDouble();
+                              final balance = (movement['running_quantity'] as num).toDouble();
+                              final date = DateTime.tryParse((movement['occurred_at'] ?? '').toString());
+                              return ListTile(
+                                dense: true,
+                                title: Text(movementLabels[movement['movement_type']] ?? movement['movement_type'].toString()),
+                                subtitle: Text(
+                                  (date == null ? '' : Jalali.fromDateTime(date).formatCompactDate()) +
+                                  ' • بهای واحد: ' + (movement['unit_cost'] as num).toStringAsFixed(0),
+                                ),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text((delta > 0 ? '+' : '') + delta.toStringAsFixed(3)),
+                                    Text('مانده: ' + balance.toStringAsFixed(3), style: Theme.of(context).textTheme.bodySmall),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('بستن'))],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _chooseDate({required bool isStart}) async {
+    final now = Jalali.now();
+    final picked = await showPersianDatePicker(
+      context: context,
+      initialDate: isStart ? (_fromDate ?? _toDate ?? now) : (_toDate ?? _fromDate ?? now),
+      firstDate: Jalali(1300, 1, 1),
+      lastDate: Jalali(1500, 12, 29),
+      locale: const Locale('fa', 'IR'),
+      textDirection: TextDirection.rtl,
+      helpText: isStart ? 'انتخاب تاریخ شروع' : 'انتخاب تاریخ پایان',
+      cancelText: 'انصراف',
+      confirmText: 'تأیید',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _fromDate = picked;
+        if (_toDate != null && _toDate!.toDateTime().isBefore(picked.toDateTime())) _toDate = picked;
+      } else {
+        _toDate = picked;
+        if (_fromDate != null && _fromDate!.toDateTime().isAfter(picked.toDateTime())) _fromDate = picked;
+      }
+      _financialTotalsFuture = _loadFinancialTotals();
+    });
+  }
+
+  DateTime? _recordDate(Map<String, Object?> record) =>
+      reportRecordDate(record);
+
+  bool _inRange(Map<String, Object?> record) {
+    final date = _recordDate(record);
+    if (date == null) return false;
+    final day = DateTime(date.year, date.month, date.day);
+    if (_fromDate != null) {
+      final from = _fromDate!.toDateTime();
+      if (day.isBefore(DateTime(from.year, from.month, from.day))) return false;
+    }
+    if (_toDate != null) {
+      final to = _toDate!.toDateTime();
+      if (day.isAfter(DateTime(to.year, to.month, to.day))) return false;
+    }
+    return true;
+  }
+
+  String _dateLabel(Jalali? date) => date?.formatCompactDate() ?? 'بدون محدودیت';
+
+  Future<void> _exportReportExcel() async {
+    try {
+      final records = (await _recordsFuture).where(_inRange).toList();
+      final totals = await _financialTotalsFuture;
+      final workbook = Excel.createExcel();
+      workbook.rename('Sheet1', 'خلاصه مالی');
+
+      final summary = workbook['خلاصه مالی'];
+      summary.appendRow([TextCellValue('عنوان'), TextCellValue('مقدار')]);
+      summary.appendRow([TextCellValue('از تاریخ'), TextCellValue(_dateLabel(_fromDate))]);
+      summary.appendRow([TextCellValue('تا تاریخ'), TextCellValue(_dateLabel(_toDate))]);
+      summary.appendRow([TextCellValue('تعداد کل اسناد'), TextCellValue(records.length.toString())]);
+      final totalLabels = <String, String>{
+        'salesNet': 'فروش و درآمد خالص',
+        'purchases': 'خریدهای ثبت‌شده',
+        'costOfGoods': 'بهای تمام‌شده کالای فروش‌رفته',
+        'grossProfit': 'سود ناخالص',
+        'expenses': 'هزینه‌های عملیاتی',
+        'netProfit': 'سود خالص',
+        'inventoryValue': 'ارزش موجودی انبار',
+      };
+      for (final entry in totalLabels.entries) {
+        summary.appendRow([
+          TextCellValue(entry.value),
+          TextCellValue((totals[entry.key] ?? 0).toStringAsFixed(0)),
+        ]);
+      }
+      for (final entry in totals.entries.where((e) => e.key.startsWith('expenseCategory:'))) {
+        summary.appendRow([
+          TextCellValue('هزینه: ${entry.key.substring('expenseCategory:'.length)}'),
+          TextCellValue(entry.value.toStringAsFixed(0)),
+        ]);
+      }
+
+      final counts = workbook['شمارش اسناد'];
+      counts.appendRow([TextCellValue('نوع سند'), TextCellValue('تعداد')]);
+      const categories = <String, String>{
+        'products': 'کالاها',
+        'customers': 'مشتریان',
+        'repairs': 'تعمیرات',
+        'sales': 'فروش‌ها',
+        'operations': 'عملیات مالی',
+        'returns': 'برگشت خرید و فروش',
+      };
+      for (final entry in categories.entries) {
+        final count = records.where((record) => record['category'] == entry.key).length;
+        counts.appendRow([TextCellValue(entry.value), TextCellValue(count.toString())]);
+      }
+
+      final details = workbook['ریز اسناد'];
+      final decodedRows = <Map<String, String>>[];
+      final columns = <String>{'نوع سند', 'زمان ثبت'};
+      for (final record in records) {
+        final row = <String, String>{
+          'نوع سند': categories[record['category']?.toString()] ?? (record['category'] ?? '').toString(),
+          'زمان ثبت': (record['created_at'] ?? '').toString(),
+        };
+        try {
+          final raw = record['data'];
+          if (raw is String && raw.isNotEmpty) {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) {
+              for (final entry in decoded.entries) {
+                row[entry.key.toString()] = entry.value?.toString() ?? '';
+              }
+            }
+          }
+        } catch (_) {
+          row['خطای خواندن اطلاعات'] = 'ساختار اطلاعات این سند قابل خواندن نبود';
+        }
+        columns.addAll(row.keys);
+        decodedRows.add(row);
+      }
+      final orderedColumns = columns.toList();
+      details.appendRow(orderedColumns.map((column) => TextCellValue(column)).toList());
+      for (final row in decodedRows) {
+        details.appendRow(orderedColumns.map((column) => TextCellValue(row[column] ?? '')).toList());
+      }
+
+      final bytes = workbook.encode();
+      if (bytes == null) throw StateError('ساخت فایل Excel گزارش ناموفق بود.');
+      final root = await getApplicationDocumentsDirectory();
+      final directory = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await directory.exists()) await directory.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(directory.path, 'report_$stamp.xlsx'));
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('گزارش Excel با خلاصه مالی، شمارش و ریز اسناد ذخیره شد.')),
+      );
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
+        text: 'گزارش Excel خدمات فنی حسین',
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تهیه Excel گزارش ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportReportImage() async {
+    try {
+      final pngBytes = await captureBoundaryPng(_reportKey, pixelRatio: 2.5);
+      final root = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(dir.path, 'report_$stamp.png'));
+      await file.writeAsBytes(pngBytes, flush: true);
+      await Share.shareXFiles([XFile(file.path, mimeType: 'image/png')], text: 'گزارش خدمات فنی حسین');
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تهیه تصویر گزارش ناموفق بود: $error')));
+    }
+  }
+
+  Future<void> _exportReportPdf() async {
+    try {
+      final pngBytes = await captureBoundaryPng(_reportKey, pixelRatio: 2.0);
+      final root = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(dir.path, 'report_$stamp.pdf'));
+      final document = pw.Document();
+      document.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(18),
+        build: (_) => pw.Center(
+          child: pw.Image(
+            pw.MemoryImage(pngBytes),
+            fit: pw.BoxFit.contain,
+          ),
+        ),
+      ));
+      await file.writeAsBytes(await document.save(), flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('گزارش PDF ذخیره شد.')),
+      );
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/pdf')],
+        text: 'گزارش خدمات فنی حسین',
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تهیه PDF گزارش ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, Object?>>>(
+    future: _recordsFuture,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError) return Center(child: Text('بارگذاری گزارش‌ها ناموفق بود: ${snapshot.error}'));
+      final all = snapshot.data ?? const <Map<String, Object?>>[];
+      final filtered = all.where(_inRange).toList();
+      int count(String category) => filtered.where((r) => r['category'] == category).length;
+      final categories = <(String, String, IconData)>[
+        ('کالاها', 'products', Icons.inventory_2_outlined),
+        ('مشتریان', 'customers', Icons.people_outline),
+        ('تعمیرات', 'repairs', Icons.build_outlined),
+        ('فروش‌ها', 'sales', Icons.receipt_long_outlined),
+        ('عملیات مالی', 'operations', Icons.account_balance_wallet_outlined),
+        ('برگشت خرید و فروش', 'returns', Icons.assignment_return_outlined),
+      ];
+      final counts = categories.map((e) => count(e.$2)).toList();
+      final maxCount = counts.fold<int>(1, (a, b) => a > b ? a : b);
+      return Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _exportReportPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('خروجی PDF'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _exportReportExcel,
+                icon: const Icon(Icons.table_view_outlined),
+                label: const Text('خروجی Excel'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _exportReportImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('خروجی تصویر'),
+              ),
+              IconButton(
+                tooltip: 'به‌روزرسانی',
+                onPressed: () => setState(() { _recordsFuture = _loadRecords(); _financialTotalsFuture = _loadFinancialTotals(); }),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: RepaintBoundary(
+            key: _reportKey,
+            child: Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('گزارش‌های خدمات فنی حسین', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('فیلتر زمانی گزارش', style: TextStyle(fontWeight: FontWeight.bold)),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: true), icon: const Icon(Icons.calendar_month), label: Text('از تاریخ: ${_dateLabel(_fromDate)}')),
+                    OutlinedButton.icon(onPressed: () => _chooseDate(isStart: false), icon: const Icon(Icons.event), label: Text('تا تاریخ: ${_dateLabel(_toDate)}')),
+                    Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+                      onPressed: _fromDate == null && _toDate == null ? null : () => setState(() { _fromDate = null; _toDate = null; _financialTotalsFuture = _loadFinancialTotals(); }),
+                      icon: const Icon(Icons.filter_alt_off), label: const Text('حذف فیلتر تاریخ'),
+                    )),
+                  ]),
+                )),
+                FutureBuilder<Map<String, double>>(
+                  future: _financialTotalsFuture,
+                  builder: (context, financialSnapshot) {
+                    if (financialSnapshot.connectionState != ConnectionState.done) {
+                      return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
+                    }
+                    if (financialSnapshot.hasError) {
+                      return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('محاسبه گزارش مالی ناموفق بود: ' + financialSnapshot.error.toString())));
+                    }
+                    final totals = financialSnapshot.data ?? const <String, double>{};
+                    String money(String key) => (totals[key] ?? 0).toStringAsFixed(0) + ' تومان';
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('گزارش مالی از دفتر حسابداری دوبل', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Text('فروش و درآمد خالص پس از برگشت و تخفیف: ' + money('salesNet')),
+                            Text('خریدهای ثبت‌شده در گردش انبار: ' + money('purchases')),
+                            Text('بهای تمام‌شده کالای فروش‌رفته: ' + money('costOfGoods')),
+                            Text('سود ناخالص: ' + money('grossProfit')),
+                            Text('هزینه‌های عملیاتی (بدون بهای تمام‌شده): ' + money('expenses')),
+                            Text('سود خالص: ' + money('netProfit')),
+                            if (totals.keys.any((key) => key.startsWith('expenseCategory:'))) ...[
+                              const Divider(height: 20),
+                              const Text('ریز هزینه‌ها بر اساس دسته‌بندی در بازه انتخاب‌شده:',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                              for (final entry in totals.entries.where((entry) =>
+                                  entry.key.startsWith('expenseCategory:')).toList()
+                                ..sort((a, b) => a.key.compareTo(b.key)))
+                                Text(entry.key.substring('expenseCategory:'.length) + ': ' +
+                                  entry.value.toStringAsFixed(0) + ' تومان'),
+                            ],
+                            Text((_toDate == null ? 'ارزش فعلی موجودی انبار: ' : 'ارزش موجودی تا تاریخ ' + _dateLabel(_toDate) + ': ') + money('inventoryValue')),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _showTrialBalance,
+                                  icon: const Icon(Icons.balance),
+                                  label: const Text('تراز آزمایشی'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _showStockCardex,
+                                  icon: const Icon(Icons.inventory),
+                                  label: const Text('کارتکس گردش کالا'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text('توجه: اسناد قدیمی معتبر در نخستین ارتقا به دفتر کل منتقل می‌شوند؛ سوابق ناقص یا بدون مبالغ قابل‌اعتماد نیازمند تطبیق دستی هستند.', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                for (final entry in categories)
+                  Card(child: ListTile(
+                    leading: Icon(entry.$3), title: Text(entry.$1),
+                    trailing: Text(count(entry.$2).toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+                  )),
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Text('نمودار تعداد اسناد', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < categories.length; i++)
+                      Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [
+                        SizedBox(width: 76, child: Text(categories[i].$1, style: const TextStyle(fontSize: 11))),
+                        Expanded(child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(value: counts[i] / maxCount, minHeight: 14),
+                        )),
+                        const SizedBox(width: 8), Text(counts[i].toString()),
+                      ])),
+                  ]),
+                )),
+                Text('تعداد کل اسناد در بازه: ${filtered.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('تاریخ‌های انتخابی شمسی هستند؛ در صورت نبود تاریخ معتبر در فرم، زمان ثبت سند مبنا قرار می‌گیرد.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ]),
+            ),
+          ),
+        )),
+      ]);
+    },
+  );
+}
+)
+                  .firstMatch(value);
+          if (jalaliMatch != null) {
+            try {
+              return Jalali(
+                int.parse(jalaliMatch.group(1)!),
+                int.parse(jalaliMatch.group(2)!),
+                int.parse(jalaliMatch.group(3)!),
+              ).toDateTime();
+            } catch (_) {}
+          }
+          final iso = DateTime.tryParse(value);
+          if (iso != null) return iso;
+        }
+      }
+    }
+  } catch (_) {}
+  return DateTime.tryParse((record['created_at'] ?? '').toString());
+}
+
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
   @override
@@ -6503,34 +7205,8 @@ class _ReportsPageState extends State<ReportsPage> {
     });
   }
 
-  DateTime? _recordDate(Map<String, Object?> record) {
-    try {
-      final raw = record['data'];
-      if (raw is String && raw.isNotEmpty) {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          for (final key in ['تاریخ ثبت کالا', 'تاریخ', 'تاریخ فاکتور', 'تاریخ پذیرش']) {
-            var value = (decoded[key] ?? '').toString().trim();
-            if (value.isEmpty) continue;
-            const fa = '۰۱۲۳۴۵۶۷۸۹';
-            const ar = '٠١٢٣٤٥٦٧٨٩';
-            for (var i = 0; i < 10; i++) {
-              value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
-            }
-            final jalaliMatch = RegExp(r'^([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})$').firstMatch(value);
-            if (jalaliMatch != null) {
-              try {
-                return Jalali(int.parse(jalaliMatch.group(1)!), int.parse(jalaliMatch.group(2)!), int.parse(jalaliMatch.group(3)!)).toDateTime();
-              } catch (_) {}
-            }
-            final iso = DateTime.tryParse(value);
-            if (iso != null) return iso;
-          }
-        }
-      }
-    } catch (_) {}
-    return DateTime.tryParse((record['created_at'] ?? '').toString());
-  }
+  DateTime? _recordDate(Map<String, Object?> record) =>
+      reportRecordDate(record);
 
   bool _inRange(Map<String, Object?> record) {
     final date = _recordDate(record);
