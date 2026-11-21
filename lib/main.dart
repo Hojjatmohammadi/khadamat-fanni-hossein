@@ -6213,6 +6213,58 @@ DateTime? reportRecordDate(Map<String, Object?> record) {
   } catch (_) {}
   return DateTime.tryParse((record['created_at'] ?? '').toString());
 }
+DateTime? reportRecordDate(Map<String, Object?> record) {
+  try {
+    final raw = record['data'];
+    if (raw is String && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        // Prefer the document's transaction date to its database creation time.
+        for (final key in [
+          'تاریخ میلادی',
+          'تاریخ ثبت کالا',
+          'تاریخ',
+          'تاریخ فاکتور',
+          'تاریخ پذیرش',
+        ]) {
+          var value = (decoded[key] ?? '').toString().trim();
+          if (value.isEmpty) continue;
+
+          const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+          const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+          for (var i = 0; i < 10; i++) {
+            value = value
+                .replaceAll(persianDigits[i], i.toString())
+                .replaceAll(arabicDigits[i], i.toString());
+          }
+
+          final jalaliMatch = RegExp(
+            r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})',
+          ).firstMatch(value);
+          if (jalaliMatch != null) {
+            try {
+              return Jalali(
+                int.parse(jalaliMatch.group(1)!),
+                int.parse(jalaliMatch.group(2)!),
+                int.parse(jalaliMatch.group(3)!),
+              ).toDateTime();
+            } catch (_) {
+              // Try ISO parsing and finally the record creation timestamp.
+            }
+          }
+
+          final isoDate = DateTime.tryParse(value);
+          if (isoDate != null) return isoDate;
+        }
+      }
+    }
+  } catch (_) {
+    // Malformed legacy JSON should not prevent the report from loading.
+  }
+
+  return DateTime.tryParse((record['created_at'] ?? '').toString());
+}
+
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
   @override
