@@ -240,7 +240,21 @@ jobs:
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           apksigner="$build_tools/apksigner"
           test -x "$apksigner"
-          expected=""
+          keystore_fingerprint="$(
+            keytool -list -v \
+              -keystore android/app/release-keystore.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              head -n 1 |
+              tr -d ':' |
+              tr '[:lower:]' '[:upper:]'
+          )"
+          if [ -z "$keystore_fingerprint" ]; then
+            echo "::error::Could not read the configured release keystore certificate."
+            exit 1
+          fi
+
           for apk in \
             build/app/outputs/flutter-apk/app-release.apk \
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
@@ -248,19 +262,17 @@ jobs:
             build/app/outputs/flutter-apk/app-x86_64-release.apk; do
             test -s "$apk"
             "$apksigner" verify --verbose "$apk"
-            fingerprint="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+            fingerprint="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
             if [ -z "$fingerprint" ]; then
               echo "::error::Could not read the APK signing certificate: $apk"
               exit 1
             fi
-            if [ -z "$expected" ]; then
-              expected="$fingerprint"
-            elif [ "$fingerprint" != "$expected" ]; then
-              echo "::error::APK files were signed with different certificates."
+            if [ "$fingerprint" != "$keystore_fingerprint" ]; then
+              echo "::error::APK was not signed with the configured persistent release keystore: $apk"
               exit 1
             fi
           done
-          echo "All APKs use the same release certificate: $expected"
+          echo "All APKs use the configured persistent release certificate: $keystore_fingerprint"
 
       - name: Upload installable APKs
         if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
