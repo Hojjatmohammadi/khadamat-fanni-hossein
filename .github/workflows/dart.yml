@@ -1,6 +1,6 @@
 name: Validate Flutter code
 # Normal pushes run validation; an explicitly prefixed release commit also builds installable APKs.
-# Persistent release signing secrets have been configured; this commit requests the signed APK build.
+# Persistent release signing retry after correcting the Base64 keystore secret.
 
 on:
   push:
