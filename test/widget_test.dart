@@ -82,9 +82,13 @@ void main() {
     );
 
     final decodedSize = await tester.runAsync(() async {
-      final codec = await ui.instantiateImageCodec(bytes);
+      final codec = await ui
+          .instantiateImageCodec(bytes)
+          .timeout(const Duration(seconds: 20));
       try {
-        final frame = await codec.getNextFrame();
+        final frame = await codec
+            .getNextFrame()
+            .timeout(const Duration(seconds: 20));
         try {
           return Size(
             frame.image.width.toDouble(),
@@ -96,7 +100,7 @@ void main() {
       } finally {
         codec.dispose();
       }
-    }).timeout(const Duration(seconds: 20));
+    });
     expect(decodedSize, const Size(96, 48));
   });
 
