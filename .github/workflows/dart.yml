@@ -157,7 +157,8 @@ jobs:
           if path.suffix == ".kts":
               if "signingProperties" in source or 'create("release")' in source:
                   raise SystemExit("Release signing configuration already exists; refusing to duplicate it")
-              prefix = '''val signingProperties = java.util.Properties()
+              source = "import java.util.Properties\\n" + source
+          prefix = '''val signingProperties = Properties()
           val signingPropertiesFile = rootProject.file("key.properties")
           if (!signingPropertiesFile.exists()) {
               throw GradleException("Android release signing properties are missing.")
