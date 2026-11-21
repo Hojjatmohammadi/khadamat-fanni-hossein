@@ -157,19 +157,19 @@ jobs:
           if path.suffix == ".kts":
               if "signingProperties" in source or 'create("release")' in source:
                   raise SystemExit("Release signing configuration already exists; refusing to duplicate it")
-              source = "import java.util.Properties\\n" + source
-          prefix = '''val signingProperties = Properties()
+              source = "import java.util.Properties\n" + source
+              prefix = """val signingProperties = Properties()
           val signingPropertiesFile = rootProject.file("key.properties")
           if (!signingPropertiesFile.exists()) {
               throw GradleException("Android release signing properties are missing.")
           }
           signingPropertiesFile.inputStream().use { signingProperties.load(it) }
 
-          '''
+          """
               if "android {" not in source or "buildTypes {" not in source:
                   raise SystemExit("Unexpected Kotlin Gradle structure; release signing was not changed")
               source = source.replace("android {", prefix + "android {", 1)
-              signing = '''signingConfigs {
+              signing = """signingConfigs {
               create("release") {
                   keyAlias = signingProperties.getProperty("keyAlias")
                   keyPassword = signingProperties.getProperty("keyPassword")
@@ -178,7 +178,7 @@ jobs:
               }
           }
 
-              '''
+          """
               source = source.replace("    buildTypes {", "    " + signing.replace("\n", "\n    ").rstrip() + "\n    buildTypes {", 1)
               updated, count = re.subn(
                   r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
@@ -192,18 +192,18 @@ jobs:
           else:
               if "signingProperties" in source or "signingConfigs {" in source:
                   raise SystemExit("Release signing configuration already exists; refusing to duplicate it")
-              prefix = '''def signingProperties = new Properties()
+              prefix = """def signingProperties = new Properties()
           def signingPropertiesFile = rootProject.file('key.properties')
           if (!signingPropertiesFile.exists()) {
               throw new GradleException('Android release signing properties are missing.')
           }
           signingPropertiesFile.withInputStream { signingProperties.load(it) }
 
-          '''
+          """
               if "android {" not in source or "buildTypes {" not in source:
                   raise SystemExit("Unexpected Groovy Gradle structure; release signing was not changed")
               source = source.replace("android {", prefix + "android {", 1)
-              signing = '''signingConfigs {
+              signing = """signingConfigs {
               release {
                   keyAlias signingProperties['keyAlias']
                   keyPassword signingProperties['keyPassword']
@@ -212,7 +212,7 @@ jobs:
               }
           }
 
-              '''
+          """
               source = source.replace("    buildTypes {", "    " + signing.replace("\n", "\n    ").rstrip() + "\n    buildTypes {", 1)
               updated, count = re.subn(
                   r'signingConfig\s+signingConfigs\.debug',
