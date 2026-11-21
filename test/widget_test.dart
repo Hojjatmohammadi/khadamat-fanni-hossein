@@ -81,15 +81,23 @@ void main() {
       [137, 80, 78, 71, 13, 10, 26, 10],
     );
 
-    final codec = await ui.instantiateImageCodec(bytes);
-    try {
-      final frame = await codec.getNextFrame();
-      expect(frame.image.width, 96);
-      expect(frame.image.height, 48);
-      frame.image.dispose();
-    } finally {
-      codec.dispose();
-    }
+    final decodedSize = await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        try {
+          return Size(
+            frame.image.width.toDouble(),
+            frame.image.height.toDouble(),
+          );
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+    }).timeout(const Duration(seconds: 20));
+    expect(decodedSize, const Size(96, 48));
   });
 
   test('PDF package produces a readable PDF document', () async {
