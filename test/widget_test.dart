@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -43,6 +45,45 @@ void main() {
     expect(normalizeIranianMobileNumber('0098 912 345 6789'), '09123456789');
     expect(normalizeIranianMobileNumber('9123456789'), '09123456789');
     expect(normalizeIranianMobileNumber('123'), '123');
+  });
+
+  testWidgets('report boundary capture creates a decodable PNG image', (tester) async {
+    final boundaryKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: const SizedBox(
+                width: 96,
+                height: 48,
+                child: ColoredBox(color: Colors.blue),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final bytes = await tester.runAsync(
+      () => captureBoundaryPng(boundaryKey, pixelRatio: 1),
+    );
+    expect(bytes, isNotNull);
+    expect(
+      bytes!.take(8).toList(),
+      [137, 80, 78, 71, 13, 10, 26, 10],
+    );
+
+    final codec = await ui.instantiateImageCodec(bytes);
+    try {
+      final frame = await codec.getNextFrame();
+      expect(frame.image.width, 96);
+      expect(frame.image.height, 48);
+      frame.image.dispose();
+    } finally {
+      codec.dispose();
+    }
   });
 
   test('PDF package produces a readable PDF document', () async {
