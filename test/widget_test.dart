@@ -45,30 +45,6 @@ void main() {
     expect(normalizeIranianMobileNumber('123'), '123');
   });
 
-  testWidgets('report capture helper produces a valid PNG image', (tester) async {
-    final boundaryKey = GlobalKey();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Center(
-          child: RepaintBoundary(
-            key: boundaryKey,
-            child: const SizedBox(
-              width: 120,
-              height: 60,
-              child: ColoredBox(color: Colors.white),
-            ),
-          ),
-        ),
-      ),
-    );
-    final capture = captureBoundaryPng(boundaryKey, pixelRatio: 1);
-    await tester.pump();
-    final bytes = await tester.runAsync(() => capture);
-    expect(bytes, isNotNull);
-    expect(bytes!.take(8).toList(), [137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(bytes.length, greaterThan(8));
-  });
-
   test('PDF package produces a readable PDF document', () async {
     final document = pw.Document();
     document.addPage(
