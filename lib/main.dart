@@ -6503,6 +6503,110 @@ class _ReportsPageState extends State<ReportsPage> {
 
   String _dateLabel(Jalali? date) => date?.formatCompactDate() ?? 'بدون محدودیت';
 
+  Future<void> _exportReportExcel() async {
+    try {
+      final records = (await _recordsFuture).where(_inRange).toList();
+      final totals = await _financialTotalsFuture;
+      final workbook = Excel.createExcel();
+      workbook.rename('Sheet1', 'خلاصه مالی');
+
+      final summary = workbook['خلاصه مالی'];
+      summary.appendRow([TextCellValue('عنوان'), TextCellValue('مقدار')]);
+      summary.appendRow([TextCellValue('از تاریخ'), TextCellValue(_dateLabel(_fromDate))]);
+      summary.appendRow([TextCellValue('تا تاریخ'), TextCellValue(_dateLabel(_toDate))]);
+      summary.appendRow([TextCellValue('تعداد کل اسناد'), TextCellValue(records.length.toString())]);
+      final totalLabels = <String, String>{
+        'salesNet': 'فروش و درآمد خالص',
+        'purchases': 'خریدهای ثبت‌شده',
+        'costOfGoods': 'بهای تمام‌شده کالای فروش‌رفته',
+        'grossProfit': 'سود ناخالص',
+        'expenses': 'هزینه‌های عملیاتی',
+        'netProfit': 'سود خالص',
+        'inventoryValue': 'ارزش موجودی انبار',
+      };
+      for (final entry in totalLabels.entries) {
+        summary.appendRow([
+          TextCellValue(entry.value),
+          TextCellValue((totals[entry.key] ?? 0).toStringAsFixed(0)),
+        ]);
+      }
+      for (final entry in totals.entries.where((e) => e.key.startsWith('expenseCategory:'))) {
+        summary.appendRow([
+          TextCellValue('هزینه: ${entry.key.substring('expenseCategory:'.length)}'),
+          TextCellValue(entry.value.toStringAsFixed(0)),
+        ]);
+      }
+
+      final counts = workbook['شمارش اسناد'];
+      counts.appendRow([TextCellValue('نوع سند'), TextCellValue('تعداد')]);
+      const categories = <String, String>{
+        'products': 'کالاها',
+        'customers': 'مشتریان',
+        'repairs': 'تعمیرات',
+        'sales': 'فروش‌ها',
+        'operations': 'عملیات مالی',
+        'returns': 'برگشت خرید و فروش',
+      };
+      for (final entry in categories.entries) {
+        final count = records.where((record) => record['category'] == entry.key).length;
+        counts.appendRow([TextCellValue(entry.value), TextCellValue(count.toString())]);
+      }
+
+      final details = workbook['ریز اسناد'];
+      final decodedRows = <Map<String, String>>[];
+      final columns = <String>{'نوع سند', 'زمان ثبت'};
+      for (final record in records) {
+        final row = <String, String>{
+          'نوع سند': categories[record['category']?.toString()] ?? (record['category'] ?? '').toString(),
+          'زمان ثبت': (record['created_at'] ?? '').toString(),
+        };
+        try {
+          final raw = record['data'];
+          if (raw is String && raw.isNotEmpty) {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) {
+              for (final entry in decoded.entries) {
+                row[entry.key.toString()] = entry.value?.toString() ?? '';
+              }
+            }
+          }
+        } catch (_) {
+          row['خطای خواندن اطلاعات'] = 'ساختار اطلاعات این سند قابل خواندن نبود';
+        }
+        columns.addAll(row.keys);
+        decodedRows.add(row);
+      }
+      final orderedColumns = columns.toList();
+      details.appendRow(orderedColumns.map((column) => TextCellValue(column)).toList());
+      for (final row in decodedRows) {
+        details.appendRow(orderedColumns.map((column) => TextCellValue(row[column] ?? '')).toList());
+      }
+
+      final bytes = workbook.encode();
+      if (bytes == null) throw StateError('ساخت فایل Excel گزارش ناموفق بود.');
+      final root = await getApplicationDocumentsDirectory();
+      final directory = Directory(p.join(root.path, 'خروجی‌های خدمات فنی حسین'));
+      if (!await directory.exists()) await directory.create(recursive: true);
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+      final file = File(p.join(directory.path, 'report_$stamp.xlsx'));
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('گزارش Excel با خلاصه مالی، شمارش و ریز اسناد ذخیره شد.')),
+      );
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
+        text: 'گزارش Excel خدمات فنی حسین',
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تهیه Excel گزارش ناموفق بود: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _exportReportImage() async {
     try {
       await WidgetsBinding.instance.endOfFrame;
@@ -6589,24 +6693,33 @@ class _ReportsPageState extends State<ReportsPage> {
       return Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Row(children: [
-            Expanded(child: OutlinedButton.icon(
-              onPressed: _exportReportPdf,
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('خروجی PDF گزارش'),
-            )),
-            const SizedBox(width: 8),
-            Expanded(child: OutlinedButton.icon(
-              onPressed: _exportReportImage,
-              icon: const Icon(Icons.image_outlined),
-              label: const Text('خروجی تصویر گزارش'),
-            )),
-            IconButton(
-              tooltip: 'به‌روزرسانی',
-              onPressed: () => setState(() { _recordsFuture = _loadRecords(); _financialTotalsFuture = _loadFinancialTotals(); }),
-              icon: const Icon(Icons.refresh),
-            ),
-          ]),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _exportReportPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('خروجی PDF'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _exportReportExcel,
+                icon: const Icon(Icons.table_view_outlined),
+                label: const Text('خروجی Excel'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _exportReportImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('خروجی تصویر'),
+              ),
+              IconButton(
+                tooltip: 'به‌روزرسانی',
+                onPressed: () => setState(() { _recordsFuture = _loadRecords(); _financialTotalsFuture = _loadFinancialTotals(); }),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
         ),
         Expanded(child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
