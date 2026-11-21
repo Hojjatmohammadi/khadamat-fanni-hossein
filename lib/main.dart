@@ -6227,34 +6227,6 @@ DateTime? reportRecordDate(Map<String, Object?> record) {
     if (raw is String && raw.isNotEmpty) {
       final decoded = jsonDecode(raw);
       if (decoded is Map) {
-        for (final key in ['تاریخ میلادی', 'تاریخ ثبت کالا', 'تاریخ', 'تاریخ فاکتور', 'تاریخ پذیرش']) {
-          var value = (decoded[key] ?? '').toString().trim();
-          if (value.isEmpty) continue;
-          const fa = '۰۱۲۳۴۵۶۷۸۹';
-          const ar = '٠١٢٣٤٥٦٧٨٩';
-          for (var i = 0; i < 10; i++) {
-            value = value.replaceAll(fa[i], i.toString()).replaceAll(ar[i], i.toString());
-          }
-          final jalaliMatch = RegExp(r'^([0-9]{4})[/-]([0-9]{1,2})[/-]([0-9]{1,2})$').firstMatch(value);
-          if (jalaliMatch != null) {
-            try {
-              return Jalali(int.parse(jalaliMatch.group(1)!), int.parse(jalaliMatch.group(2)!), int.parse(jalaliMatch.group(3)!)).toDateTime();
-            } catch (_) {}
-          }
-          final parsed = DateTime.tryParse(value);
-          if (parsed != null) return parsed;
-        }
-      }
-    }
-  } catch (_) {}
-  return DateTime.tryParse((record['created_at'] ?? '').toString());
-}
-DateTime? reportRecordDate(Map<String, Object?> record) {
-  try {
-    final raw = record['data'];
-    if (raw is String && raw.isNotEmpty) {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) {
         // Prefer the document's transaction date to its database creation time.
         for (final key in [
           'تاریخ میلادی',
