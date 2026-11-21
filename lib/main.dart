@@ -2238,7 +2238,6 @@ class Dashboard extends StatelessWidget {
       ('فاکتورهای فروش', DemoStore.sales.length.toString(), Icons.receipt, 4),
       ('گزارش‌ها', 'مشاهده گزارش‌ها', Icons.bar_chart, 5),
       ('عملیات‌های دیگر', '۶ عملیات مالی', Icons.account_balance_wallet, 7),
-      ('خروجی و پشتیبان‌گیری', 'PDF، Excel، عکس و نسخه پشتیبان', Icons.file_download, 8),
     ];
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -2247,7 +2246,7 @@ class Dashboard extends StatelessWidget {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 2,
-          childAspectRatio: 1.20,
+          childAspectRatio: 0.98,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
           children: [
@@ -2276,6 +2275,43 @@ class Dashboard extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+        Card(
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => onSelect(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              child: Row(
+                children: [
+                  Icon(Icons.file_download, color: Colors.amber.shade800, size: 30),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'خروجی و پشتیبان‌گیری',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'PDF، Excel، عکس و نسخه پشتیبان',
+                          softWrap: true,
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_left, color: Colors.grey),
+                ],
+              ),
+            ),
+          ),
         ),
         const Padding(
           padding: EdgeInsets.all(8),
