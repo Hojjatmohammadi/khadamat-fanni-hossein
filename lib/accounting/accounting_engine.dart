@@ -620,6 +620,8 @@ class AccountingEngine {
     // the selected period; otherwise the first displayed balance is misleading.
     var balance = 0.0;
     if (from != null) {
+      // A date-only filter starts at midnight even if the caller supplies a time.
+      final fromInclusive = DateTime(from.year, from.month, from.day);
       final openingRows = await db.rawQuery('''
         SELECT COALESCE(SUM(l.debit), 0) AS debit_total,
                COALESCE(SUM(l.credit), 0) AS credit_total
@@ -627,7 +629,7 @@ class AccountingEngine {
         JOIN journal_entries e ON e.id = l.entry_id
         JOIN accounts a ON a.id = l.account_id
         WHERE $partyWhere AND e.occurred_at < ?$accountFilter
-      ''', [...partyArgs, from.toIso8601String(), ...codes]);
+      ''', [...partyArgs, fromInclusive.toIso8601String(), ...codes]);
       balance = (openingRows.first['debit_total'] as num).toDouble() -
           (openingRows.first['credit_total'] as num).toDouble();
     }
@@ -635,8 +637,9 @@ class AccountingEngine {
     final clauses = <String>[partyWhere];
     final args = <Object?>[...partyArgs];
     if (from != null) {
+      final fromInclusive = DateTime(from.year, from.month, from.day);
       clauses.add('e.occurred_at >= ?');
-      args.add(from.toIso8601String());
+      args.add(fromInclusive.toIso8601String());
     }
     if (to != null) {
       // Treat `to` as an inclusive calendar date, regardless of the time
@@ -777,19 +780,22 @@ class AccountingEngine {
     // Opening balance includes every movement strictly before the selected period.
     var openingBalance = 0.0;
     if (from != null) {
+      // Preserve the full opening balance before the selected calendar day.
+      final fromInclusive = DateTime(from.year, from.month, from.day);
       final openingRows = await db.rawQuery(
         '''SELECT COALESCE(SUM(quantity_delta), 0) AS opening
            FROM stock_movements
            WHERE product_id = ? AND occurred_at < ?''',
-        [productId, from.toIso8601String()],
+        [productId, fromInclusive.toIso8601String()],
       );
       openingBalance = (openingRows.first['opening'] as num).toDouble();
     }
     final clauses = <String>['product_id = ?'];
     final args = <Object?>[productId];
     if (from != null) {
+      final fromInclusive = DateTime(from.year, from.month, from.day);
       clauses.add('occurred_at >= ?');
-      args.add(from.toIso8601String());
+      args.add(fromInclusive.toIso8601String());
     }
     if (to != null) {
       // Include the entire selected calendar day, not the following day.
