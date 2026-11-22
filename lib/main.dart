@@ -3483,6 +3483,18 @@ class _SimpleListPageState extends State<SimpleListPage> {
       if (uniqueMatch.length == 1) customerId = uniqueMatch.first['id'] as int;
     }
     final records = await DemoStore.database.query('records', columns: ['id','category','data','created_at'], where: 'category IN (?, ?, ?)', whereArgs: ['sales','operations','repairs']);
+    final sourceIds = records.map((record) => record['id'].toString()).toSet();
+    final postedLegacySources = <String>{};
+    if (sourceIds.isNotEmpty) {
+      final placeholders = List.filled(sourceIds.length, '?').join(',');
+      final postedRows = await DemoStore.database.rawQuery(
+        'SELECT source_type, source_id FROM journal_entries WHERE source_id IN ($placeholders) AND source_type IN (?, ?, ?)',
+        [...sourceIds, 'sale', 'repair', 'operation'],
+      );
+      for (final posted in postedRows) {
+        postedLegacySources.add('${posted['source_type']}:${posted['source_id']}');
+      }
+    }
     if (!mounted) return;
     final invoicedRepairIds = <String>{};
     for (final record in records.where((r) => r['category'] == 'sales')) {
@@ -3513,8 +3525,16 @@ class _SimpleListPageState extends State<SimpleListPage> {
           'credit': (entry['credit'] as num).toDouble(),
         });
       }
-    } else {
+    }
+    {
       for (final record in records) {
+        final category = (record['category'] ?? '').toString();
+        final sourceType = category == 'sales'
+            ? 'sale'
+            : category == 'repairs'
+                ? 'repair'
+                : 'operation';
+        if (postedLegacySources.contains('$sourceType:${record['id']}')) continue;
         Map<String,dynamic> data;
         try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
         final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
@@ -5408,7 +5428,19 @@ class _OperationsPageState extends State<OperationsPage> {
       );
       if (matches.length == 1) partyId = matches.first['id'] as int;
     }
-    final records = await DemoStore.database.query('records', columns: ['data','created_at'], where: 'category = ?', whereArgs: ['operations']);
+    final records = await DemoStore.database.query('records', columns: ['id','data','created_at'], where: 'category = ?', whereArgs: ['operations']);
+    final sourceIds = records.map((record) => record['id'].toString()).toSet();
+    final postedLegacySources = <String>{};
+    if (sourceIds.isNotEmpty) {
+      final placeholders = List.filled(sourceIds.length, '?').join(',');
+      final postedRows = await DemoStore.database.rawQuery(
+        'SELECT source_type, source_id FROM journal_entries WHERE source_id IN ($placeholders) AND source_type IN (?, ?)',
+        [...sourceIds, 'operation', 'purchase'],
+      );
+      for (final posted in postedRows) {
+        postedLegacySources.add('${posted['source_type']}:${posted['source_id']}');
+      }
+    }
     final rows = <Map<String,Object?>>[];
     final ledgerPartyType = type == 'فروشنده' ? 'supplier' : 'customer';
     final normalizedLedgerRows = partyId == null
@@ -5434,8 +5466,11 @@ class _OperationsPageState extends State<OperationsPage> {
           'note': memo,
         });
       }
-    } else {
+    }
+    {
       for (final record in records) {
+        if (postedLegacySources.contains('operation:${record['id']}') ||
+            postedLegacySources.contains('purchase:${record['id']}')) continue;
         Map<String,dynamic> data;
         try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
         if ((data['نام شخص'] ?? '').toString().trim() != name) continue;
