@@ -9,8 +9,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: khadamat-fanni-android-release
-  cancel-in-progress: true
+  # Keep each commit's validation independent so a stale runner reservation
+  # cannot block the latest source from being tested or released.
+  group: khadamat-fanni-android-release-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   build-android:
