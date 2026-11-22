@@ -1324,8 +1324,8 @@ class DemoStore {
       lines.add(JournalLineInput(
         accountId: await AccountingEngine.accountId(txn, partyType == 'فروشنده' ? '1110' : '1100'),
         debit: amount,
-        partyType: partyType == 'مشتری' ? 'customer' : '',
-        partyId: partyType == 'مشتری' ? partyId : null,
+        partyType: partyType == 'مشتری' ? 'customer' : partyType == 'فروشنده' ? 'supplier' : '',
+        partyId: partyType == 'مشتری' || partyType == 'فروشنده' ? partyId : null,
         memo: 'ثبت بدهکاری ' + partyName,
       ));
       lines.add(JournalLineInput(
@@ -1342,8 +1342,8 @@ class DemoStore {
       lines.add(JournalLineInput(
         accountId: await AccountingEngine.accountId(txn, partyType == 'مشتری' ? '2010' : '2000'),
         credit: amount,
-        partyType: partyType == 'مشتری' ? 'customer' : '',
-        partyId: partyType == 'مشتری' ? partyId : null,
+        partyType: partyType == 'مشتری' ? 'customer' : partyType == 'فروشنده' ? 'supplier' : '',
+        partyId: partyType == 'مشتری' || partyType == 'فروشنده' ? partyId : null,
         memo: 'ثبت بستانکاری ' + partyName,
       ));
     }
