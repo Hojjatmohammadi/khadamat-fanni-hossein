@@ -56,6 +56,32 @@ void main() {
     expect(date!.year, 2026);
   });
 
+  test('report date parses ISO timestamps in regular transaction date fields as Gregorian', () {
+    final date = reportRecordDate({
+      'created_at': '2026-11-21T10:00:00.000',
+      'data': '{"تاریخ":"2025-03-20T08:30:00.000"}',
+    });
+    expect(date, DateTime(2025, 3, 20, 8, 30));
+  });
+
+  test('report date parses Gregorian date-only values in the explicit Gregorian field', () {
+    final date = reportRecordDate({
+      'created_at': '2026-11-21T10:00:00.000',
+      'data': '{"تاریخ میلادی":"2025-03-20"}',
+    });
+    expect(date, DateTime(2025, 3, 20));
+  });
+
+  test('report date does not partially parse an ISO date as Jalali', () {
+    final date = reportRecordDate({
+      'created_at': '2026-11-21T10:00:00.000',
+      'data': '{"تاریخ":"2025-03-20T08:30:00.000"}',
+    });
+    expect(date!.year, 2025);
+    expect(date.month, 3);
+    expect(date.day, 20);
+  });
+
   test('Iranian mobile numbers normalize Persian and Arabic digits and country prefixes', () {
     expect(normalizeIranianMobileNumber('۰۹۱۲ ۳۴۵ ۶۷۸۹'), '09123456789');
     expect(normalizeIranianMobileNumber('٠٩١٢-٣٤٥-٦٧٨٩'), '09123456789');
