@@ -766,6 +766,51 @@ void main() {
     expect(cardex.last['running_quantity'], 9.0);
   });
 
+  test('party ledger start date includes the full selected day and carries opening balance', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'آزمایش شروع',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+
+    Future<void> post(String number, DateTime at, double amount) async {
+      await AccountingEngine.postJournalInTransaction(
+        db,
+        entryNumber: number,
+        occurredAt: at,
+        description: number,
+        sourceType: 'unit_test',
+        sourceId: number,
+        lines: [
+          JournalLineInput(
+            accountId: receivableId,
+            debit: amount,
+            partyType: 'customer',
+            partyId: customerId,
+          ),
+          JournalLineInput(accountId: revenueId, credit: amount),
+        ],
+      );
+    }
+
+    await post('TEST-LEDGER-START-OPENING', DateTime(2026, 2, 1, 23, 59), 40);
+    await post('TEST-LEDGER-START-DAY', DateTime(2026, 2, 2, 0, 30), 100);
+
+    final rows = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      from: DateTime(2026, 2, 2, 17),
+      accountCodes: const ['1100'],
+    );
+
+    expect(rows, hasLength(1));
+    expect(rows.single['debit'], 100);
+    expect(rows.single['running_balance'], 140);
+  });
+
   test('stock cardex end date includes the full selected day only', () async {
     final productId = await addProduct('کالای آزمون پایان کارتکس');
     await AccountingEngine.recordStockMovement(
@@ -802,6 +847,36 @@ void main() {
 
     expect(cardex, hasLength(2));
     expect(cardex.last['running_quantity'], 3.0);
+  });
+
+  test('stock cardex start date includes full selected day and opening quantity', () async {
+    final productId = await addProduct('کالای آزمون ابتدای کارتکس');
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 4,
+      unitCost: 50,
+      occurredAt: DateTime(2026, 3, 1, 23, 59),
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 2,
+      unitCost: 60,
+      occurredAt: DateTime(2026, 3, 2, 0, 30),
+    );
+
+    final cardex = await AccountingEngine.stockCardex(
+      db,
+      productId,
+      from: DateTime(2026, 3, 2, 17),
+    );
+
+    expect(cardex, hasLength(1));
+    expect(cardex.single['opening_quantity'], 4.0);
+    expect(cardex.single['running_quantity'], 6.0);
   });
 
   test('weighted average cost uses immutable movement costs rather than current product price',
