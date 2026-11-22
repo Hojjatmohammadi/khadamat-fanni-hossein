@@ -601,6 +601,20 @@ class AccountingEngine {
   }
 
   /// Returns chronological party activity with a running debit-minus-credit balance.
+  /// Ensures customer deposits are linked to a real customer record so
+  /// the credit can be allocated to that customer's future invoices.
+  static void validateDepositParty({
+    required String partyType,
+    required int? partyId,
+  }) {
+    if (partyType != 'مشتری') {
+      throw StateError('بیعانه فقط برای مشتری قابل ثبت است.');
+    }
+    if (partyId == null || partyId <= 0) {
+      throw StateError('برای ثبت بیعانه، ابتدا پرونده مشتری را انتخاب یا ثبت کنید.');
+    }
+  }
+
   static Future<List<Map<String, Object?>>> partyLedger(
     DatabaseExecutor db, {
     required String partyType,
