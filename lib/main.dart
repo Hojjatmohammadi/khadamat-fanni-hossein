@@ -85,7 +85,7 @@ Future<void> _notifyDueCheckNotifications() async {
     final amount = (row['amount'] as num).toStringAsFixed(0);
     final body = 'شماره ' + (row['check_number'] ?? '').toString() +
         ' • ' + (row['party_name_snapshot'] ?? '').toString() +
-        ' • ' + amount + ' تومان • ' + Jalali.fromDateTime(dueDate).formatCompactDate();
+        ' • ' + amount + ' ' + AppSettings.currency + ' • ' + Jalali.fromDateTime(dueDate).formatCompactDate();
     await _checkNotifications.show(id, title, body, details);
     await AppSettings._prefs.setBool(reminderKey, true);
   }
@@ -2030,7 +2030,7 @@ class _HomePageState extends State<HomePage> {
                         Jalali.fromDateTime(DateTime.parse(check['due_date'] as String)).formatCompactDate() +
                         ' • ' + (check['direction'] == 'received' ? 'دریافتی' : 'پرداختی'),
                       ),
-                      trailing: Text((check['amount'] as num).toStringAsFixed(0) + ' تومان'),
+                      trailing: Text((check['amount'] as num).toStringAsFixed(0) + ' ' + AppSettings.currency),
                     ),
                 ],
               ),
@@ -3022,7 +3022,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
           final repairWage = _ledgerAmount(linkedData['اجرت']);
           final invoiceGross = _ledgerAmount(item['مبلغ کل']);
           if (invoiceGross + 0.001 < repairWage) {
-            ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('مبلغ کل فاکتور باید اجرت ثبت‌شده تعمیر را هم پوشش دهد: ' + repairWage.toStringAsFixed(0) + ' تومان.')));
+            ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('مبلغ کل فاکتور باید اجرت ثبت‌شده تعمیر را هم پوشش دهد: ' + repairWage.toStringAsFixed(0) + ' ' + AppSettings.currency + '.')));
             return;
           }
         }
@@ -3324,7 +3324,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
                                   subtitle: Text(
                                     (extraInvoiceLines[lineIndex]['quantity'] ?? '1') + ' × ' +
                                     (extraInvoiceLines[lineIndex]['unit_price'] ?? '0') + ' = ' +
-                                    (extraInvoiceLines[lineIndex]['line_total'] ?? '0') + ' تومان',
+                                    (extraInvoiceLines[lineIndex]['line_total'] ?? '0') + ' ' + AppSettings.currency,
                                   ),
                                   trailing: IconButton(
                                     tooltip: 'حذف ردیف',
@@ -3411,7 +3411,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       textDirection: TextDirection.rtl, child: StatefulBuilder(builder: (d, refresh) => AlertDialog(
         title: Text(asDeposit ? 'ثبت بیعانه از ' + customerName : asPayment ? 'ثبت پرداخت به ' + customerName : 'ثبت دریافت از ' + customerName),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (تومان)' : asPayment ? 'مبلغ پرداختی به مشتری (تومان)' : 'مبلغ دریافتی (تومان)')),
+          TextField(controller: amount, autofocus: true, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], decoration: InputDecoration(labelText: asDeposit ? 'مبلغ بیعانه (' + AppSettings.currency + ')' : asPayment ? 'مبلغ پرداختی به مشتری (' + AppSettings.currency + ')' : 'مبلغ دریافتی (' + AppSettings.currency + ')')),
           DropdownButtonFormField<String>(value: method, decoration: InputDecoration(labelText: asDeposit ? 'روش دریافت بیعانه' : 'روش دریافت'), items: availableMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (v) => refresh(() => method = v ?? methods.first)),
           OutlinedButton.icon(
             onPressed: () async {
@@ -3580,7 +3580,7 @@ class _SimpleListPageState extends State<SimpleListPage> {
       content: SizedBox(width: 650, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(balance > 0.009 ? 'وضعیت: مشتری بدهکار است' : balance < -0.009 ? 'وضعیت: مشتری بستانکار است' : 'وضعیت: حساب تسویه است', style: TextStyle(fontWeight: FontWeight.bold, color: balance > 0.009 ? Colors.red.shade700 : balance < -0.009 ? Colors.green.shade700 : null)),
-          Text('مانده: ' + balance.abs().toStringAsFixed(0) + ' تومان'), Text('جمع بدهکار: ' + debitTotal.toStringAsFixed(0) + ' تومان'), Text('جمع بستانکار: ' + creditTotal.toStringAsFixed(0) + ' تومان'),
+          Text('مانده: ' + balance.abs().toStringAsFixed(0) + ' ' + AppSettings.currency), Text('جمع بدهکار: ' + debitTotal.toStringAsFixed(0) + ' ' + AppSettings.currency), Text('جمع بستانکار: ' + creditTotal.toStringAsFixed(0) + ' ' + AppSettings.currency),
         ]))),
         if ((customer['شماره تماس'] ?? '').trim().isNotEmpty)
           Wrap(
@@ -4090,7 +4090,7 @@ class _ProductPageState extends State<ProductPage> {
                       decoration: const InputDecoration(labelText: 'نام فروشنده / تأمین‌کننده (یا فروشنده جدید)'),
                     ),
                     const SizedBox(height: 8),
-                    TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: const InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (تومان)')),
+                    TextField(controller: purchasePaid, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], onChanged: (_) => refresh(() {}), decoration: InputDecoration(labelText: 'مبلغ پرداخت‌شده هنگام خرید (' + AppSettings.currency + ')')),
                     DropdownButtonFormField<String>(value: purchaseMethod, decoration: const InputDecoration(labelText: 'روش پرداخت خرید'), items: const ['نقدی','کارت به کارت','حواله بانکی','چک'].map((m) => DropdownMenuItem(value:m, child:Text(m))).toList(), onChanged: (v) => refresh(() => purchaseMethod = v ?? 'نقدی')),
                     if (purchaseMethod == 'چک' && number(purchasePaid) > 0) ...[
                       const SizedBox(height: 8),
@@ -4145,9 +4145,9 @@ class _ProductPageState extends State<ProductPage> {
                         children: [
                           const Text('محاسبه خودکار بهای تمام‌شده', style: TextStyle(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 6),
-                          Text('مبلغ ارزش افزوده: ${(vatIncluded ? number(c[3]) * number(c[2]) * number(vatRate) / 100 : 0).toStringAsFixed(0)} تومان'),
-                          Text('جمع کل خرید و هزینه‌ها: ${totalCost().toStringAsFixed(0)} تومان'),
-                          Text('بهای تمام‌شده هر واحد: ${((number(c[2]) > 0) ? totalCost() / number(c[2]) : 0).toStringAsFixed(0)} تومان'),
+                          Text('مبلغ ارزش افزوده: ${(vatIncluded ? number(c[3]) * number(c[2]) * number(vatRate) / 100 : 0).toStringAsFixed(0)} ${AppSettings.currency}'),
+                          Text('جمع کل خرید و هزینه‌ها: ${totalCost().toStringAsFixed(0)} ${AppSettings.currency}'),
+                          Text('بهای تمام‌شده هر واحد: ${((number(c[2]) > 0) ? totalCost() / number(c[2]) : 0).toStringAsFixed(0)} ${AppSettings.currency}'),
                           const Text('هزینه‌ها به نسبت تعداد، بین کالاها سرشکن می‌شوند.', style: TextStyle(fontSize: 11, color: Colors.black54)),
                         ],
                       ),
@@ -4433,7 +4433,7 @@ class _ProductPageState extends State<ProductPage> {
                     else editProduct(item);
                   },
                   trailing: _selectedProducts.isNotEmpty ? Checkbox(value: _selectedProducts.contains(jsonEncode(item)), onChanged: (_) => setState(() { final k=jsonEncode(item); _selectedProducts.contains(k) ? _selectedProducts.remove(k) : _selectedProducts.add(k); })) : const Icon(Icons.edit_outlined),
-                  subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} تومان'),
+                  subtitle: Text('موجودی: ${item['موجودی'] ?? '0'} ${item['واحد شمارش'] ?? 'عدد'}  •  ${item['وضعیت کالا'] ?? 'نو'}  •  بهای تمام‌شده هر واحد: ${item['بهای تمام‌شده هر واحد'] ?? '0'} ${AppSettings.currency}'),
                 )),
             ],
           )),
@@ -5009,7 +5009,7 @@ class _OperationsPageState extends State<OperationsPage> {
                                   ),
                                   Text(
                                     (checks[i]['party_name_snapshot'] ?? '').toString() +
-                                    ' • ' + (checks[i]['amount'] as num).toStringAsFixed(0) + ' تومان',
+                                    ' • ' + (checks[i]['amount'] as num).toStringAsFixed(0) + ' ' + AppSettings.currency,
                                   ),
                                   Text(
                                     'بانک: ' + ((checks[i]['bank_name'] ?? '').toString().isEmpty ? '—' : checks[i]['bank_name'].toString()) +
@@ -5102,7 +5102,7 @@ class _OperationsPageState extends State<OperationsPage> {
                           title: Text((row['purchase_number'] ?? '').toString() + ' • ' + productName),
                           subtitle: Text(
                             (operation['نام شخص'] ?? '').toString() + ' • ' +
-                            (operation['مبلغ'] ?? '0').toString() + ' تومان' + '\n' +
+                            (operation['مبلغ'] ?? '0').toString() + ' ' + AppSettings.currency + '\n' +
                             (operation['تاریخ'] ?? row['archived_at']).toString(),
                           ),
                           isThreeLine: true,
@@ -5366,12 +5366,12 @@ class _OperationsPageState extends State<OperationsPage> {
         Card(child: ListTile(
           leading: const Icon(Icons.assignment_return),
           title: Text((item['نوع برگشت'] ?? 'برگشت') + ' • ' + (item['شماره برگشت'] ?? '')),
-          subtitle: Text((item['نام طرف حساب'] ?? '') + ' • ' + (item['مبلغ برگشت'] ?? '0') + ' تومان'),
+          subtitle: Text((item['نام طرف حساب'] ?? '') + ' • ' + (item['مبلغ برگشت'] ?? '0') + ' ' + AppSettings.currency),
         )),
       for (final item in DemoStore.operations.reversed)
         Card(child: ListTile(
           title: Text(item['نوع عملیات'] ?? 'عملیات مالی'),
-          subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} تومان • ${item['روش'] ?? ''}'),
+          subtitle: Text('${item['نام شخص'] ?? ''} • ${item['مبلغ'] ?? '0'} ${AppSettings.currency} • ${item['روش'] ?? ''}'),
           leading: _selected.contains(jsonEncode(item)) ? const Icon(Icons.check_circle, color: Colors.teal) : const Icon(Icons.account_balance_wallet_outlined),
           onLongPress: item['نوع عملیات'] == 'خرید کالا' ? null : () => setState(() => _selected.add(jsonEncode(item))),
           onTap: () { if (_selected.isNotEmpty) setState(() { final k=jsonEncode(item); _selected.contains(k) ? _selected.remove(k) : _selected.add(k); }); else _showPartyAccount(item); },
@@ -5649,7 +5649,7 @@ class _OperationsPageState extends State<OperationsPage> {
                       controller: amount,
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+                      decoration: InputDecoration(labelText: 'مبلغ (' + AppSettings.currency + ')'),
                     ),
                     if (op == 'ثبت هزینه') ...[
                       DropdownButtonFormField<String>(
@@ -6482,7 +6482,7 @@ class _ReportsPageState extends State<ReportsPage> {
           ),
           actions: [
             Text(
-              'اختلاف تراز: ' + (debitTotal - creditTotal).abs().toStringAsFixed(2) + ' تومان',
+              'اختلاف تراز: ' + (debitTotal - creditTotal).abs().toStringAsFixed(2) + ' ' + AppSettings.currency,
               style: TextStyle(
                 color: (debitTotal - creditTotal).abs() < 0.01 ? Colors.green : Colors.red,
                 fontWeight: FontWeight.bold,
