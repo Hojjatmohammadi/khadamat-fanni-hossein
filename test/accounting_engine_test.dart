@@ -127,6 +127,59 @@ void main() {
     expect(customerReceipt['credit'], 90);
   });
 
+  test('supplier purchase and overpayment create payable and advance once', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده خرید آزمون');
+    final purchaseDate = DateTime(2026, 4, 1).toIso8601String();
+    final paymentDate = DateTime(2026, 4, 2).toIso8601String();
+
+    await db.insert('records', {
+      'category': 'operations',
+      'created_at': purchaseDate,
+      'data': jsonEncode({
+        'نوع عملیات': 'خرید کالا',
+        'نام شخص': 'فروشنده خرید آزمون',
+        'نوع طرف حساب': 'فروشنده',
+        'شناسه فروشنده': supplierId.toString(),
+        'مبلغ': '1000',
+        'مبلغ پرداخت‌شده': '300',
+        'روش': 'نقدی',
+      }),
+    });
+    await db.insert('records', {
+      'category': 'operations',
+      'created_at': paymentDate,
+      'data': jsonEncode({
+        'نوع عملیات': 'پرداخت وجه',
+        'نام شخص': 'فروشنده خرید آزمون',
+        'نوع طرف حساب': 'فروشنده',
+        'شناسه فروشنده': supplierId.toString(),
+        'مبلغ': '800',
+        'روش': 'نقدی',
+      }),
+    });
+
+    await AppDatabaseSchema.migrateHistoricalJournals(db);
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'supplier',
+      partyId: supplierId,
+      accountCodes: const ['2000', '1110'],
+    );
+
+    expect(ledger, hasLength(3));
+    expect(ledger[0]['credit'], 700);
+    expect(ledger[1]['debit'], 700);
+    expect(ledger[2]['debit'], 100);
+    expect(ledger.last['running_balance'], 100);
+
+    await AppDatabaseSchema.migrateHistoricalJournals(db);
+    final entries = await db.query(
+      'journal_entries',
+      where: "source_type IN ('purchase', 'operation')",
+    );
+    expect(entries, hasLength(2), reason: 'Legacy sources must never be posted twice.');
+  });
+
   test('localized amount parser accepts Persian and Arabic digits and separators', () {
     expect(AccountingEngine.parseLocalizedAmount('۱۲٬۳۴۵'), 12345);
     expect(AccountingEngine.parseLocalizedAmount('١٢٣٫٥'), 123.5);
