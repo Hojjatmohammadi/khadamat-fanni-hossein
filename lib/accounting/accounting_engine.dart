@@ -792,8 +792,10 @@ class AccountingEngine {
       args.add(from.toIso8601String());
     }
     if (to != null) {
+      // Include the entire selected calendar day, not the following day.
+      final toExclusive = DateTime(to.year, to.month, to.day + 1);
       clauses.add('occurred_at < ?');
-      args.add(to.add(const Duration(days: 1)).toIso8601String());
+      args.add(toExclusive.toIso8601String());
     }
     final rows = await db.query(
       'stock_movements',
