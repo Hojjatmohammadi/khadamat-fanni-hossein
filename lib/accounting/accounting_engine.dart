@@ -367,6 +367,47 @@ class AccountingEngine {
     };
   }
 
+  /// Maps legacy party operations to the same debit/credit direction used
+  /// by historical journal migration. Supplier receipts reduce our receivable
+  /// (1110), while payments to suppliers reduce payables or create advances.
+  static Map<String, double> legacyPartyOperationAmounts({
+    required String partyType,
+    required String operation,
+    required double amount,
+    double paid = 0,
+  }) {
+    if (!amount.isFinite || amount <= 0) {
+      return <String, double>{'debit': 0, 'credit': 0};
+    }
+    if (partyType == 'فروشنده') {
+      if (operation == 'خرید کالا') {
+        final safePaid = paid.isFinite ? paid.clamp(0.0, amount).toDouble() : 0.0;
+        return <String, double>{'debit': safePaid, 'credit': amount};
+      }
+      final debit = <String>{
+        'متفرقه شخص بدهکار',
+        'پرداخت وجه',
+        'تخفیف گرفتن',
+      }.contains(operation) ? amount : 0.0;
+      final credit = <String>{
+        'متفرقه شخص بستانکار',
+        'دریافت وجه',
+      }.contains(operation) ? amount : 0.0;
+      return <String, double>{'debit': debit, 'credit': credit};
+    }
+    final debit = <String>{
+      'متفرقه شخص بدهکار',
+      'پرداخت وجه',
+    }.contains(operation) ? amount : 0.0;
+    final credit = <String>{
+      'متفرقه شخص بستانکار',
+      'دریافت وجه',
+      'ثبت بیعانه',
+      'تخفیف دادن',
+    }.contains(operation) ? amount : 0.0;
+    return <String, double>{'debit': debit, 'credit': credit};
+  }
+
   static double parseLocalizedAmount(Object? raw) {
     var value = (raw ?? '').toString().trim();
     const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
