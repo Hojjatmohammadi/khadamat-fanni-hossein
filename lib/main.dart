@@ -6235,7 +6235,80 @@ DateTime? reportRecordDate(Map<String, Object?> record) {
     }
 
     final dateParts = RegExp(
-      r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})
+      r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$',
+    ).firstMatch(value);
+
+    // This field is explicitly Gregorian, so never send it through Jalali.
+    if (key == 'تاریخ میلادی') {
+      final parsedIso = DateTime.tryParse(value);
+      if (parsedIso != null) return parsedIso;
+      if (dateParts != null) {
+        final year = int.parse(dateParts.group(1)!);
+        final month = int.parse(dateParts.group(2)!);
+        final day = int.parse(dateParts.group(3)!);
+        final parsed = DateTime(year, month, day);
+        if (parsed.year == year && parsed.month == month && parsed.day == day) {
+          return parsed;
+        }
+      }
+      return null;
+    }
+
+    // ISO timestamps are Gregorian; parse them before considering Jalali.
+    if (value.contains('T') || value.endsWith('Z')) {
+      final parsedIso = DateTime.tryParse(value);
+      if (parsedIso != null) return parsedIso;
+    }
+
+    if (dateParts != null) {
+      final year = int.parse(dateParts.group(1)!);
+      final month = int.parse(dateParts.group(2)!);
+      final day = int.parse(dateParts.group(3)!);
+
+      // Date-only Gregorian values use modern years; Persian form fields use
+      // Jalali years. Keep both interpretations explicit and deterministic.
+      if (year >= 1600) {
+        final parsed = DateTime(year, month, day);
+        if (parsed.year == year && parsed.month == month && parsed.day == day) {
+          return parsed;
+        }
+        return null;
+      }
+
+      try {
+        return Jalali(year, month, day).toDateTime();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    return DateTime.tryParse(value);
+  }
+
+  try {
+    final raw = record['data'];
+    if (raw is String && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        // Prefer the document's transaction date to its database creation time.
+        for (final key in [
+          'تاریخ میلادی',
+          'تاریخ ثبت کالا',
+          'تاریخ',
+          'تاریخ فاکتور',
+          'تاریخ پذیرش',
+        ]) {
+          final parsed = parseDateValue(key, decoded[key]);
+          if (parsed != null) return parsed;
+        }
+      }
+    }
+  } catch (_) {
+    // Malformed legacy JSON should not prevent the report from loading.
+  }
+
+  return DateTime.tryParse((record['created_at'] ?? '').toString());
+}
 
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
