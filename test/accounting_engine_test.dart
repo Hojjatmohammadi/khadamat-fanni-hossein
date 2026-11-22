@@ -65,6 +65,33 @@ void main() {
     );
   });
 
+  test('settled invoice history row is visible without changing ledger balance', () {
+    final row = AccountingEngine.invoiceHistoryRow(
+      date: DateTime(2026, 3, 4),
+      invoiceNumber: 'HOS-1042',
+      gross: 120000,
+      discount: 10000,
+      tax: 9900,
+      received: 119900,
+      depositApplied: 0,
+      paymentMethod: 'نقدی',
+    );
+
+    expect(row['is_history_only'], isTrue);
+    expect(row['date'], DateTime(2026, 3, 4));
+    expect(row['description'], contains('HOS-1042'));
+    expect(row['description'], contains('تخفیف 10000'));
+    expect(row['description'], contains('مالیات 9900'));
+    expect(row['description'], contains('دریافتی 119900'));
+    expect(row['debit'], 0.0);
+    expect(row['credit'], 0.0);
+    expect(
+      (row['debit'] as double) - (row['credit'] as double),
+      0.0,
+      reason: 'A history-only invoice must never alter the customer balance.',
+    );
+  });
+
   test('localized amount parser accepts Persian and Arabic digits and separators', () {
     expect(AccountingEngine.parseLocalizedAmount('۱۲٬۳۴۵'), 12345);
     expect(AccountingEngine.parseLocalizedAmount('١٢٣٫٥'), 123.5);
