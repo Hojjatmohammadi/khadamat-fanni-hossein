@@ -336,6 +336,37 @@ class AccountingEngine {
 
   /// Parses user-entered amounts that may contain Persian/Arabic digits
   /// and locale-specific grouping or decimal separators.
+  /// Builds a non-posting history row for a fully normalized invoice.
+  /// Its zero debit/credit keeps invoice visibility separate from balances:
+  /// the journal remains the only source of financial movement totals.
+  static Map<String, Object?> invoiceHistoryRow({
+    required DateTime date,
+    required String invoiceNumber,
+    required double gross,
+    required double discount,
+    required double tax,
+    required double received,
+    required double depositApplied,
+    required String paymentMethod,
+  }) {
+    String amount(double value) => value.toStringAsFixed(0);
+    final details = <String>[
+      'مبلغ ${amount(gross)}',
+      if (discount > 0) 'تخفیف ${amount(discount)}',
+      if (tax > 0) 'مالیات ${amount(tax)}',
+      if (received > 0) 'دریافتی ${amount(received)}',
+      if (depositApplied > 0) 'بیعانه مصرف‌شده ${amount(depositApplied)}',
+    ];
+    return <String, Object?>{
+      'date': date,
+      'description': 'خلاصه فاکتور فروش ${invoiceNumber.trim().isEmpty ? 'بدون شماره' : invoiceNumber.trim()} — ${details.join('، ')}',
+      'method': paymentMethod,
+      'debit': 0.0,
+      'credit': 0.0,
+      'is_history_only': true,
+    };
+  }
+
   static double parseLocalizedAmount(Object? raw) {
     var value = (raw ?? '').toString().trim();
     const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
