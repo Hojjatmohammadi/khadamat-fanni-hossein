@@ -41,6 +41,63 @@ void main() {
     });
   }
 
+  test('party ledger treats the end date as inclusive calendar day', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'آزمایش بازه',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-LEDGER-END-DAY-1',
+      occurredAt: DateTime(2026, 2, 2, 23, 59),
+      description: 'رویداد در انتهای روز انتخاب‌شده',
+      sourceType: 'unit_test',
+      sourceId: 'ledger-end-day-1',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 100),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-LEDGER-END-DAY-2',
+      occurredAt: DateTime(2026, 2, 3, 12),
+      description: 'رویداد روز بعد که نباید وارد گزارش شود',
+      sourceType: 'unit_test',
+      sourceId: 'ledger-end-day-2',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 250,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 250),
+      ],
+    );
+
+    final rows = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      to: DateTime(2026, 2, 2, 17),
+      accountCodes: const ['1100'],
+    );
+
+    expect(rows, hasLength(1));
+    expect(rows.single['debit'], 100);
+    expect(rows.single['running_balance'], 100);
+  });
+
   test('received cheque cannot be cancelled after bank clearance', () {
     expect(
       () => AccountingEngine.validateCheckStatusTransition(
