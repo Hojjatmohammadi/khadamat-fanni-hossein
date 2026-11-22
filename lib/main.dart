@@ -1820,13 +1820,14 @@ class DemoStore {
     Map<String, String> operation,
   ) async {
     final createdAt = DateTime.now().toIso8601String();
-    final quantity = double.tryParse((product['موجودی'] ?? '0').replaceAll(',', '')) ?? 0;
-    final unitCost = double.tryParse((product['بهای تمام‌شده هر واحد'] ?? '0').replaceAll(',', '')) ?? 0;
-    final total = double.tryParse((product['جمع بهای تمام‌شده'] ?? '0').replaceAll(',', '')) ?? 0;
-    final paid = double.tryParse((operation['مبلغ پرداخت‌شده'] ?? '0').replaceAll(',', '')) ?? 0;
+    final quantity = AccountingEngine.parseLocalizedAmount(product['موجودی'] ?? '0');
+    final unitCost = AccountingEngine.parseLocalizedAmount(product['بهای تمام‌شده هر واحد'] ?? '0');
+    final total = AccountingEngine.parseLocalizedAmount(product['جمع بهای تمام‌شده'] ?? '0');
+    final paid = AccountingEngine.parseLocalizedAmount(operation['مبلغ پرداخت‌شده'] ?? '0');
     final supplier = (operation['نام شخص'] ?? '').trim();
-    if (quantity <= 0 || unitCost <= 0 || total <= 0 || supplier.isEmpty ||
-        paid < 0 || paid > total + 0.01) {
+    if (!quantity.isFinite || !unitCost.isFinite || !total.isFinite ||
+        !paid.isFinite || quantity <= 0 || unitCost <= 0 || total <= 0 ||
+        supplier.isEmpty || paid < 0 || paid > total + 0.01) {
       throw ArgumentError('اطلاعات خرید، تعداد، بهای تمام‌شده، فروشنده یا مبلغ پرداخت معتبر نیست.');
     }
     await _db!.transaction((txn) async {
@@ -3849,7 +3850,7 @@ class _ProductPageState extends State<ProductPage> {
       }
     }
 
-    double number(TextEditingController x) => double.tryParse(x.text.replaceAll(',', '').trim()) ?? 0;
+    double number(TextEditingController x) => AccountingEngine.parseLocalizedAmount(x.text);
     double totalCost() {
       final qty = number(c[2]);
       final purchase = number(c[3]) * qty;
