@@ -92,6 +92,41 @@ void main() {
     );
   });
 
+  test('legacy supplier receipt reduces receivable while payment reduces payable', () {
+    final receipt = AccountingEngine.legacyPartyOperationAmounts(
+      partyType: 'فروشنده',
+      operation: 'دریافت وجه',
+      amount: 250,
+    );
+    expect(receipt['debit'], 0);
+    expect(receipt['credit'], 250);
+
+    final payment = AccountingEngine.legacyPartyOperationAmounts(
+      partyType: 'فروشنده',
+      operation: 'پرداخت وجه',
+      amount: 180,
+    );
+    expect(payment['debit'], 180);
+    expect(payment['credit'], 0);
+
+    final purchase = AccountingEngine.legacyPartyOperationAmounts(
+      partyType: 'فروشنده',
+      operation: 'خرید کالا',
+      amount: 1000,
+      paid: 300,
+    );
+    expect(purchase['debit'], 300);
+    expect(purchase['credit'], 1000);
+
+    final customerReceipt = AccountingEngine.legacyPartyOperationAmounts(
+      partyType: 'مشتری',
+      operation: 'دریافت وجه',
+      amount: 90,
+    );
+    expect(customerReceipt['debit'], 0);
+    expect(customerReceipt['credit'], 90);
+  });
+
   test('localized amount parser accepts Persian and Arabic digits and separators', () {
     expect(AccountingEngine.parseLocalizedAmount('۱۲٬۳۴۵'), 12345);
     expect(AccountingEngine.parseLocalizedAmount('١٢٣٫٥'), 123.5);
