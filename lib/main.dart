@@ -1106,8 +1106,11 @@ class DemoStore {
     }
 
     // A received cheque is a receivable asset (1020); an issued cheque is a payable liability (2110).
-    if (isDeposit && partyType != 'مشتری') {
-      throw StateError('بیعانه فقط برای مشتری قابل ثبت است.');
+    if (isDeposit) {
+      AccountingEngine.validateDepositParty(
+        partyType: partyType,
+        partyId: partyId,
+      );
     }
     final cashCode = method == 'چک'
         ? (isReceipt ? '1020' : '2110')
