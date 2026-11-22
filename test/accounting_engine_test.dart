@@ -105,6 +105,65 @@ void main() {
     expect(rows.single['running_balance'], 100);
   });
 
+  test('supplier ledger includes miscellaneous debit and credit operations', () async {
+    final supplierId = await db.insert('suppliers', {
+      'name': 'فروشنده آزمایشی',
+      'normalized_name': 'فروشنده آزمایشی',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final supplierAdvanceId = await AccountingEngine.accountId(db, '1110');
+    final supplierPayableId = await AccountingEngine.accountId(db, '2000');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+    final expenseId = await AccountingEngine.accountId(db, '6000');
+
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SUPPLIER-MISC-DEBIT',
+      occurredAt: DateTime(2026, 2, 1),
+      description: 'فروشنده بدهکار',
+      sourceType: 'unit_test',
+      sourceId: 'supplier-misc-debit',
+      lines: [
+        JournalLineInput(
+          accountId: supplierAdvanceId,
+          debit: 300,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 300),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SUPPLIER-MISC-CREDIT',
+      occurredAt: DateTime(2026, 2, 2),
+      description: 'فروشنده بستانکار',
+      sourceType: 'unit_test',
+      sourceId: 'supplier-misc-credit',
+      lines: [
+        JournalLineInput(accountId: expenseId, debit: 125),
+        JournalLineInput(
+          accountId: supplierPayableId,
+          credit: 125,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+
+    final rows = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'supplier',
+      partyId: supplierId,
+      accountCodes: const ['2000', '1110'],
+    );
+
+    expect(rows, hasLength(2));
+    expect(rows[0]['debit'], 300);
+    expect(rows[1]['credit'], 125);
+    expect(rows.last['running_balance'], 175);
+  });
+
   test('received cheque cannot be cancelled after bank clearance', () {
     expect(
       () => AccountingEngine.validateCheckStatusTransition(
