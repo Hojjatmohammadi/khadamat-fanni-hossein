@@ -41,6 +41,30 @@ void main() {
     });
   }
 
+  test('customer deposit requires a linked customer record', () {
+    expect(
+      () => AccountingEngine.validateDepositParty(
+        partyType: 'مشتری',
+        partyId: null,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      () => AccountingEngine.validateDepositParty(
+        partyType: 'فروشنده',
+        partyId: 12,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      () => AccountingEngine.validateDepositParty(
+        partyType: 'مشتری',
+        partyId: 12,
+      ),
+      returnsNormally,
+    );
+  });
+
   test('localized amount parser accepts Persian and Arabic digits and separators', () {
     expect(AccountingEngine.parseLocalizedAmount('۱۲٬۳۴۵'), 12345);
     expect(AccountingEngine.parseLocalizedAmount('١٢٣٫٥'), 123.5);
