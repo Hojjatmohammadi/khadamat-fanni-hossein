@@ -5464,11 +5464,12 @@ class _OperationsPageState extends State<OperationsPage> {
     var balance = 0.0, debits = 0.0, credits = 0.0;
     for (final row in rows) { debits += row['debit'] as double; credits += row['credit'] as double; balance += (row['debit'] as double) - (row['credit'] as double); row['balance'] = balance; }
     if (!mounted) return;
+    final currency = AppSettings.currency;
     await showDialog<void>(context: context, builder: (d) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
       title: Text('دفتر حساب $type: $name'),
       content: SizedBox(width: 620, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text(balance > 0 ? 'مانده: ${balance.toStringAsFixed(0)} تومان بدهکار' : balance < 0 ? 'مانده: ${balance.abs().toStringAsFixed(0)} تومان بستانکار' : 'حساب تسویه است'),
-        Text('جمع بدهکار: ${debits.toStringAsFixed(0)} تومان  |  جمع بستانکار: ${credits.toStringAsFixed(0)} تومان'),
+        Text(balance > 0 ? 'مانده: ${balance.toStringAsFixed(0)} $currency بدهکار' : balance < 0 ? 'مانده: ${balance.abs().toStringAsFixed(0)} $currency بستانکار' : 'حساب تسویه است'),
+        Text('جمع بدهکار: ${debits.toStringAsFixed(0)} $currency  |  جمع بستانکار: ${credits.toStringAsFixed(0)} $currency'),
         if (rows.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('برای این طرف حساب هنوز عملیات مالی ثبت نشده است.'))
         else SingleChildScrollView(scrollDirection: Axis.horizontal, child: DataTable(columns: const [DataColumn(label:Text('تاریخ')),DataColumn(label:Text('شرح')),DataColumn(label:Text('حساب / روش')),DataColumn(label:Text('بدهکار')),DataColumn(label:Text('بستانکار')),DataColumn(label:Text('مانده'))], rows: rows.map((r) { final b=r['balance'] as double; return DataRow(cells:[DataCell(Text(Jalali.fromDateTime(r['date'] as DateTime).formatCompactDate())),DataCell(Text(r['op'] as String)),DataCell(Text((r['method'] as String).isEmpty?'—':r['method'] as String)),DataCell(Text((r['debit'] as double).toStringAsFixed(0))),DataCell(Text((r['credit'] as double).toStringAsFixed(0))),DataCell(Text('${b.abs().toStringAsFixed(0)} ${b>0?'بدهکار':b<0?'بستانکار':'تسویه'}'))]); }).toList())),
         const Text('این دفتر فعلاً عملیات مالی ثبت‌شده را نشان می‌دهد؛ فاکتورهای خرید هنوز در برنامه به‌عنوان سند مستقل ثبت نمی‌شوند.', style: TextStyle(fontSize:11,color:Colors.grey)),
