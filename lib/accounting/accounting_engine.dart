@@ -639,8 +639,11 @@ class AccountingEngine {
       args.add(from.toIso8601String());
     }
     if (to != null) {
+      // Treat `to` as an inclusive calendar date, regardless of the time
+      // component supplied by a date picker or caller.
+      final toExclusive = DateTime(to.year, to.month, to.day + 1);
       clauses.add('e.occurred_at < ?');
-      args.add(to.add(const Duration(days: 1)).toIso8601String());
+      args.add(toExclusive.toIso8601String());
     }
     if (codes.isNotEmpty) {
       clauses.add('a.code IN (${List.filled(codes.length, '?').join(',')})');
