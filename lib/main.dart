@@ -6886,7 +6886,7 @@ class _ReportsPageState extends State<ReportsPage> {
                       return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('محاسبه گزارش مالی ناموفق بود: ' + financialSnapshot.error.toString())));
                     }
                     final totals = financialSnapshot.data ?? const <String, double>{};
-                    String money(String key) => (totals[key] ?? 0).toStringAsFixed(0) + ' تومان';
+                    String money(String key) => (totals[key] ?? 0).toStringAsFixed(0) + ' ' + AppSettings.currency;
                     return Card(
                       child: Padding(
                         padding: const EdgeInsets.all(12),
@@ -6909,7 +6909,7 @@ class _ReportsPageState extends State<ReportsPage> {
                                   entry.key.startsWith('expenseCategory:')).toList()
                                 ..sort((a, b) => a.key.compareTo(b.key)))
                                 Text(entry.key.substring('expenseCategory:'.length) + ': ' +
-                                  entry.value.toStringAsFixed(0) + ' تومان'),
+                                  entry.value.toStringAsFixed(0) + ' ' + AppSettings.currency),
                             ],
                             Text((_toDate == null ? 'ارزش فعلی موجودی انبار: ' : 'ارزش موجودی تا تاریخ ' + _dateLabel(_toDate) + ': ') + money('inventoryValue')),
                             const SizedBox(height: 12),
