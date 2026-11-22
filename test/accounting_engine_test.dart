@@ -766,6 +766,44 @@ void main() {
     expect(cardex.last['running_quantity'], 9.0);
   });
 
+  test('stock cardex end date includes the full selected day only', () async {
+    final productId = await addProduct('کالای آزمون پایان کارتکس');
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 4,
+      unitCost: 50,
+      occurredAt: DateTime(2026, 3, 1, 10),
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'sale',
+      quantityDelta: -1,
+      unitCost: 50,
+      occurredAt: DateTime(2026, 3, 2, 23, 59),
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 7,
+      unitCost: 60,
+      occurredAt: DateTime(2026, 3, 3, 0, 1),
+    );
+
+    final cardex = await AccountingEngine.stockCardex(
+      db,
+      productId,
+      from: DateTime(2026, 3, 1),
+      to: DateTime(2026, 3, 2, 18),
+    );
+
+    expect(cardex, hasLength(2));
+    expect(cardex.last['running_quantity'], 3.0);
+  });
+
   test('weighted average cost uses immutable movement costs rather than current product price',
       () async {
     final productId = await addProduct('کالای آزمون بهای تمام‌شده');
