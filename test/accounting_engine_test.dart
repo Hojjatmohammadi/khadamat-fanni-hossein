@@ -512,6 +512,110 @@ void main() {
 
 
 
+  test('bounced spent supplier cheque restores full supplier payable exactly once', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده چک برگشتی');
+    final issuedAt = DateTime(2026, 4, 1);
+    const purchaseTotal = 1000.0;
+    const chequeAmount = 300.0;
+
+    await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'TEST-PURCHASE-BOUNCE-1',
+      occurredAt: issuedAt,
+      description: 'خرید با چک و بدهی باقیمانده',
+      sourceType: 'purchase',
+      sourceId: 'test-purchase-bounce-1',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: purchaseTotal,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2110'),
+          credit: chequeAmount,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2000'),
+          credit: purchaseTotal - chequeAmount,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+    final checkId = await AppDatabaseSchema.insertCheck(
+      db,
+      checkNumber: 'PC-BOUNCE-300',
+      direction: 'issued',
+      partyType: 'supplier',
+      partyName: 'فروشنده چک برگشتی',
+      partyId: supplierId,
+      amount: chequeAmount,
+      issueDate: issuedAt,
+      dueDate: DateTime(2026, 5, 1),
+      sourceType: 'purchase',
+      sourceId: 'test-purchase-bounce-1',
+    );
+
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'pending',
+      nextStatus: 'spent',
+      occurredAt: DateTime(2026, 5, 1),
+    ));
+    await db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+      txn,
+      checkId: checkId,
+      expectedOldStatus: 'spent',
+      nextStatus: 'bounced',
+      occurredAt: DateTime(2026, 5, 3),
+    ));
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'supplier',
+      partyId: supplierId,
+      accountCodes: const ['2000', '1110'],
+    );
+    expect(ledger.last['running_balance'], closeTo(-purchaseTotal, 0.001));
+
+    final balances = await db.rawQuery(
+      '''SELECT a.code, COALESCE(SUM(l.debit - l.credit), 0) AS balance
+         FROM journal_lines l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE a.code IN ('1010', '2000', '2110')
+         GROUP BY a.code''',
+    );
+    final byCode = {
+      for (final row in balances)
+        row['code']: (row['balance'] as num).toDouble(),
+    };
+    expect(byCode['1010'], closeTo(0, 0.001));
+    expect(byCode['2000'], closeTo(-purchaseTotal, 0.001));
+    expect(byCode['2110'], closeTo(0, 0.001));
+
+    await expectLater(
+      db.transaction((txn) => AccountingEngine.transitionCheckStatusInTransaction(
+        txn,
+        checkId: checkId,
+        expectedOldStatus: 'spent',
+        nextStatus: 'bounced',
+        occurredAt: DateTime(2026, 5, 4),
+      )),
+      throwsStateError,
+    );
+    expect(
+      await db.query(
+        'journal_entries',
+        where: "source_type = 'check_status' AND source_id = ?",
+        whereArgs: ['$checkId:bounced'],
+      ),
+      hasLength(1),
+    );
+  });
+
   test('sale return is blocked while a received cheque is pending or deposited', () async {
     final checkId = await AppDatabaseSchema.insertCheck(
       db,
