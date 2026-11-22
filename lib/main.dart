@@ -5499,18 +5499,15 @@ class _OperationsPageState extends State<OperationsPage> {
         for (var i = 0; i < 10; i++) { amountText = amountText.replaceAll(faDigits[i], '$i').replaceAll(arDigits[i], '$i'); }
         final amount = double.tryParse(amountText.replaceAll(',', '').replaceAll('٬', '')) ?? 0;
         if (amount <= 0) continue;
-        final isSupplier = type == 'فروشنده';
-        final paid = double.tryParse((data['مبلغ پرداخت‌شده'] ?? '0').toString().replaceAll(',', '')) ?? 0;
-        final debit = op == 'خرید کالا' && isSupplier
-            ? paid
-            : isSupplier
-                ? (['متفرقه شخص بدهکار','پرداخت وجه','دریافت وجه','تخفیف گرفتن'].contains(op) ? amount : 0.0)
-                : (['متفرقه شخص بدهکار','پرداخت وجه'].contains(op) ? amount : 0.0);
-        final credit = op == 'خرید کالا' && isSupplier
-            ? amount
-            : isSupplier
-                ? (['متفرقه شخص بستانکار'].contains(op) ? amount : 0.0)
-                : (['متفرقه شخص بستانکار','دریافت وجه','تخفیف دادن'].contains(op) ? amount : 0.0);
+        final paid = AccountingEngine.parseLocalizedAmount(data['مبلغ پرداخت‌شده']);
+        final partyAmounts = AccountingEngine.legacyPartyOperationAmounts(
+          partyType: type,
+          operation: op,
+          amount: amount,
+          paid: paid,
+        );
+        final debit = partyAmounts['debit']!;
+        final credit = partyAmounts['credit']!;
         if (debit == 0 && credit == 0) continue;
         rows.add({'date': DateTime.tryParse((record['created_at'] ?? '').toString()) ?? DateTime.now(), 'op':op, 'debit':debit, 'credit':credit, 'method':(data['روش'] ?? '').toString(), 'note':(data['توضیحات'] ?? '').toString()});
       }
