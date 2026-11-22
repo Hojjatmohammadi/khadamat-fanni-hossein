@@ -41,6 +41,13 @@ void main() {
     });
   }
 
+  test('localized amount parser accepts Persian and Arabic digits and separators', () {
+    expect(AccountingEngine.parseLocalizedAmount('۱۲٬۳۴۵'), 12345);
+    expect(AccountingEngine.parseLocalizedAmount('١٢٣٫٥'), 123.5);
+    expect(AccountingEngine.parseLocalizedAmount('1,234.75'), 1234.75);
+    expect(AccountingEngine.parseLocalizedAmount('نامعتبر'), 0);
+  });
+
   test('party ledger treats the end date as inclusive calendar day', () async {
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
