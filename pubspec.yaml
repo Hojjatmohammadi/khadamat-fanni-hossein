@@ -1,6 +1,7 @@
 name: khadamat_fanni_hosein
 description: نرم افزار مدیریت خدمات فنی حسین
 publish_to: 'none'
+# Release artifact build is gated by passing Flutter tests and analysis.
 version: 1.0.7+8
 
 environment:
