@@ -3534,7 +3534,8 @@ class _SimpleListPageState extends State<SimpleListPage> {
             : category == 'repairs'
                 ? 'repair'
                 : 'operation';
-        if (postedLegacySources.contains('$sourceType:${record['id']}')) continue;
+        final sourceAlreadyPosted = postedLegacySources.contains('$sourceType:${record['id']}');
+        if (sourceAlreadyPosted && category != 'sales') continue;
         Map<String,dynamic> data;
         try { data = jsonDecode(record['data'] as String) as Map<String,dynamic>; } catch (_) { continue; }
         final person = (data['نام مشتری'] ?? data['نام شخص'] ?? '').toString().trim();
@@ -3559,6 +3560,22 @@ class _SimpleListPageState extends State<SimpleListPage> {
           if (partyType != 'مشتری') continue;
         }
         final date = _ledgerDate(data['تاریخ']) ?? _ledgerDate(record['created_at']) ?? DateTime.now();
+        if (record['category'] == 'sales' && sourceAlreadyPosted) {
+          // A fully settled invoice may have no customer receivable/credit
+          // journal line. Keep it visible as history only, with zero effect
+          // on balances and totals (which remain journal-derived).
+          rows.add(AccountingEngine.invoiceHistoryRow(
+            date: date,
+            invoiceNumber: (data['شماره فاکتور'] ?? '').toString(),
+            gross: _ledgerAmount(data['مبلغ کل']),
+            discount: _ledgerAmount(data['تخفیف']),
+            tax: _ledgerAmount(data['مبلغ مالیات']),
+            received: _ledgerAmount(data['مبلغ دریافتی']),
+            depositApplied: _ledgerAmount(data['بیعانه تخصیص‌یافته']),
+            paymentMethod: (data['روش پرداخت'] ?? '').toString(),
+          ));
+          continue;
+        }
         double debit = 0, credit = 0; String desc = '', method = '';
         if (record['category'] == 'sales') {
           final gross = _ledgerAmount(data['مبلغ کل']);
