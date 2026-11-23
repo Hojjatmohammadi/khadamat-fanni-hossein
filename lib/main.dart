@@ -6952,7 +6952,7 @@ class _ReportsPageState extends State<ReportsPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'موجودی فعلی: ' +
+                    'موجودی فعلی (مستقل از بازه فیلترشده): ' +
                     (products.firstWhere((product) => product['id'] == selectedId)['quantity'] ?? 0).toString() +
                     ' ' +
                     (products.firstWhere((product) => product['id'] == selectedId)['unit'] ?? 'عدد').toString(),
