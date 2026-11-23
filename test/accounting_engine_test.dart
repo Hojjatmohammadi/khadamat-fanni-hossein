@@ -2500,6 +2500,114 @@ void main() {
   });
 
 
+  test('unlinked cash sale cannot create an unassigned customer credit on return', () async {
+    final productId = await addProduct('کالای فروش نقدی بدون پرونده');
+    final saleDate = DateTime(2026, 6, 20, 9);
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 10,
+      referenceType: 'test_purchase',
+      referenceId: 'unlinked-cash-return-stock',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+
+    final sale = <String, String>{
+      'شماره فاکتور': 'TEST-UNLINKED-CASH-RETURN',
+      'مبلغ کل': '100',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '100',
+      'بیعانه تخصیص‌یافته': '0',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': productId.toString(),
+          'description': 'کالای فروش نقدی بدون پرونده',
+          'quantity': '2',
+          'line_total': '100',
+        },
+      ]),
+    };
+    final saleId = await db.insert('records', {
+      'category': 'sales',
+      'data': jsonEncode(sale),
+      'created_at': saleDate.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: saleId,
+      item: sale,
+      occurredAt: saleDate,
+    );
+
+    await expectLater(
+      DemoStore.addReturnInTransaction(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: saleId,
+        quantity: 1,
+        reason: 'نباید اعتبار بدون پرونده ساخته شود',
+        settleAsCash: false,
+        occurredAt: saleDate.add(const Duration(hours: 1)),
+      ),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('پرونده مشتری'),
+      )),
+    );
+
+    expect(await db.query('document_returns'), isEmpty);
+    expect(
+      (await db.query('products', columns: ['quantity'], where: 'id = ?', whereArgs: [productId])).single['quantity'],
+      3.0,
+    );
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleId,
+      quantity: 1,
+      reason: 'بازپرداخت نقدی فروش بدون پرونده',
+      settleAsCash: true,
+      occurredAt: saleDate.add(const Duration(hours: 2)),
+    );
+
+    final returnRows = await db.query('document_returns');
+    expect(returnRows, hasLength(1));
+    expect(
+      (await db.query('products', columns: ['quantity'], where: 'id = ?', whereArgs: [productId])).single['quantity'],
+      4.0,
+    );
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final cashCredits = await db.rawQuery(
+      '''SELECT COUNT(*) AS count
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entry_id
+         WHERE e.source_type = 'document_return'
+           AND l.account_id = ?
+           AND l.credit > 0''',
+      [cashId],
+    );
+    expect((cashCredits.first['count'] as num).toInt(), 1);
+    final customerCreditId = await AccountingEngine.accountId(db, '2010');
+    final orphanCredits = await db.rawQuery(
+      '''SELECT COUNT(*) AS count
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entry_id
+         WHERE e.source_type = 'document_return'
+           AND l.account_id = ?
+           AND l.credit > 0
+           AND (l.party_type != 'customer' OR l.party_id IS NULL)''',
+      [customerCreditId],
+    );
+    expect((orphanCredits.first['count'] as num).toInt(), 0);
+  });
+
   test('sales return after full customer payment creates customer credit instead of negative receivable', () async {
     final productId = await addProduct('کالای برگشت پس از تسویه');
     final customerId = await db.insert('customers', {
