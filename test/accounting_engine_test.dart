@@ -2943,6 +2943,26 @@ void main() {
       occurredAt: purchaseDate,
     );
 
+    // The return workflow requires a real, balanced source purchase journal.
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-REPEATED-PURCHASE-RETURN',
+      occurredAt: purchaseDate,
+      description: 'خرید نقدی برای آزمون برگشت چندمرحله‌ای',
+      sourceType: 'purchase',
+      sourceId: purchaseId.toString(),
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 200,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 200,
+        ),
+      ],
+    );
+
     await DemoStore.addReturnInTransaction(
       db,
       originalCategory: 'operations',
