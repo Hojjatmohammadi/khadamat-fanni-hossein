@@ -2287,4 +2287,117 @@ void main() {
     expect((finalProduct['quantity'] as num).toDouble(), 10);
   });
 
+
+  test('multi-line sale return restores only the selected product at its original cost', () async {
+    final firstProductId = await addProduct('کالای ردیف اول');
+    final secondProductId = await addProduct('کالای ردیف دوم');
+    final saleDate = DateTime(2026, 3, 10, 10);
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: firstProductId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 10,
+      referenceType: 'test_purchase',
+      referenceId: 'multi-line-first',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: secondProductId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 20,
+      referenceType: 'test_purchase',
+      referenceId: 'multi-line-second',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+
+    final sale = <String, String>{
+      'شماره فاکتور': 'TEST-MULTI-RETURN',
+      'مبلغ کل': '500',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '500',
+      'بیعانه تخصیص‌یافته': '0',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': firstProductId.toString(),
+          'description': 'کالای ردیف اول',
+          'quantity': '2',
+          'line_total': '200',
+        },
+        {
+          'kind': 'product',
+          'product_id': secondProductId.toString(),
+          'description': 'کالای ردیف دوم',
+          'quantity': '3',
+          'line_total': '300',
+        },
+      ]),
+    };
+    final saleId = await db.insert('records', {
+      'category': 'sales',
+      'data': jsonEncode(sale),
+      'created_at': saleDate.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: saleId,
+      item: sale,
+      occurredAt: saleDate,
+    );
+
+    final returned = await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleId,
+      quantity: 1,
+      reason: 'برگشت فقط ردیف دوم',
+      settleAsCash: true,
+      invoiceLineIndex: 1,
+      occurredAt: saleDate.add(const Duration(hours: 1)),
+    );
+
+    expect(returned['مبلغ برگشت'], '100');
+    final firstProduct = (await db.query('products',
+        columns: ['quantity'], where: 'id = ?', whereArgs: [firstProductId])).single;
+    final secondProduct = (await db.query('products',
+        columns: ['quantity'], where: 'id = ?', whereArgs: [secondProductId])).single;
+    expect((firstProduct['quantity'] as num).toDouble(), 3);
+    expect((secondProduct['quantity'] as num).toDouble(), 3);
+
+    final movement = (await db.query('stock_movements',
+        where: "reference_type = 'sale_return'")).single;
+    expect(movement['product_id'], secondProductId);
+    expect((movement['quantity_delta'] as num).toDouble(), 1);
+    expect((movement['unit_cost'] as num).toDouble(), 20);
+    expect((movement['total_cost'] as num).toDouble(), 20);
+
+    final returnEntry = (await db.query('journal_entries',
+        where: "source_type = 'document_return'")).single;
+    final lines = await db.rawQuery(
+      '''SELECT a.code, l.debit, l.credit
+         FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+         WHERE l.entry_id = ?''',
+      [returnEntry['id']],
+    );
+    double debitFor(String code) => lines
+        .where((row) => row['code'] == code)
+        .fold<double>(0, (sum, row) => sum + (row['debit'] as num).toDouble());
+    double creditFor(String code) => lines
+        .where((row) => row['code'] == code)
+        .fold<double>(0, (sum, row) => sum + (row['credit'] as num).toDouble());
+    expect(debitFor('4100'), 100);
+    expect(creditFor('1000'), 100);
+    expect(debitFor('1200'), 20);
+    expect(creditFor('5000'), 20);
+    expect(
+      lines.fold<double>(0, (sum, row) => sum + (row['debit'] as num).toDouble()),
+      closeTo(lines.fold<double>(0, (sum, row) => sum + (row['credit'] as num).toDouble()), 0.001),
+    );
+  });
+
 }
