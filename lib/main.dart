@@ -1998,8 +1998,29 @@ class DemoStore {
             memo: 'برگشت تخفیف فاکتور ' + sourceNumber,
           ));
         }
-        final receivableOffset = (originalReceivable - previousReceivableOffset)
-            .clamp(0.0, amount).toDouble();
+        // A later customer payment may already have settled this invoice.
+        // Never credit receivables beyond the customer's currently open AR
+        // balance; any excess return becomes customer credit or a cash refund.
+        final customerId = int.tryParse(source['شناسه مشتری'] ?? '');
+        var currentCustomerReceivable = 0.0;
+        if (customerId != null) {
+          final currentArRows = await txn.rawQuery(
+            '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
+               FROM journal_lines
+               WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+            [await AccountingEngine.accountId(txn, '1100'), customerId],
+          );
+          currentCustomerReceivable =
+              (currentArRows.first['balance'] as num).toDouble();
+          if (currentCustomerReceivable < 0) currentCustomerReceivable = 0;
+        }
+        var receivableOffset =
+            (originalReceivable - previousReceivableOffset)
+                .clamp(0.0, double.infinity).toDouble();
+        if (receivableOffset > amount) receivableOffset = amount;
+        if (receivableOffset > currentCustomerReceivable) {
+          receivableOffset = currentCustomerReceivable;
+        }
         if (receivableOffset > 0.001) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '1100'),
