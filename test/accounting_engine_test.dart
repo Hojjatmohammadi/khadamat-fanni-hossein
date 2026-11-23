@@ -2913,4 +2913,85 @@ void main() {
     expect((totals['debit_total'] as num).toDouble(),
       closeTo((totals['credit_total'] as num).toDouble(), 0.001));
   });
+
+  test('repeated partial purchase returns cannot exceed original quantity', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده آزمون سقف برگشت');
+    final productId = await addProduct('کالای آزمون سقف برگشت خرید');
+    final purchaseDate = DateTime(2026, 6, 10, 10);
+    final purchaseId = await db.insert('records', {
+      'category': 'operations',
+      'created_at': purchaseDate.toIso8601String(),
+      'data': jsonEncode({
+        'نوع عملیات': 'خرید کالا',
+        'نام شخص': 'فروشنده آزمون سقف برگشت',
+        'شناسه فروشنده': supplierId.toString(),
+        'نام کالا': 'کالای آزمون سقف برگشت خرید',
+        'شناسه کالای انبار': productId.toString(),
+        'تعداد خرید': '5',
+        'بهای تمام‌شده هر واحد': '40',
+        'مبلغ': '200',
+      }),
+    });
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 40,
+      referenceType: 'purchase',
+      referenceId: purchaseId.toString(),
+      occurredAt: purchaseDate,
+    );
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'operations',
+      originalSourceId: purchaseId,
+      quantity: 2,
+      reason: 'برگشت جزئی اول خرید',
+      settleAsCash: true,
+      occurredAt: purchaseDate.add(const Duration(days: 1)),
+    );
+    await expectLater(
+      DemoStore.addReturnInTransaction(
+        db,
+        originalCategory: 'operations',
+        originalSourceId: purchaseId,
+        quantity: 2,
+        reason: 'تلاش برای برگشت بیش از مانده خرید',
+        settleAsCash: true,
+        occurredAt: purchaseDate.add(const Duration(days: 2)),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final returnRows = await db.query(
+      'document_returns',
+      where: 'original_category = ? AND original_source_id = ?',
+      whereArgs: ['operations', purchaseId],
+    );
+    expect(returnRows, hasLength(1));
+    expect((returnRows.single['quantity'] as num).toDouble(), 2);
+    final product = (await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    )).single;
+    expect((product['quantity'] as num).toDouble(), 3);
+    final returnJournalRows = await db.query(
+      'journal_entries',
+      where: "source_type = 'document_return'",
+    );
+    expect(returnJournalRows, hasLength(1));
+    final totals = (await db.rawQuery(
+      'SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total FROM journal_lines WHERE entry_id = ?',
+      [returnJournalRows.single['id']],
+    )).single;
+    expect(
+      (totals['debit_total'] as num).toDouble(),
+      closeTo((totals['credit_total'] as num).toDouble(), 0.001),
+    );
+  });
+
 }
