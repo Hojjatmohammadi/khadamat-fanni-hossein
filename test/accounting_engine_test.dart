@@ -1545,6 +1545,48 @@ void main() {
     expect(cardex.last['running_quantity'], 3.0);
   });
 
+  test('stock cardex keeps deterministic running balances for movements with equal timestamps', () async {
+    final productId = await addProduct('کالای گردش هم‌زمان');
+    final selectedDay = DateTime(2026, 3, 4);
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'opening_balance',
+      quantityDelta: 5,
+      unitCost: 20,
+      occurredAt: selectedDay.subtract(const Duration(days: 1)),
+    );
+    final sameTimestamp = DateTime(2026, 3, 4, 12);
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 2,
+      unitCost: 25,
+      occurredAt: sameTimestamp,
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'sale',
+      quantityDelta: -1,
+      unitCost: 25,
+      occurredAt: sameTimestamp,
+    );
+
+    final cardex = await AccountingEngine.stockCardex(
+      db,
+      productId,
+      from: selectedDay,
+      to: selectedDay,
+    );
+
+    expect(cardex, hasLength(2));
+    expect(cardex.first['opening_quantity'], 5.0);
+    expect(cardex.map((row) => row['running_quantity']).toList(), [7.0, 6.0]);
+    expect(cardex.map((row) => row['movement_type']).toList(), ['purchase', 'sale']);
+  });
+
   test('stock cardex start date includes full selected day and opening quantity', () async {
     final productId = await addProduct('کالای آزمون ابتدای کارتکس');
     await AccountingEngine.recordStockMovement(
