@@ -2150,4 +2150,141 @@ void main() {
     expect((finalProduct['quantity'] as num).toDouble(), 8.0);
   });
 
+  test('partial sale returns restore stock and reverse cost without allowing over-return', () async {
+    final productId = await addProduct('کالای برگشت فروش');
+    final saleDate = DateTime.now();
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 10,
+      unitCost: 100,
+      referenceType: 'test_purchase',
+      referenceId: 'return-sale-stock',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+    final saleItem = <String, String>{
+      'شماره فاکتور': 'TEST-RETURN-01',
+      'مبلغ کل': '600',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '600',
+      'بیعانه تخصیص‌یافته': '0',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': productId.toString(),
+          'description': 'کالای برگشت فروش',
+          'quantity': '3',
+          'line_total': '600',
+        },
+      ]),
+    };
+    final saleRecordId = await db.insert('records', {
+      'category': 'sales',
+      'data': jsonEncode(saleItem),
+      'created_at': saleDate.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: saleRecordId,
+      item: saleItem,
+      occurredAt: saleDate,
+    );
+
+    final firstReturn = await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleRecordId,
+      quantity: 1,
+      reason: 'آزمایش برگشت جزئی',
+      settleAsCash: true,
+      occurredAt: saleDate.add(const Duration(minutes: 1)),
+    );
+    expect(firstReturn['مبلغ برگشت'], '200');
+
+    final productAfterFirstReturn = (await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    )).single;
+    expect((productAfterFirstReturn['quantity'] as num).toDouble(), 8);
+
+    final returnMovement = (await db.query(
+      'stock_movements',
+      where: "reference_type = 'sale_return'",
+    )).single;
+    expect((returnMovement['quantity_delta'] as num).toDouble(), 1);
+    expect((returnMovement['unit_cost'] as num).toDouble(), 100);
+    expect((returnMovement['total_cost'] as num).toDouble(), 100);
+
+    final returnJournal = (await db.query(
+      'journal_entries',
+      where: "source_type = 'document_return'",
+    )).single;
+    final journalTotals = (await db.rawQuery(
+      'SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total FROM journal_lines WHERE entry_id = ?',
+      [returnJournal['id']],
+    )).single;
+    expect(
+      (journalTotals['debit_total'] as num).toDouble(),
+      closeTo((journalTotals['credit_total'] as num).toDouble(), 0.001),
+    );
+
+    final returnLines = await db.rawQuery(
+      '''SELECT a.code, l.debit, l.credit
+         FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+         WHERE l.entry_id = ?''',
+      [returnJournal['id']],
+    );
+    double debitFor(String code) => returnLines
+        .where((row) => row['code'] == code)
+        .fold<double>(0, (sum, row) => sum + (row['debit'] as num).toDouble());
+    double creditFor(String code) => returnLines
+        .where((row) => row['code'] == code)
+        .fold<double>(0, (sum, row) => sum + (row['credit'] as num).toDouble());
+    expect(debitFor('4100'), 200);
+    expect(creditFor('1000'), 200);
+    expect(debitFor('1200'), 100);
+    expect(creditFor('5000'), 100);
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleRecordId,
+      quantity: 2,
+      reason: 'تکمیل برگشت',
+      settleAsCash: true,
+      occurredAt: saleDate.add(const Duration(minutes: 2)),
+    );
+    await expectLater(
+      DemoStore.addReturnInTransaction(
+        db,
+        originalCategory: 'sales',
+        originalSourceId: saleRecordId,
+        quantity: 0.1,
+        reason: 'بیشتر از مقدار فاکتور',
+        settleAsCash: true,
+        occurredAt: saleDate.add(const Duration(minutes: 3)),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final allReturns = await db.query(
+      'document_returns',
+      where: 'original_category = ? AND original_source_id = ?',
+      whereArgs: ['sales', saleRecordId],
+    );
+    expect(allReturns, hasLength(2));
+    final finalProduct = (await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    )).single;
+    expect((finalProduct['quantity'] as num).toDouble(), 10);
+  });
+
 }
