@@ -662,6 +662,11 @@ class _PinLockGateState extends State<PinLockGate> {
 class DemoStore {
   static Database? _db;
   static Database get database => _db!;
+
+  @visibleForTesting
+  static void useDatabaseForTesting(Database database) {
+    _db = database;
+  }
   static final products = <Map<String, String>>[];
   static final customers = <Map<String, String>>[];
   static final repairs = <Map<String, String>>[];
