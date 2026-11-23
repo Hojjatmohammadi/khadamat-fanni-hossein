@@ -187,6 +187,105 @@ void main() {
     expect(product['quantity'], 8);
   });
 
+
+  test('stock quantity and moving average cost respect the invoice date', () async {
+    final productId = await addProduct('کالای آزمون تاریخ‌دار');
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 100,
+      referenceType: 'test_purchase',
+      referenceId: 'dated-stock-1',
+      occurredAt: DateTime(2026, 1, 1),
+    );
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 300,
+      referenceType: 'test_purchase',
+      referenceId: 'dated-stock-2',
+      occurredAt: DateTime(2026, 1, 3),
+    );
+
+    expect(
+      await AccountingEngine.stockQuantityAt(
+        db, productId, asOf: DateTime(2026, 1, 2, 23, 59),
+      ),
+      5,
+    );
+    expect(
+      await AccountingEngine.averageUnitCost(
+        db, productId, asOf: DateTime(2026, 1, 2, 23, 59),
+      ),
+      100,
+    );
+    expect(
+      await AccountingEngine.stockQuantityAt(
+        db, productId, asOf: DateTime(2026, 1, 4),
+      ),
+      10,
+    );
+    expect(
+      await AccountingEngine.averageUnitCost(
+        db, productId, asOf: DateTime(2026, 1, 4),
+      ),
+      200,
+    );
+  });
+
+  test('backdated sale cannot consume stock purchased after its invoice date', () async {
+    final productId = await addProduct('کالای خرید آینده');
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 100,
+      referenceType: 'test_purchase',
+      referenceId: 'future-stock-for-sale',
+      occurredAt: DateTime(2026, 2, 10),
+    );
+
+    await expectLater(
+      db.transaction((txn) => DemoStore.postSaleInTransaction(
+        txn,
+        recordId: 99003,
+        occurredAt: DateTime(2026, 2, 5),
+        item: {
+          'شماره فاکتور': 'TEST-SALE-99003',
+          'مبلغ کل': '200',
+          'تخفیف': '0',
+          'مبلغ مالیات': '0',
+          'مبلغ دریافتی': '200',
+          'بیعانه تخصیص‌یافته': '0',
+          'روش پرداخت': 'نقدی',
+          'ردیف‌های فاکتور': jsonEncode([
+            {
+              'kind': 'product',
+              'product_id': productId.toString(),
+              'description': 'کالای خرید آینده',
+              'quantity': '1',
+              'line_total': '200',
+            },
+          ]),
+        },
+      )),
+      throwsA(isA<StateError>()),
+    );
+
+    final product = (await db.query('products',
+      columns: ['quantity'], where: 'id = ?', whereArgs: [productId])).single;
+    expect(product['quantity'], 5);
+    expect(await db.query('journal_entries',
+      where: "source_type = 'sale' AND source_id = '99003'"), isEmpty);
+    expect(await db.query('stock_movements',
+      where: "reference_type = 'sale' AND reference_id = '99003'"), isEmpty);
+  });
+
   test('customer deposit requires a linked customer record', () {
     expect(
       () => AccountingEngine.validateDepositParty(
