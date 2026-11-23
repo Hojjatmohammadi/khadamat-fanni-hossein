@@ -370,6 +370,26 @@ class AccountingEngine {
   /// Maps legacy party operations to the same debit/credit direction used
   /// by historical journal migration. Supplier receipts reduce our receivable
   /// (1110), while payments to suppliers reduce payables or create advances.
+  /// Allocates a supplier purchase return against the remaining payable first.
+  /// Any excess is either refunded in cash or kept as a supplier receivable.
+  static Map<String, double> supplierReturnSettlementAmounts({
+    required double returnAmount,
+    required double outstandingPayable,
+    required bool settleAsCash,
+  }) {
+    if (!returnAmount.isFinite || returnAmount <= 0 ||
+        !outstandingPayable.isFinite || outstandingPayable < 0) {
+      throw ArgumentError('مبلغ برگشت یا بدهی فروشنده معتبر نیست.');
+    }
+    final payableReduction = outstandingPayable.clamp(0.0, returnAmount).toDouble();
+    final remainder = (returnAmount - payableReduction).clamp(0.0, returnAmount).toDouble();
+    return <String, double>{
+      'payable_reduction': payableReduction,
+      'cash_refund': settleAsCash ? remainder : 0.0,
+      'supplier_receivable': settleAsCash ? 0.0 : remainder,
+    };
+  }
+
   static Map<String, double> legacyPartyOperationAmounts({
     required String partyType,
     required String operation,
