@@ -1421,6 +1421,40 @@ void main() {
     expect(ledger.single['running_balance'], 20);
   });
 
+  test('stock quantity at historical date includes that day and excludes later movements', () async {
+    final productId = await addProduct('کالای موجودی تاریخی');
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'opening_balance',
+      quantityDelta: 10,
+      unitCost: 100,
+      occurredAt: DateTime(2026, 4, 1, 8),
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'sale',
+      quantityDelta: -3,
+      unitCost: 100,
+      occurredAt: DateTime(2026, 4, 5, 23, 59),
+    );
+    await AccountingEngine.recordStockMovement(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 7,
+      unitCost: 120,
+      occurredAt: DateTime(2026, 4, 6, 0, 1),
+    );
+
+    expect(
+      await AccountingEngine.stockQuantityAt(db, productId, asOf: DateTime(2026, 4, 5, 17)),
+      7.0,
+    );
+    expect(await AccountingEngine.stockQuantityAt(db, productId), 14.0);
+  });
+
   test('stock cardex carries movements before the selected date as opening balance',
       () async {
     final productId = await addProduct('کالای آزمون کارتکس');
