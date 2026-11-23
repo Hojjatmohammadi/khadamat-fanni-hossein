@@ -1768,34 +1768,43 @@ class DemoStore {
           ));
         }
       } else {
-        if (settleAsCash) {
+        final supplierId = int.tryParse(source['شناسه فروشنده'] ?? '');
+        if (supplierId == null) {
+          throw StateError('برای ثبت برگشت خرید، پرونده معتبر فروشنده لازم است.');
+        }
+        final settlement = AccountingEngine.supplierReturnSettlementAmounts(
+          returnAmount: amount,
+          outstandingPayable: (originalPayable - previousPayableOffset)
+              .clamp(0.0, double.infinity).toDouble(),
+          settleAsCash: settleAsCash,
+        );
+        final payableReduction = settlement['payable_reduction']!;
+        final cashRefund = settlement['cash_refund']!;
+        final supplierReceivable = settlement['supplier_receivable']!;
+        if (payableReduction > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '2000'),
+            debit: payableReduction,
+            partyType: 'supplier',
+            partyId: supplierId,
+            memo: 'کاهش بدهی همان خرید به فروشنده ' + source['نام شخص'].toString(),
+          ));
+        }
+        if (cashRefund > 0.001) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '1000'),
-            debit: amount,
-            memo: 'استرداد نقدی وجه از فروشنده ' + source['نام شخص'].toString(),
+            debit: cashRefund,
+            memo: 'استرداد نقدی مازاد برگشت خرید از فروشنده ' + source['نام شخص'].toString(),
           ));
-        } else {
-          final payableOffset = (originalPayable - previousPayableOffset)
-              .clamp(0.0, amount).toDouble();
-          final supplierId = int.tryParse(source['شناسه فروشنده'] ?? '');
-          if (payableOffset > 0.001) {
-            lines.add(JournalLineInput(
-              accountId: await AccountingEngine.accountId(txn, '2000'),
-              debit: payableOffset,
-              partyType: 'supplier',
-              partyId: supplierId,
-              memo: 'کاهش بدهی همان خرید به فروشنده ' + source['نام شخص'].toString(),
-            ));
-          }
-          if (amount - payableOffset > 0.001) {
-            lines.add(JournalLineInput(
-              accountId: await AccountingEngine.accountId(txn, '1110'),
-              debit: amount - payableOffset,
-              partyType: 'supplier',
-              partyId: supplierId,
-              memo: 'طلب مازاد برگشت خرید از فروشنده ' + source['نام شخص'].toString(),
-            ));
-          }
+        }
+        if (supplierReceivable > 0.001) {
+          lines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '1110'),
+            debit: supplierReceivable,
+            partyType: 'supplier',
+            partyId: supplierId,
+            memo: 'طلب مازاد برگشت خرید از فروشنده ' + source['نام شخص'].toString(),
+          ));
         }
         lines.add(JournalLineInput(
           accountId: await AccountingEngine.accountId(txn, '1200'),
