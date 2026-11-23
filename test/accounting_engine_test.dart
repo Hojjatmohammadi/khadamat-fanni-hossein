@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/accounting/accounting_engine.dart';
 import 'package:khadamat_fanni_hosein/data/app_database_schema.dart';
+import 'package:khadamat_fanni_hosein/main.dart' show DemoStore;
 
 void main() {
   late Database db;
@@ -40,6 +41,151 @@ void main() {
       'created_at': DateTime(2026, 1, 1).toIso8601String(),
     });
   }
+
+
+  test('new sales invoice posts customer balance, deposit, stock and cost atomically', () async {
+    final productId = await addProduct('کالای فروش آزمون');
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 10,
+      unitCost: 100,
+      referenceType: 'test_purchase',
+      referenceId: 'sale-posting-stock',
+      occurredAt: DateTime(2026, 1, 1),
+    );
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'فروش آزمون',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final depositId = await AccountingEngine.accountId(db, '2010');
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SALE-DEPOSIT',
+      occurredAt: DateTime(2026, 2, 1),
+      description: 'بیعانه قبلی مشتری',
+      sourceType: 'unit_test',
+      sourceId: 'sale-posting-deposit',
+      lines: [
+        JournalLineInput(accountId: cashId, debit: 100),
+        JournalLineInput(
+          accountId: depositId,
+          credit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: 99001,
+      occurredAt: DateTime(2026, 2, 2),
+      item: {
+        'شماره فاکتور': 'TEST-SALE-99001',
+        'مبلغ کل': '600',
+        'تخفیف': '0',
+        'مبلغ مالیات': '0',
+        'مبلغ دریافتی': '200',
+        'بیعانه تخصیص‌یافته': '100',
+        'شناسه مشتری': customerId.toString(),
+        'نام مشتری': 'مشتری فروش آزمون',
+        'روش پرداخت': 'نقدی',
+        'ردیف‌های فاکتور': jsonEncode([
+          {
+            'kind': 'product',
+            'product_id': productId.toString(),
+            'description': 'کالای فروش آزمون',
+            'quantity': '3',
+            'line_total': '600',
+          },
+        ]),
+      },
+    );
+
+    final product = (await db.query('products',
+      columns: ['quantity'], where: 'id = ?', whereArgs: [productId])).single;
+    expect(product['quantity'], 7);
+    final saleMovements = await db.query('stock_movements',
+      where: "reference_type = 'sale' AND reference_id = '99001'");
+    expect(saleMovements, hasLength(1));
+    expect(saleMovements.single['quantity_delta'], -3);
+    expect(saleMovements.single['unit_cost'], 100);
+    expect(saleMovements.single['total_cost'], 300);
+
+    final journal = (await db.query('journal_entries',
+      where: "source_type = 'sale' AND source_id = '99001'")).single;
+    final totals = await db.rawQuery(
+      'SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total FROM journal_lines WHERE entry_id = ?',
+      [journal['id']],
+    );
+    expect(totals.single['debit_total'], totals.single['credit_total']);
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      accountCodes: const ['1100', '2010'],
+    );
+    expect(ledger.last['running_balance'], 300);
+  });
+
+  test('multi-line sale aggregates repeated product stock movement once', () async {
+    final productId = await addProduct('کالای چندردیفی آزمون');
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 10,
+      unitCost: 75,
+      referenceType: 'test_purchase',
+      referenceId: 'multi-line-stock',
+      occurredAt: DateTime(2026, 1, 1),
+    );
+
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: 99002,
+      occurredAt: DateTime(2026, 2, 3),
+      item: {
+        'شماره فاکتور': 'TEST-SALE-99002',
+        'مبلغ کل': '300',
+        'تخفیف': '0',
+        'مبلغ مالیات': '0',
+        'مبلغ دریافتی': '300',
+        'بیعانه تخصیص‌یافته': '0',
+        'روش پرداخت': 'نقدی',
+        'ردیف‌های فاکتور': jsonEncode([
+          {
+            'kind': 'product',
+            'product_id': productId.toString(),
+            'description': 'ردیف اول',
+            'quantity': '1',
+            'line_total': '150',
+          },
+          {
+            'kind': 'product',
+            'product_id': productId.toString(),
+            'description': 'ردیف دوم',
+            'quantity': '1',
+            'line_total': '150',
+          },
+        ]),
+      },
+    );
+
+    final saleMovements = await db.query('stock_movements',
+      where: "reference_type = 'sale' AND reference_id = '99002'");
+    expect(saleMovements, hasLength(1));
+    expect(saleMovements.single['quantity_delta'], -2);
+    expect(saleMovements.single['total_cost'], 150);
+    final product = (await db.query('products',
+      columns: ['quantity'], where: 'id = ?', whereArgs: [productId])).single;
+    expect(product['quantity'], 8);
+  });
 
   test('customer deposit requires a linked customer record', () {
     expect(
