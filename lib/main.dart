@@ -1506,7 +1506,7 @@ class DemoStore {
         );
         if (productRows.isEmpty) throw StateError('کالای انتخاب‌شده در انبار پیدا نشد.');
         final fallbackCost = (productRows.first['purchase_price'] as num).toDouble();
-        final unitCost = await AccountingEngine.averageUnitCost(txn, productId, fallback: fallbackCost);
+        final unitCost = await AccountingEngine.averageUnitCost(txn, productId, fallback: fallbackCost, asOf: occurredAt);
         stockQuantityByProduct[productId] =
             (stockQuantityByProduct[productId] ?? 0) + quantity;
         stockCostByProduct[productId] =
@@ -1528,6 +1528,12 @@ class DemoStore {
     }
     for (final entry in stockQuantityByProduct.entries) {
       final totalQuantity = entry.value;
+      final availableAtInvoiceDate = await AccountingEngine.stockQuantityAt(
+        txn, entry.key, asOf: occurredAt,
+      );
+      if (availableAtInvoiceDate + 0.000001 < totalQuantity) {
+        throw StateError('موجودی کالا در تاریخ فاکتور کافی نیست؛ خریدهای بعد از تاریخ فاکتور قابل استفاده نیستند.');
+      }
       final totalCostForProduct = stockCostByProduct[entry.key] ?? 0;
       await AccountingEngine.recordStockMovementInTransaction(
         txn,
