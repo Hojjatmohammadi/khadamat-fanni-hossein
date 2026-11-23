@@ -2485,4 +2485,112 @@ void main() {
     expect(netIncome - netCostOfGoods, closeTo(50, 0.001));
   });
 
+
+  test('sales return after full customer payment creates customer credit instead of negative receivable', () async {
+    final productId = await addProduct('کالای برگشت پس از تسویه');
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'تسویه‌شده',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final saleDate = DateTime(2026, 6, 10, 9);
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 10,
+      referenceType: 'test_purchase',
+      referenceId: 'settled-return-stock',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+
+    final sale = <String, String>{
+      'شماره فاکتور': 'TEST-SETTLED-RETURN',
+      'مبلغ کل': '100',
+      'تخفیف': '0',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '0',
+      'بیعانه تخصیص‌یافته': '0',
+      'شناسه مشتری': customerId.toString(),
+      'نام مشتری': 'مشتری تسویه‌شده',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': productId.toString(),
+          'description': 'کالای برگشت پس از تسویه',
+          'quantity': '2',
+          'line_total': '100',
+        },
+      ]),
+    };
+    final saleId = await db.insert('records', {
+      'category': 'sales',
+      'data': jsonEncode(sale),
+      'created_at': saleDate.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: saleId,
+      item: sale,
+      occurredAt: saleDate,
+    );
+
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SETTLE-SALE-RECEIVABLE',
+      occurredAt: saleDate.add(const Duration(hours: 1)),
+      description: 'دریافت کامل وجه فاکتور',
+      sourceType: 'unit_test',
+      sourceId: 'settle-sale-receivable',
+      lines: [
+        JournalLineInput(accountId: cashId, debit: 100),
+        JournalLineInput(
+          accountId: receivableId,
+          credit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleId,
+      quantity: 1,
+      reason: 'برگشت پس از تسویه کامل',
+      settleAsCash: false,
+      occurredAt: saleDate.add(const Duration(hours: 2)),
+    );
+
+    final arRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
+         FROM journal_lines
+         WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+      [receivableId, customerId],
+    );
+    expect(arRows.single['balance'], 0);
+
+    final customerCreditId = await AccountingEngine.accountId(db, '2010');
+    final creditRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(credit - debit), 0) AS balance
+         FROM journal_lines
+         WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+      [customerCreditId, customerId],
+    );
+    expect(creditRows.single['balance'], 50);
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      accountCodes: const ['1100', '2010'],
+    );
+    expect(ledger.last['running_balance'], -50);
+  });
+
 }
