@@ -1480,6 +1480,7 @@ class DemoStore {
     if (invoiceLines.isEmpty) throw StateError('فاکتور باید حداقل یک ردیف کالا یا خدمت داشته باشد.');
 
     final journalLines = <JournalLineInput>[];
+    final stockQuantityByProduct = <int, double>{};
     final stockCostByProduct = <int, double>{};
     var calculatedGross = 0.0;
     for (final line in invoiceLines) {
@@ -1506,18 +1507,10 @@ class DemoStore {
         if (productRows.isEmpty) throw StateError('کالای انتخاب‌شده در انبار پیدا نشد.');
         final fallbackCost = (productRows.first['purchase_price'] as num).toDouble();
         final unitCost = await AccountingEngine.averageUnitCost(txn, productId, fallback: fallbackCost);
-        await AccountingEngine.recordStockMovementInTransaction(
-          txn,
-          productId: productId,
-          movementType: 'sale',
-          quantityDelta: -quantity,
-          unitCost: unitCost,
-          referenceType: 'sale',
-          referenceId: recordId.toString(),
-          notes: 'فروش فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
-          occurredAt: occurredAt,
-        );
-        stockCostByProduct[productId] = (stockCostByProduct[productId] ?? 0) + quantity * unitCost;
+        stockQuantityByProduct[productId] =
+            (stockQuantityByProduct[productId] ?? 0) + quantity;
+        stockCostByProduct[productId] =
+            (stockCostByProduct[productId] ?? 0) + quantity * unitCost;
         if (lineTotal > 0.0001) {
           journalLines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '4000'),
@@ -1532,6 +1525,21 @@ class DemoStore {
           memo: 'درآمد خدمت ' + (line['description'] ?? '').toString(),
         ));
       }
+    }
+    for (final entry in stockQuantityByProduct.entries) {
+      final totalQuantity = entry.value;
+      final totalCostForProduct = stockCostByProduct[entry.key] ?? 0;
+      await AccountingEngine.recordStockMovementInTransaction(
+        txn,
+        productId: entry.key,
+        movementType: 'sale',
+        quantityDelta: -totalQuantity,
+        unitCost: totalQuantity > 0 ? totalCostForProduct / totalQuantity : 0,
+        referenceType: 'sale',
+        referenceId: recordId.toString(),
+        notes: 'فروش فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+        occurredAt: occurredAt,
+      );
     }
     if ((calculatedGross - gross).abs() > 0.02) {
       throw StateError('جمع ردیف‌های فاکتور با مبلغ کل یکسان نیست.');
