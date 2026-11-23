@@ -6907,6 +6907,13 @@ class _ReportsPageState extends State<ReportsPage> {
       from: _fromDate?.toDateTime(),
       to: _toDate?.toDateTime(),
     );
+    var historicalClosingQuantity = _toDate == null
+        ? null
+        : await AccountingEngine.stockQuantityAt(
+            DemoStore.database,
+            selectedId,
+            asOf: _toDate!.toDateTime(),
+          );
     const movementLabels = <String, String>{
       'purchase': 'خرید',
       'sale': 'فروش',
@@ -6944,9 +6951,17 @@ class _ReportsPageState extends State<ReportsPage> {
                         from: _fromDate?.toDateTime(),
                         to: _toDate?.toDateTime(),
                       );
+                      final nextClosing = _toDate == null
+                          ? null
+                          : await AccountingEngine.stockQuantityAt(
+                              DemoStore.database,
+                              value,
+                              asOf: _toDate!.toDateTime(),
+                            );
                       refresh(() {
                         selectedId = value;
                         movements = next;
+                        historicalClosingQuantity = nextClosing;
                       });
                     },
                   ),
@@ -6957,6 +6972,17 @@ class _ReportsPageState extends State<ReportsPage> {
                     ' ' +
                     (products.firstWhere((product) => product['id'] == selectedId)['unit'] ?? 'عدد').toString(),
                   ),
+                  if (historicalClosingQuantity != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 8),
+                      child: Text(
+                        'موجودی پایان بازه تا ${_dateLabel(_toDate)}: ' +
+                        historicalClosingQuantity!.toStringAsFixed(3) +
+                        ' ' +
+                        (products.firstWhere((product) => product['id'] == selectedId)['unit'] ?? 'عدد').toString(),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   Expanded(
                     child: movements.isEmpty
