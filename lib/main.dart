@@ -1739,13 +1739,37 @@ class DemoStore {
     required bool settleAsCash,
     int invoiceLineIndex = 0,
   }) async {
+    final savedReturn = await _db!.transaction((txn) =>
+      addReturnInTransaction(
+        txn,
+        originalCategory: originalCategory,
+        originalSourceId: originalSourceId,
+        quantity: quantity,
+        reason: reason,
+        settleAsCash: settleAsCash,
+        invoiceLineIndex: invoiceLineIndex,
+      ),
+    );
+    returns.add(savedReturn);
+  }
+
+  /// Transaction-level return posting, shared by the app workflow and integration tests.
+  static Future<Map<String, String>> addReturnInTransaction(
+    DatabaseExecutor txn, {
+    required String originalCategory,
+    required int originalSourceId,
+    required double quantity,
+    required String reason,
+    required bool settleAsCash,
+    int invoiceLineIndex = 0,
+    DateTime? occurredAt,
+  }) async {
     if (!['sales', 'operations'].contains(originalCategory) ||
         !quantity.isFinite || quantity <= 0) {
       throw ArgumentError('نوع سند یا مقدار برگشت معتبر نیست.');
     }
-    final createdAt = DateTime.now().toIso8601String();
+    final createdAt = (occurredAt ?? DateTime.now()).toIso8601String();
     late Map<String, String> savedReturn;
-    await _db!.transaction((txn) async {
       final sourceRows = await txn.query('records',
         where: 'id = ? AND category = ?',
         whereArgs: [originalSourceId, originalCategory], limit: 1);
@@ -2068,8 +2092,7 @@ class DemoStore {
         lines: lines,
         reversalOf: reversalOf,
       );
-    });
-    returns.add(savedReturn);
+    return savedReturn;
   }
 
   /// Saves purchase document, supplier balance, inventory movement and journal atomically.
