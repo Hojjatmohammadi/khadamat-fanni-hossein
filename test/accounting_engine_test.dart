@@ -127,6 +127,48 @@ void main() {
     expect(customerReceipt['credit'], 90);
   });
 
+  test('supplier return reduces outstanding payable before cash refund', () {
+    final partial = AccountingEngine.supplierReturnSettlementAmounts(
+      returnAmount: 400,
+      outstandingPayable: 250,
+      settleAsCash: true,
+    );
+    expect(partial['payable_reduction'], 250);
+    expect(partial['cash_refund'], 150);
+    expect(partial['supplier_receivable'], 0);
+    expect(
+      partial.values.reduce((sum, value) => sum + value),
+      400,
+    );
+
+    final credit = AccountingEngine.supplierReturnSettlementAmounts(
+      returnAmount: 400,
+      outstandingPayable: 250,
+      settleAsCash: false,
+    );
+    expect(credit['payable_reduction'], 250);
+    expect(credit['cash_refund'], 0);
+    expect(credit['supplier_receivable'], 150);
+
+    final fullyPaid = AccountingEngine.supplierReturnSettlementAmounts(
+      returnAmount: 400,
+      outstandingPayable: 0,
+      settleAsCash: true,
+    );
+    expect(fullyPaid['payable_reduction'], 0);
+    expect(fullyPaid['cash_refund'], 400);
+    expect(fullyPaid['supplier_receivable'], 0);
+
+    expect(
+      () => AccountingEngine.supplierReturnSettlementAmounts(
+        returnAmount: -1,
+        outstandingPayable: 0,
+        settleAsCash: true,
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('supplier purchase and overpayment create payable and advance once', () async {
     final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده خرید آزمون');
     final purchaseDate = DateTime(2026, 4, 1).toIso8601String();
