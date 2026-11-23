@@ -1413,6 +1413,227 @@ class DemoStore {
     return imported.length;
   }
 
+
+  /// Posts a newly issued sales invoice, stock outflow and customer balance atomically.
+  static Future<void> _postSaleInTransaction(
+    DatabaseExecutor txn, {
+    required int recordId,
+    required Map<String, String> item,
+    required DateTime occurredAt,
+  }) async {
+    double amount(String? value) {
+      final parsed = _parseMoney(value ?? '0');
+      if (!parsed.isFinite) throw StateError('مبلغ فاکتور فروش معتبر نیست.');
+      return parsed;
+    }
+
+    final gross = amount(item['مبلغ کل']);
+    final discount = amount(item['تخفیف']);
+    final tax = amount(item['مبلغ مالیات']);
+    final received = amount(item['مبلغ دریافتی']);
+    final deposit = amount(item['بیعانه تخصیص‌یافته']);
+    if (gross < 0 || discount < 0 || tax < 0 || received < 0 ||
+        deposit < 0 || discount > gross) {
+      throw StateError('مبالغ فاکتور فروش نامعتبر است.');
+    }
+    final total = gross - discount + tax;
+    final customerId = int.tryParse((item['شناسه مشتری'] ?? '').trim());
+    final outstanding = total - received - deposit;
+    if ((outstanding > 0.01 || deposit > 0.01 ||
+        received + deposit > total + 0.01) && customerId == null) {
+      throw StateError('برای ثبت مانده، بیعانه یا اعتبار مشتری باید پرونده مشتری انتخاب شود.');
+    }
+
+    final depositAccountId = await AccountingEngine.accountId(txn, '2010');
+    if (deposit > 0.01) {
+      final creditRows = await txn.rawQuery(
+        '''SELECT COALESCE(SUM(credit - debit), 0) AS available
+           FROM journal_lines
+           WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
+        [depositAccountId, customerId],
+      );
+      final available = (creditRows.first['available'] as num).toDouble()
+          .clamp(0.0, double.infinity).toDouble();
+      if (deposit > available + 0.01) {
+        throw StateError('موجودی بیعانه مشتری برای تخصیص به این فاکتور کافی نیست.');
+      }
+    }
+
+    List<Map<String, dynamic>> invoiceLines = [];
+    final encodedLines = (item['ردیف‌های فاکتور'] ?? '').trim();
+    if (encodedLines.isNotEmpty) {
+      final decoded = jsonDecode(encodedLines);
+      if (decoded is! List) throw StateError('ردیف‌های فاکتور فروش ساختار معتبری ندارند.');
+      invoiceLines = decoded.map((entry) {
+        if (entry is! Map) throw StateError('یکی از ردیف‌های فاکتور معتبر نیست.');
+        return entry.map((key, value) => MapEntry(key.toString(), value));
+      }).toList();
+    } else {
+      invoiceLines = [{
+        'kind': (item['شناسه کالای انبار'] ?? '').trim().isEmpty ? 'service' : 'product',
+        'product_id': item['شناسه کالای انبار'] ?? '',
+        'description': item['شرح کالا/خدمت'] ?? item['کالای انبار'] ?? '',
+        'quantity': item['تعداد'] ?? '1',
+        'line_total': item['مبلغ کل'] ?? '0',
+      }];
+    }
+    if (invoiceLines.isEmpty) throw StateError('فاکتور باید حداقل یک ردیف کالا یا خدمت داشته باشد.');
+
+    final journalLines = <JournalLineInput>[];
+    final stockCostByProduct = <int, double>{};
+    var calculatedGross = 0.0;
+    for (final line in invoiceLines) {
+      final quantity = amount(line['quantity']?.toString());
+      final lineTotal = amount(line['line_total']?.toString());
+      if (quantity <= 0 || lineTotal < 0) {
+        throw StateError('تعداد یا مبلغ یکی از ردیف‌های فاکتور نامعتبر است.');
+      }
+      calculatedGross += lineTotal;
+      final productIdText = (line['product_id'] ?? '').toString().trim();
+      final kind = (line['kind'] ?? (productIdText.isEmpty ? 'service' : 'product')).toString();
+      final productId = int.tryParse(productIdText);
+      if (kind == 'product' && productId == null) {
+        throw StateError('شناسه کالای یکی از ردیف‌های فاکتور معتبر نیست.');
+      }
+      if (productId != null) {
+        final productRows = await txn.query(
+          'products',
+          columns: ['id', 'name', 'purchase_price'],
+          where: 'id = ?',
+          whereArgs: [productId],
+          limit: 1,
+        );
+        if (productRows.isEmpty) throw StateError('کالای انتخاب‌شده در انبار پیدا نشد.');
+        final fallbackCost = (productRows.first['purchase_price'] as num).toDouble();
+        final unitCost = await AccountingEngine.averageUnitCost(txn, productId, fallback: fallbackCost);
+        await AccountingEngine.recordStockMovementInTransaction(
+          txn,
+          productId: productId,
+          movementType: 'sale',
+          quantityDelta: -quantity,
+          unitCost: unitCost,
+          referenceType: 'sale',
+          referenceId: recordId.toString(),
+          notes: 'فروش فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+          occurredAt: occurredAt,
+        );
+        stockCostByProduct[productId] = (stockCostByProduct[productId] ?? 0) + quantity * unitCost;
+        if (lineTotal > 0.0001) {
+          journalLines.add(JournalLineInput(
+            accountId: await AccountingEngine.accountId(txn, '4000'),
+            credit: lineTotal,
+            memo: 'فروش کالا ' + (line['description'] ?? '').toString(),
+          ));
+        }
+      } else if (lineTotal > 0.0001) {
+        journalLines.add(JournalLineInput(
+          accountId: await AccountingEngine.accountId(txn, '4010'),
+          credit: lineTotal,
+          memo: 'درآمد خدمت ' + (line['description'] ?? '').toString(),
+        ));
+      }
+    }
+    if ((calculatedGross - gross).abs() > 0.02) {
+      throw StateError('جمع ردیف‌های فاکتور با مبلغ کل یکسان نیست.');
+    }
+
+    final method = (item['روش پرداخت'] ?? 'نقدی').trim();
+    if (received > 0.01) {
+      final cashCode = method == 'چک' ? '1020'
+          : (method.contains('کارت') || method.contains('حواله')) ? '1010' : '1000';
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, cashCode),
+        debit: received,
+        memo: 'دریافت فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    }
+    if (deposit > 0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: depositAccountId,
+        debit: deposit,
+        partyType: 'customer',
+        partyId: customerId,
+        memo: 'تخصیص بیعانه به فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    }
+    if (outstanding > 0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '1100'),
+        debit: outstanding,
+        partyType: 'customer',
+        partyId: customerId,
+        memo: 'مانده فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    } else if (outstanding < -0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: depositAccountId,
+        credit: -outstanding,
+        partyType: 'customer',
+        partyId: customerId,
+        memo: 'اعتبار مازاد فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    }
+    if (discount > 0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '4110'),
+        debit: discount,
+        memo: 'تخفیف فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    }
+    if (tax > 0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '2200'),
+        credit: tax,
+        memo: 'مالیات فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+      ));
+    }
+    final totalCost = stockCostByProduct.values.fold<double>(0, (sum, value) => sum + value);
+    if (totalCost > 0.01) {
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '5000'),
+        debit: totalCost,
+        memo: 'بهای تمام‌شده کالای فروش‌رفته',
+      ));
+      journalLines.add(JournalLineInput(
+        accountId: await AccountingEngine.accountId(txn, '1200'),
+        credit: totalCost,
+        memo: 'خروج موجودی بابت فاکتور فروش',
+      ));
+    }
+
+    if (journalLines.isNotEmpty) {
+      await AccountingEngine.postJournalInTransaction(
+        txn,
+        entryNumber: 'SALE-' + (item['شماره فاکتور'] ?? recordId.toString()),
+        occurredAt: occurredAt,
+        description: 'ثبت فاکتور فروش ' + (item['شماره فاکتور'] ?? recordId.toString()),
+        sourceType: 'sale',
+        sourceId: recordId.toString(),
+        lines: journalLines,
+      );
+    }
+
+    if (method == 'چک' && received > 0.01) {
+      final dueDate = DateTime.tryParse(item['تاریخ سررسید میلادی'] ?? '');
+      if (dueDate == null) throw StateError('تاریخ سررسید چک معتبر نیست.');
+      await AppDatabaseSchema.insertCheck(
+        txn,
+        checkNumber: item['شماره چک'] ?? '',
+        direction: 'received',
+        partyType: 'customer',
+        partyId: customerId,
+        partyName: item['نام مشتری'] ?? '',
+        amount: received,
+        issueDate: occurredAt,
+        dueDate: dueDate,
+        bankName: item['بانک چک'] ?? '',
+        notes: 'دریافت بابت فاکتور ' + (item['شماره فاکتور'] ?? recordId.toString()),
+        sourceType: 'sale',
+        sourceId: recordId.toString(),
+      );
+    }
+  }
+
   static Future<void> add(String category, Map<String, String> item) async {
     final createdAt = DateTime.now().toIso8601String();
     int? newRecordId;
@@ -1448,6 +1669,12 @@ class DemoStore {
         txn, category, item, recordId, createdAt,
       );
       if (category == 'sales') {
+        await _postSaleInTransaction(
+          txn,
+          recordId: recordId,
+          item: item,
+          occurredAt: DateTime.tryParse(item['تاریخ میلادی'] ?? '') ?? DateTime.parse(createdAt),
+        );
         await txn.insert('invoice_archive', {
           'legacy_source_id': recordId,
           'invoice_number': assignedInvoiceNumber ?? 'HOS-$recordId',
