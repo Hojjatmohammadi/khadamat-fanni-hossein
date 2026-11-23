@@ -862,6 +862,7 @@ class AccountingEngine {
     DatabaseExecutor db,
     int productId, {
     double fallback = 0,
+    DateTime? asOf,
   }) async {
     final rows = await db.rawQuery(
       '''SELECT
@@ -869,8 +870,8 @@ class AccountingEngine {
            COALESCE(SUM(CASE WHEN quantity_delta >= 0
              THEN total_cost ELSE -total_cost END), 0) AS value
          FROM stock_movements
-         WHERE product_id = ?''',
-      [productId],
+         WHERE product_id = ? AND (? IS NULL OR occurred_at <= ?)''',
+      [productId, asOf?.toIso8601String(), asOf?.toIso8601String()],
     );
     final quantity = (rows.first['quantity'] as num).toDouble();
     final value = (rows.first['value'] as num).toDouble();
@@ -878,6 +879,22 @@ class AccountingEngine {
       return value / quantity;
     }
     return fallback.isFinite && fallback >= 0 ? fallback : 0;
+  }
+
+  /// Returns the stock balance available at a historical invoice date.
+  /// Later purchases are excluded so a backdated sale cannot consume future stock.
+  static Future<double> stockQuantityAt(
+    DatabaseExecutor db,
+    int productId, {
+    required DateTime asOf,
+  }) async {
+    final rows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
+         FROM stock_movements
+         WHERE product_id = ? AND occurred_at <= ?''',
+      [productId, asOf.toIso8601String()],
+    );
+    return (rows.first['quantity'] as num).toDouble();
   }
 
   static Future<List<Map<String, Object?>>> stockCardex(
