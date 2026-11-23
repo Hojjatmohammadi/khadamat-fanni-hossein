@@ -1415,7 +1415,7 @@ class DemoStore {
 
 
   /// Posts a newly issued sales invoice, stock outflow and customer balance atomically.
-  static Future<void> _postSaleInTransaction(
+  static Future<void> postSaleInTransaction(
     DatabaseExecutor txn, {
     required int recordId,
     required Map<String, String> item,
