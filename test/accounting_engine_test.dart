@@ -2715,4 +2715,129 @@ void main() {
     expect(ledger.last['running_balance'], -50);
   });
 
+
+  test('supplier purchase return uses current payable after later supplier payment', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده تسویه‌شده');
+    final productId = await addProduct('کالای برگشت خرید پس از تسویه');
+    final purchaseDate = DateTime(2026, 6, 1, 10);
+    final purchaseId = await db.insert('records', {
+      'category': 'operations',
+      'created_at': purchaseDate.toIso8601String(),
+      'data': jsonEncode({
+        'نوع عملیات': 'خرید کالا',
+        'نام شخص': 'فروشنده تسویه‌شده',
+        'شناسه فروشنده': supplierId.toString(),
+        'نام کالا': 'کالای برگشت خرید پس از تسویه',
+        'شناسه کالای انبار': productId.toString(),
+        'تعداد خرید': '10',
+        'بهای تمام‌شده هر واحد': '100',
+        'مبلغ': '1000',
+      }),
+    });
+
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 10,
+      unitCost: 100,
+      referenceType: 'purchase',
+      referenceId: purchaseId.toString(),
+      occurredAt: purchaseDate,
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-RETURN-PAID-PURCHASE',
+      occurredAt: purchaseDate,
+      description: 'خرید با مانده بدهی',
+      sourceType: 'purchase',
+      sourceId: purchaseId.toString(),
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 1000,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 300,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2000'),
+          credit: 700,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-SUPPLIER-SETTLEMENT-AFTER-PURCHASE',
+      occurredAt: purchaseDate.add(const Duration(days: 1)),
+      description: 'تسویه کامل بدهی خرید',
+      sourceType: 'unit_test',
+      sourceId: 'supplier-settlement-after-purchase',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2000'),
+          debit: 700,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 700,
+        ),
+      ],
+    );
+
+    final returned = await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'operations',
+      originalSourceId: purchaseId,
+      quantity: 2,
+      reason: 'برگشت پس از تسویه کامل',
+      settleAsCash: false,
+      occurredAt: purchaseDate.add(const Duration(days: 2)),
+    );
+    expect(returned['مبلغ برگشت'], '200');
+
+    final payableRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(credit - debit), 0) AS balance
+         FROM journal_lines
+         WHERE account_id = ? AND party_type = 'supplier' AND party_id = ?''',
+      [await AccountingEngine.accountId(db, '2000'), supplierId],
+    );
+    final receivableRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
+         FROM journal_lines
+         WHERE account_id = ? AND party_type = 'supplier' AND party_id = ?''',
+      [await AccountingEngine.accountId(db, '1110'), supplierId],
+    );
+    expect((payableRows.single['balance'] as num).toDouble(), closeTo(0, 0.001));
+    expect((receivableRows.single['balance'] as num).toDouble(), closeTo(200, 0.001));
+
+    final stock = (await db.query(
+      'products',
+      columns: ['quantity'],
+      where: 'id = ?',
+      whereArgs: [productId],
+    )).single;
+    expect((stock['quantity'] as num).toDouble(), 8);
+
+    final returnEntry = (await db.query(
+      'journal_entries',
+      where: "source_type = 'document_return' AND source_id = ?",
+      whereArgs: [(await db.query('document_returns', columns: ['id'])).single['id'].toString()],
+    )).single;
+    final totals = (await db.rawQuery(
+      'SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total FROM journal_lines WHERE entry_id = ?',
+      [returnEntry['id']],
+    )).single;
+    expect(
+      (totals['debit_total'] as num).toDouble(),
+      closeTo((totals['credit_total'] as num).toDouble(), 0.001),
+    );
+  });
+
 }
