@@ -2018,4 +2018,136 @@ void main() {
       throwsA(isA<StateError>()),
     );
   });
+
+  test('partial sale returns restore stock and cost, offset receivable then customer credit, and prevent over-return', () async {
+    final productId = await addProduct('کالای برگشت فروش');
+    await db.update('products', {'quantity': 0.0, 'purchase_price': 50.0},
+        where: 'id = ?', whereArgs: [productId]);
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 10,
+      unitCost: 50,
+      referenceType: 'test_purchase',
+      referenceId: 'sale-return-stock',
+      occurredAt: DateTime(2026, 1, 1),
+    );
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'برگشت فروش',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    const sourceId = 99101;
+    final occurredAt = DateTime(2026, 2, 1);
+    final sale = <String, String>{
+      'شماره فاکتور': 'TEST-RETURN-99101',
+      'شناسه مشتری': customerId.toString(),
+      'نام مشتری': 'مشتری برگشت فروش',
+      'تعداد': '4',
+      'مبلغ کل': '400',
+      'تخفیف': '40',
+      'مبلغ مالیات': '36',
+      'مبلغ دریافتی': '200',
+      'بیعانه تخصیص‌یافته': '0',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': productId.toString(),
+          'description': 'کالای برگشت فروش',
+          'quantity': '4',
+          'line_total': '400',
+        },
+      ]),
+    };
+    await db.insert('records', {
+      'id': sourceId,
+      'category': 'sales',
+      'data': jsonEncode(sale),
+      'created_at': occurredAt.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: sourceId,
+      item: sale,
+      occurredAt: occurredAt,
+    );
+    DemoStore.useDatabaseForTesting(db);
+
+    await DemoStore.addReturn(
+      originalCategory: 'sales',
+      originalSourceId: sourceId,
+      quantity: 1,
+      reason: 'آزمون برگشت اول',
+      settleAsCash: false,
+    );
+    await DemoStore.addReturn(
+      originalCategory: 'sales',
+      originalSourceId: sourceId,
+      quantity: 1,
+      reason: 'آزمون برگشت دوم',
+      settleAsCash: false,
+    );
+
+    final product = (await db.query('products', columns: ['quantity'],
+        where: 'id = ?', whereArgs: [productId])).single;
+    expect((product['quantity'] as num).toDouble(), 8.0);
+    final returns = await db.query('document_returns',
+        where: 'original_category = ? AND original_source_id = ?',
+        whereArgs: ['sales', sourceId]);
+    expect(returns, hasLength(2));
+    expect(returns.fold<double>(0, (sum, row) => sum + (row['amount'] as num).toDouble()), 198.0);
+
+    final returnJournals = await db.query('journal_entries',
+        where: "source_type = 'document_return' AND source_id IN (?, ?)",
+        whereArgs: [returns[0]['id'].toString(), returns[1]['id'].toString()]);
+    expect(returnJournals, hasLength(2));
+    for (final journal in returnJournals) {
+      final totals = (await db.rawQuery(
+        'SELECT SUM(debit) AS debit_total, SUM(credit) AS credit_total FROM journal_lines WHERE entry_id = ?',
+        [journal['id']],
+      )).single;
+      expect((totals['debit_total'] as num).toDouble(),
+          closeTo((totals['credit_total'] as num).toDouble(), 0.001));
+    }
+
+    final inventoryId = await AccountingEngine.accountId(db, '1200');
+    final cogsId = await AccountingEngine.accountId(db, '5000');
+    final returnCost = await db.rawQuery(
+      'SELECT COALESCE(SUM(debit), 0) AS restored FROM journal_lines WHERE account_id = ? AND entry_id IN (SELECT id FROM journal_entries WHERE source_type = \'document_return\')',
+      [inventoryId],
+    );
+    final cogsCredit = await db.rawQuery(
+      'SELECT COALESCE(SUM(credit), 0) AS restored FROM journal_lines WHERE account_id = ? AND entry_id IN (SELECT id FROM journal_entries WHERE source_type = \'document_return\')',
+      [cogsId],
+    );
+    expect((returnCost.single['restored'] as num).toDouble(), 100.0);
+    expect((cogsCredit.single['restored'] as num).toDouble(), 100.0);
+
+    final customerCreditId = await AccountingEngine.accountId(db, '2010');
+    final credit = await db.rawQuery(
+      "SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM journal_lines WHERE account_id = ? AND party_type = 'customer' AND party_id = ?",
+      [customerCreditId, customerId],
+    );
+    expect((credit.single['balance'] as num).toDouble(), 2.0);
+
+    await expectLater(
+      DemoStore.addReturn(
+        originalCategory: 'sales',
+        originalSourceId: sourceId,
+        quantity: 3,
+        reason: 'بیش از مانده قابل برگشت',
+        settleAsCash: false,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await db.query('document_returns',
+        where: 'original_category = ? AND original_source_id = ?',
+        whereArgs: ['sales', sourceId]), hasLength(2));
+    final finalProduct = (await db.query('products', columns: ['quantity'],
+        where: 'id = ?', whereArgs: [productId])).single;
+    expect((finalProduct['quantity'] as num).toDouble(), 8.0);
+  });
+
 }
