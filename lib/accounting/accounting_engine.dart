@@ -897,6 +897,27 @@ class AccountingEngine {
     return (rows.first['quantity'] as num).toDouble();
   }
 
+  /// Returns the stock quantity at the end of [asOf]'s calendar day.
+  /// When [asOf] is null, returns the quantity across all recorded movements.
+  static Future<double> stockQuantityAt(
+    DatabaseExecutor db,
+    int productId, {
+    DateTime? asOf,
+  }) async {
+    final cutoff = asOf == null
+        ? null
+        : DateTime(asOf.year, asOf.month, asOf.day + 1).toIso8601String();
+    final rows = await db.rawQuery(
+      cutoff == null
+          ? '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
+               FROM stock_movements WHERE product_id = ?'''
+          : '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
+               FROM stock_movements WHERE product_id = ? AND occurred_at < ?''',
+      cutoff == null ? [productId] : [productId, cutoff],
+    );
+    return (rows.first['quantity'] as num).toDouble();
+  }
+
   static Future<List<Map<String, Object?>>> stockCardex(
     DatabaseExecutor db, int productId, {DateTime? from, DateTime? to}
   ) async {
