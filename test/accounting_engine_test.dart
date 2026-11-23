@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'package:persian_datetime_picker/persian_datetime_picker.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:khadamat_fanni_hosein/accounting/accounting_engine.dart';
 import 'package:khadamat_fanni_hosein/data/app_database_schema.dart';
-import 'package:khadamat_fanni_hosein/main.dart' show DemoStore;
+import 'package:khadamat_fanni_hosein/main.dart' show DemoStore, reportRecordDate;
 
 void main() {
   late Database db;
@@ -42,6 +43,19 @@ void main() {
     });
   }
 
+
+  test('report expense date parser honors Jalali transaction date over creation date', () {
+    final date = reportRecordDate({
+      'category': 'operations',
+      'created_at': DateTime(2026, 12, 1).toIso8601String(),
+      'data': jsonEncode({
+        'نوع عملیات': 'ثبت هزینه',
+        'تاریخ': '۱۴۰۵/۰۸/۲۲',
+      }),
+    });
+    expect(date, isNotNull);
+    expect(date, Jalali(1405, 8, 22).toDateTime());
+  });
 
   test('new sales invoice posts customer balance, deposit, stock and cost atomically', () async {
     final productId = await addProduct('کالای فروش آزمون');
