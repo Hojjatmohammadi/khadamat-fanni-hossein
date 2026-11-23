@@ -2851,6 +2851,17 @@ void main() {
     expect(supplierLedger, isNotEmpty);
     expect(supplierLedger.last['running_balance'], closeTo(200, 0.001));
 
+    final trialBalance = await AccountingEngine.trialBalance(db);
+    final totalDebits = trialBalance.fold<double>(
+      0,
+      (sum, row) => sum + (row['debit_total'] as num).toDouble(),
+    );
+    final totalCredits = trialBalance.fold<double>(
+      0,
+      (sum, row) => sum + (row['credit_total'] as num).toDouble(),
+    );
+    expect(totalDebits, closeTo(totalCredits, 0.001));
+
     final stock = (await db.query(
       'products',
       columns: ['quantity'],
