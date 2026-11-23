@@ -2085,10 +2085,28 @@ class DemoStore {
         if (supplierId == null) {
           throw StateError('برای ثبت برگشت خرید، پرونده معتبر فروشنده لازم است.');
         }
+        // Supplier payments may have settled this purchase after it was
+        // recorded. Limit the return offset to both this purchase's remaining
+        // payable and the supplier's real, currently open payable balance.
+        final supplierPayableRows = await txn.rawQuery(
+          '''SELECT COALESCE(SUM(credit - debit), 0) AS balance
+             FROM journal_lines
+             WHERE account_id = ? AND party_type = 'supplier' AND party_id = ?''',
+          [await AccountingEngine.accountId(txn, '2000'), supplierId],
+        );
+        final currentSupplierPayable =
+            ((supplierPayableRows.first['balance'] as num).toDouble())
+                .clamp(0.0, double.infinity).toDouble();
+        final purchaseRemainingPayable =
+            (originalPayable - previousPayableOffset)
+                .clamp(0.0, double.infinity).toDouble();
+        final attributableOutstanding =
+            purchaseRemainingPayable < currentSupplierPayable
+                ? purchaseRemainingPayable
+                : currentSupplierPayable;
         final settlement = AccountingEngine.supplierReturnSettlementAmounts(
           returnAmount: amount,
-          outstandingPayable: (originalPayable - previousPayableOffset)
-              .clamp(0.0, double.infinity).toDouble(),
+          outstandingPayable: attributableOutstanding,
           settleAsCash: settleAsCash,
         );
         final payableReduction = settlement['payable_reduction']!;
