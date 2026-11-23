@@ -6765,8 +6765,10 @@ class _ReportsPageState extends State<ReportsPage> {
       try {
         final data = jsonDecode(row['data'] as String) as Map;
         if ((data['نوع عملیات'] ?? '').toString() != 'ثبت هزینه') continue;
-        final occurredAt = DateTime.tryParse((data['تاریخ میلادی'] ?? row['created_at'] ?? '').toString())
-            ?? DateTime.tryParse((row['created_at'] ?? '').toString());
+        // Use the same Jalali/Gregorian-aware parser as the report document
+        // filters so expense category totals follow the transaction date,
+        // not the database insertion timestamp.
+        final occurredAt = reportRecordDate(row);
         if (occurredAt == null) continue;
         if (_fromDate != null && occurredAt.isBefore(_fromDate!.toDateTime())) continue;
         if (_toDate != null && !occurredAt.isBefore(_toDate!.toDateTime().add(const Duration(days: 1)))) continue;
