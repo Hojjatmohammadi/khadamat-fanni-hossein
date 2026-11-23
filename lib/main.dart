@@ -1677,7 +1677,7 @@ class DemoStore {
         txn, category, item, recordId, createdAt,
       );
       if (category == 'sales') {
-        await _postSaleInTransaction(
+        await postSaleInTransaction(
           txn,
           recordId: recordId,
           item: item,
