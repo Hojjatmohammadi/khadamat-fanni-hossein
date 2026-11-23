@@ -2817,6 +2817,16 @@ void main() {
     expect((payableRows.single['balance'] as num).toDouble(), closeTo(0, 0.001));
     expect((receivableRows.single['balance'] as num).toDouble(), closeTo(200, 0.001));
 
+    // The supplier subledger must reconcile both payable and receivable accounts.
+    final supplierLedger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'supplier',
+      partyId: supplierId,
+      accountCodes: const ['2000', '1110'],
+    );
+    expect(supplierLedger, isNotEmpty);
+    expect(supplierLedger.last['running_balance'], closeTo(200, 0.001));
+
     final stock = (await db.query(
       'products',
       columns: ['quantity'],
