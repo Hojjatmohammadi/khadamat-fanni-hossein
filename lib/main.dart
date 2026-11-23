@@ -1780,6 +1780,28 @@ class DemoStore {
       if (!isSale && source['نوع عملیات'] != 'خرید کالا') {
         throw StateError('فقط سند خرید کالا یا فاکتور فروش قابلیت برگشت دارد.');
       }
+      if (isSale && !settleAsCash) {
+        final customerId = int.tryParse(source['شناسه مشتری'] ?? '');
+        if (customerId == null || customerId <= 0) {
+          throw StateError(
+            'برای ثبت بستانکاری بابت برگشت فروش، ابتدا باید فاکتور به پرونده مشتری معتبر متصل باشد؛ '
+            'در غیر این صورت روش بازپرداخت نقدی را انتخاب کنید.',
+          );
+        }
+        final customerRows = await txn.query(
+          'customers',
+          columns: ['id'],
+          where: 'id = ?',
+          whereArgs: [customerId],
+          limit: 1,
+        );
+        if (customerRows.isEmpty) {
+          throw StateError(
+            'پرونده مشتری مرتبط با فاکتور پیدا نشد؛ برای جلوگیری از ایجاد اعتبار بدون صاحب، '
+            'پرونده را اصلاح کنید یا بازپرداخت نقدی را انتخاب کنید.',
+          );
+        }
+      }
       await AccountingEngine.ensureNoOutstandingChecksForReturn(
         txn,
         originalCategory: originalCategory,
