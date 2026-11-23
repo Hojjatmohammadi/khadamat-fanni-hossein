@@ -2146,6 +2146,30 @@ void main() {
     );
     expect((credit.single['balance'] as num).toDouble(), 2.0);
 
+    // The combined customer statement must reconcile receivables and customer
+    // credit after the original invoice has been fully settled and returned.
+    final customerLedger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      accountCodes: const ['1100', '2010'],
+    );
+    expect(customerLedger, isNotEmpty);
+    expect(customerLedger.last['running_balance'], -2.0);
+
+    // All journal postings created by the sale and its partial returns must
+    // continue to balance globally, not only one return document at a time.
+    final trialBalance = await AccountingEngine.trialBalance(db);
+    final totalDebits = trialBalance.fold<double>(
+      0,
+      (sum, row) => sum + (row['debit_total'] as num).toDouble(),
+    );
+    final totalCredits = trialBalance.fold<double>(
+      0,
+      (sum, row) => sum + (row['credit_total'] as num).toDouble(),
+    );
+    expect(totalDebits, closeTo(totalCredits, 0.001));
+
     await expectLater(
       DemoStore.addReturn(
         originalCategory: 'sales',
