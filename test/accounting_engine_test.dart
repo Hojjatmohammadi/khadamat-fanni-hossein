@@ -2977,7 +2977,7 @@ void main() {
         db,
         originalCategory: 'operations',
         originalSourceId: purchaseId,
-        quantity: 2,
+        quantity: 4,
         reason: 'تلاش برای برگشت بیش از مانده خرید',
         settleAsCash: true,
         occurredAt: purchaseDate.add(const Duration(days: 2)),
