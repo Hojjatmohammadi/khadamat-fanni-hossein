@@ -188,6 +188,92 @@ void main() {
   });
 
 
+
+  test('service-only cheque sale posts to received-cheques without stock movement', () async {
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: 99004,
+      occurredAt: DateTime(2026, 2, 5),
+      item: {
+        'شماره فاکتور': 'TEST-SALE-99004',
+        'مبلغ کل': '500',
+        'تخفیف': '0',
+        'مبلغ مالیات': '0',
+        'مبلغ دریافتی': '500',
+        'بیعانه تخصیص‌یافته': '0',
+        'روش پرداخت': 'چک',
+        'شماره چک': 'RC-SALE-99004',
+        'تاریخ سررسید میلادی': DateTime(2026, 3, 5).toIso8601String(),
+        'ردیف‌های فاکتور': jsonEncode([
+          {
+            'kind': 'service',
+            'product_id': '',
+            'description': 'اجرت تعمیر',
+            'quantity': '1',
+            'line_total': '500',
+          },
+        ]),
+      },
+    );
+
+    final check = (await db.query('checks_register',
+      where: "source_type = 'sale' AND source_id = '99004'")).single;
+    expect(check['direction'], 'received');
+    expect(check['status'], 'pending');
+    expect(check['amount'], 500);
+
+    final journal = (await db.query('journal_entries',
+      where: "source_type = 'sale' AND source_id = '99004'")).single;
+    final lines = await db.rawQuery(
+      '''SELECT a.code, l.debit, l.credit
+         FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+         WHERE l.entry_id = ?''',
+      [journal['id']],
+    );
+    final chequeLine = lines.singleWhere((line) => line['code'] == '1020');
+    final serviceLine = lines.singleWhere((line) => line['code'] == '4010');
+    expect(chequeLine['debit'], 500);
+    expect(serviceLine['credit'], 500);
+    expect(await db.query('stock_movements',
+      where: "reference_type = 'sale' AND reference_id = '99004'"), isEmpty);
+  });
+
+  test('invalid sales cheque date rolls back the complete invoice posting', () async {
+    await expectLater(
+      db.transaction((txn) => DemoStore.postSaleInTransaction(
+        txn,
+        recordId: 99005,
+        occurredAt: DateTime(2026, 2, 5),
+        item: {
+          'شماره فاکتور': 'TEST-SALE-99005',
+          'مبلغ کل': '250',
+          'تخفیف': '0',
+          'مبلغ مالیات': '0',
+          'مبلغ دریافتی': '250',
+          'بیعانه تخصیص‌یافته': '0',
+          'روش پرداخت': 'چک',
+          'شماره چک': 'RC-SALE-99005',
+          'تاریخ سررسید میلادی': DateTime(2026, 2, 4).toIso8601String(),
+          'ردیف‌های فاکتور': jsonEncode([
+            {
+              'kind': 'service',
+              'product_id': '',
+              'description': 'اجرت تعمیر',
+              'quantity': '1',
+              'line_total': '250',
+            },
+          ]),
+        },
+      )),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await db.query('journal_entries',
+      where: "source_type = 'sale' AND source_id = '99005'"), isEmpty);
+    expect(await db.query('checks_register',
+      where: "source_type = 'sale' AND source_id = '99005'"), isEmpty);
+  });
+
   test('stock quantity and moving average cost respect the invoice date', () async {
     final productId = await addProduct('کالای آزمون تاریخ‌دار');
     await AccountingEngine.recordStockMovementInTransaction(
