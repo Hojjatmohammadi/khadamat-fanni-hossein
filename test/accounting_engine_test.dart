@@ -2400,4 +2400,89 @@ void main() {
     );
   });
 
+
+  test('sales return and returned discount reduce net income and reverse only returned COGS', () async {
+    final productId = await addProduct('کالای آزمون سود خالص');
+    final saleDate = DateTime(2026, 5, 10, 10);
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 40,
+      referenceType: 'test_purchase',
+      referenceId: 'profit-return-stock',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+    );
+
+    final sale = <String, String>{
+      'شماره فاکتور': 'TEST-PROFIT-RETURN',
+      'مبلغ کل': '200',
+      'تخفیف': '20',
+      'مبلغ مالیات': '0',
+      'مبلغ دریافتی': '180',
+      'بیعانه تخصیص‌یافته': '0',
+      'روش پرداخت': 'نقدی',
+      'ردیف‌های فاکتور': jsonEncode([
+        {
+          'kind': 'product',
+          'product_id': productId.toString(),
+          'description': 'کالای آزمون سود خالص',
+          'quantity': '2',
+          'line_total': '200',
+        },
+      ]),
+    };
+    final saleId = await db.insert('records', {
+      'category': 'sales',
+      'data': jsonEncode(sale),
+      'created_at': saleDate.toIso8601String(),
+    });
+    await DemoStore.postSaleInTransaction(
+      db,
+      recordId: saleId,
+      item: sale,
+      occurredAt: saleDate,
+    );
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'sales',
+      originalSourceId: saleId,
+      quantity: 1,
+      reason: 'برگشت یک واحد برای آزمون سود',
+      settleAsCash: true,
+      occurredAt: saleDate.add(const Duration(hours: 1)),
+    );
+
+    final balances = await db.rawQuery('''
+      SELECT a.code, a.type,
+        COALESCE(SUM(l.debit), 0) AS debit,
+        COALESCE(SUM(l.credit), 0) AS credit
+      FROM journal_lines l
+      JOIN journal_entries e ON e.id = l.entry_id
+      JOIN accounts a ON a.id = l.account_id
+      WHERE e.occurred_at >= ? AND e.occurred_at < ?
+      GROUP BY a.code, a.type
+    ''', [
+      saleDate.toIso8601String(),
+      saleDate.add(const Duration(days: 1)).toIso8601String(),
+    ]);
+
+    var netIncome = 0.0;
+    var netCostOfGoods = 0.0;
+    for (final row in balances) {
+      final debit = (row['debit'] as num).toDouble();
+      final credit = (row['credit'] as num).toDouble();
+      if (row['type'] == 'income') netIncome += credit - debit;
+      if (row['code'] == '5000') netCostOfGoods += debit - credit;
+    }
+
+    // 200 sales - 20 discount - 100 return + 10 discount reversal = 90.
+    expect(netIncome, closeTo(90, 0.001));
+    // 80 original COGS - 40 restored on return = 40.
+    expect(netCostOfGoods, closeTo(40, 0.001));
+    expect(netIncome - netCostOfGoods, closeTo(50, 0.001));
+  });
+
 }
