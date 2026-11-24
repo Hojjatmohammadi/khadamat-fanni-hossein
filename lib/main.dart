@@ -1982,50 +1982,6 @@ class DemoStore {
         throw StateError('سند اولیه در دفتر کل حسابداری ثبت نشده است؛ برگشت برای جلوگیری از ثبت مالی نادرست انجام نشد. ابتدا سند قدیمی را تطبیق دهید.');
       }
       final reversalOf = originalJournal.first['id'] as int;
-      var originalReceivable = 0.0;
-      var previousReceivableOffset = 0.0;
-      var originalPayable = 0.0;
-      var previousPayableOffset = 0.0;
-      {
-        final arAccountId = await AccountingEngine.accountId(txn, '1100');
-        final apAccountId = await AccountingEngine.accountId(txn, '2000');
-        final arRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE entry_id = ? AND account_id = ?',
-          [reversalOf, arAccountId],
-        );
-        final apRows = await txn.rawQuery(
-          'SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM journal_lines WHERE entry_id = ? AND account_id = ?',
-          [reversalOf, apAccountId],
-        );
-        originalReceivable = (arRows.first['balance'] as num).toDouble();
-        originalPayable = (apRows.first['balance'] as num).toDouble();
-        final priorArRows = await txn.rawQuery(
-          '''SELECT COALESCE(SUM(l.credit - l.debit), 0) AS amount
-             FROM journal_lines l
-             JOIN journal_entries e ON e.id = l.entry_id
-             WHERE e.source_type = 'document_return'
-               AND e.source_id IN (
-                 SELECT CAST(id AS TEXT) FROM document_returns
-                 WHERE original_category = ? AND original_source_id = ?
-               )
-               AND l.account_id = ?''',
-          [originalCategory, originalSourceId, arAccountId],
-        );
-        final priorApRows = await txn.rawQuery(
-          '''SELECT COALESCE(SUM(l.debit - l.credit), 0) AS amount
-             FROM journal_lines l
-             JOIN journal_entries e ON e.id = l.entry_id
-             WHERE e.source_type = 'document_return'
-               AND e.source_id IN (
-                 SELECT CAST(id AS TEXT) FROM document_returns
-                 WHERE original_category = ? AND original_source_id = ?
-               )
-               AND l.account_id = ?''',
-          [originalCategory, originalSourceId, apAccountId],
-        );
-        previousReceivableOffset = (priorArRows.first['amount'] as num).toDouble();
-        previousPayableOffset = (priorApRows.first['amount'] as num).toDouble();
-      }
       if (isSale) {
         if (grossReturn > 0) {
           lines.add(JournalLineInput(
@@ -2048,29 +2004,20 @@ class DemoStore {
             memo: 'برگشت تخفیف فاکتور ' + sourceNumber,
           ));
         }
-        // A later customer payment may already have settled this invoice.
-        // Never credit receivables beyond the customer's currently open AR
-        // balance; any excess return becomes customer credit or a cash refund.
+        // Allocate receipts FIFO so a return only reduces the still-open
+        // receivable belonging to this exact invoice.
         final customerId = int.tryParse(source['شناسه مشتری'] ?? '');
-        var currentCustomerReceivable = 0.0;
-        if (customerId != null) {
-          final currentArRows = await txn.rawQuery(
-            '''SELECT COALESCE(SUM(debit - credit), 0) AS balance
-               FROM journal_lines
-               WHERE account_id = ? AND party_type = 'customer' AND party_id = ?''',
-            [await AccountingEngine.accountId(txn, '1100'), customerId],
-          );
-          currentCustomerReceivable =
-              (currentArRows.first['balance'] as num).toDouble();
-          if (currentCustomerReceivable < 0) currentCustomerReceivable = 0;
-        }
-        var receivableOffset =
-            (originalReceivable - previousReceivableOffset)
-                .clamp(0.0, double.infinity).toDouble();
-        if (receivableOffset > amount) receivableOffset = amount;
-        if (receivableOffset > currentCustomerReceivable) {
-          receivableOffset = currentCustomerReceivable;
-        }
+        final receivableOffset = customerId == null
+            ? 0.0
+            : (await AccountingEngine.sourceOutstandingPartyBalance(
+                txn,
+                accountId: await AccountingEngine.accountId(txn, '1100'),
+                partyType: 'customer',
+                partyId: customerId,
+                sourceEntryId: reversalOf,
+                normalSide: 'debit',
+                asOf: DateTime.parse(createdAt),
+              )).clamp(0.0, amount).toDouble();
         if (receivableOffset > 0.001) {
           lines.add(JournalLineInput(
             accountId: await AccountingEngine.accountId(txn, '1100'),
@@ -2113,25 +2060,18 @@ class DemoStore {
         if (supplierId == null) {
           throw StateError('برای ثبت برگشت خرید، پرونده معتبر فروشنده لازم است.');
         }
-        // Supplier payments may have settled this purchase after it was
-        // recorded. Limit the return offset to both this purchase's remaining
-        // payable and the supplier's real, currently open payable balance.
-        final supplierPayableRows = await txn.rawQuery(
-          '''SELECT COALESCE(SUM(credit - debit), 0) AS balance
-             FROM journal_lines
-             WHERE account_id = ? AND party_type = 'supplier' AND party_id = ?''',
-          [await AccountingEngine.accountId(txn, '2000'), supplierId],
-        );
-        final currentSupplierPayable =
-            ((supplierPayableRows.first['balance'] as num).toDouble())
-                .clamp(0.0, double.infinity).toDouble();
-        final purchaseRemainingPayable =
-            (originalPayable - previousPayableOffset)
-                .clamp(0.0, double.infinity).toDouble();
+        // Allocate settlements FIFO so only this purchase's remaining
+        // payable can be reduced by its return.
         final attributableOutstanding =
-            purchaseRemainingPayable < currentSupplierPayable
-                ? purchaseRemainingPayable
-                : currentSupplierPayable;
+            await AccountingEngine.sourceOutstandingPartyBalance(
+          txn,
+          accountId: await AccountingEngine.accountId(txn, '2000'),
+          partyType: 'supplier',
+          partyId: supplierId,
+          sourceEntryId: reversalOf,
+          normalSide: 'credit',
+          asOf: DateTime.parse(createdAt),
+        );
         final settlement = AccountingEngine.supplierReturnSettlementAmounts(
           returnAmount: amount,
           outstandingPayable: attributableOutstanding,
