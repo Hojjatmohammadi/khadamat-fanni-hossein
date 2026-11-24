@@ -633,7 +633,8 @@ class AccountingEngine {
                 l.debit, l.credit
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
-         WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?''',
+         WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?
+           AND e.source_type != 'document_return'''
       [accountId, partyType, partyId],
     );
     rows.sort((a, b) {
