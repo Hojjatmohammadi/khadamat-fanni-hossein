@@ -3369,6 +3369,109 @@ void main() {
       closeTo((totals['credit_total'] as num).toDouble(), 0.001));
   });
 
+  test('purchase return never offsets an unrelated later supplier payable', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده تفکیک اسناد');
+    final productId = await addProduct('کالای خرید اول');
+    final purchaseDate = DateTime(2026, 6, 1, 10);
+    final purchaseId = await db.insert('records', {
+      'category': 'operations',
+      'created_at': purchaseDate.toIso8601String(),
+      'data': jsonEncode({
+        'نوع عملیات': 'خرید کالا',
+        'نام شخص': 'فروشنده تفکیک اسناد',
+        'شناسه فروشنده': supplierId.toString(),
+        'نام کالا': 'کالای خرید اول',
+        'شناسه کالای انبار': productId.toString(),
+        'تعداد خرید': '5',
+        'بهای تمام‌شده هر واحد': '40',
+        'مبلغ': '200',
+      }),
+    });
+    await AccountingEngine.recordStockMovementInTransaction(
+      db,
+      productId: productId,
+      movementType: 'purchase',
+      quantityDelta: 5,
+      unitCost: 40,
+      referenceType: 'purchase',
+      referenceId: purchaseId.toString(),
+      occurredAt: purchaseDate,
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-RETURN-PAID-PURCHASE',
+      occurredAt: purchaseDate,
+      description: 'خرید اول که به‌طور کامل نقدی پرداخت شده است',
+      sourceType: 'purchase',
+      sourceId: purchaseId.toString(),
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 200,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 200,
+        ),
+      ],
+    );
+
+    // A later, separate purchase creates a payable to the same supplier.
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-UNRELATED-SUPPLIER-PAYABLE',
+      occurredAt: purchaseDate.add(const Duration(days: 1)),
+      description: 'بدهی مستقل خرید دوم',
+      sourceType: 'purchase',
+      sourceId: 'unrelated-purchase',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 100,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '2000'),
+          credit: 100,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+
+    await DemoStore.addReturnInTransaction(
+      db,
+      originalCategory: 'operations',
+      originalSourceId: purchaseId,
+      quantity: 2,
+      reason: 'برگشت از خرید تسویه‌شده',
+      settleAsCash: true,
+      occurredAt: purchaseDate.add(const Duration(days: 2)),
+    );
+
+    final payableRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(l.credit - l.debit), 0) AS balance
+         FROM journal_lines l
+         WHERE l.account_id = ? AND l.party_type = 'supplier' AND l.party_id = ?''',
+      [await AccountingEngine.accountId(db, '2000'), supplierId],
+    );
+    expect((payableRows.single['balance'] as num).toDouble(), closeTo(100, 0.001));
+
+    final returnEntry = (await db.query(
+      'journal_entries',
+      where: "source_type = 'document_return'",
+    )).single;
+    final returnLines = await db.query(
+      'journal_lines',
+      where: 'entry_id = ?',
+      whereArgs: [returnEntry['id']],
+    );
+    final payableDebits = returnLines
+        .where((line) => line['account_id'] ==
+            await AccountingEngine.accountId(db, '2000'))
+        .fold<double>(0, (sum, line) => sum + (line['debit'] as num).toDouble());
+    expect(payableDebits, 0);
+  });
+
   test('repeated partial purchase returns cannot exceed original quantity', () async {
     final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده آزمون سقف برگشت');
     final productId = await addProduct('کالای آزمون سقف برگشت خرید');
