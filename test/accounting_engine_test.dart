@@ -2175,6 +2175,25 @@ void main() {
       referenceId: 'sale-return-stock',
       occurredAt: DateTime(2026, 1, 1),
     );
+    // Reconcile the opening stock movement with its opening GL posting.
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-RETURN-OPENING-STOCK',
+      occurredAt: DateTime(2026, 1, 1),
+      description: 'موجودی افتتاحیه آزمون برگشت فروش',
+      sourceType: 'unit_test',
+      sourceId: 'sale-return-opening-stock',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 500,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 500,
+        ),
+      ],
+    );
     final customerId = await db.insert('customers', {
       'first_name': 'مشتری',
       'last_name': 'برگشت فروش',
@@ -2266,6 +2285,18 @@ void main() {
     );
     expect((returnCost.single['restored'] as num).toDouble(), 100.0);
     expect((cogsCredit.single['restored'] as num).toDouble(), 100.0);
+
+    // Inventory GL (1200) must equal the stock-movement valuation after
+    // original sale and multiple partial returns.
+    final inventoryBalance = (await db.rawQuery(
+      'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE account_id = ?',
+      [inventoryId],
+    )).single['balance'] as num;
+    expect(
+      inventoryBalance.toDouble(),
+      closeTo(await AccountingEngine.stockValueAt(db), 0.001),
+    );
+    expect(inventoryBalance.toDouble(), closeTo(400.0, 0.001));
 
     final customerCreditId = await AccountingEngine.accountId(db, '2010');
     final credit = await db.rawQuery(
