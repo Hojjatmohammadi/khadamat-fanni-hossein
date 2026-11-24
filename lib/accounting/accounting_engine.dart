@@ -881,39 +881,32 @@ class AccountingEngine {
     return fallback.isFinite && fallback >= 0 ? fallback : 0;
   }
 
-  /// Returns the stock balance available at a historical invoice date.
-  /// Later purchases are excluded so a backdated sale cannot consume future stock.
-  static Future<double> stockQuantityAt(
-    DatabaseExecutor db,
-    int productId, {
-    required DateTime asOf,
-  }) async {
-    final rows = await db.rawQuery(
-      '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
-         FROM stock_movements
-         WHERE product_id = ? AND occurred_at <= ?''',
-      [productId, asOf.toIso8601String()],
-    );
-    return (rows.first['quantity'] as num).toDouble();
-  }
-
-  /// Returns the stock quantity at the end of [asOf]'s calendar day.
-  /// When [asOf] is null, returns the quantity across all recorded movements.
+  /// Returns the stock quantity at a historical timestamp.
+  /// Set [endOfDay] to include every movement on [asOf]'s calendar day.
+  /// With no [asOf], returns the quantity across all recorded movements.
   static Future<double> stockQuantityAt(
     DatabaseExecutor db,
     int productId, {
     DateTime? asOf,
+    bool endOfDay = false,
   }) async {
-    final cutoff = asOf == null
-        ? null
-        : DateTime(asOf.year, asOf.month, asOf.day + 1).toIso8601String();
     final rows = await db.rawQuery(
-      cutoff == null
+      asOf == null
           ? '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
                FROM stock_movements WHERE product_id = ?'''
-          : '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
-               FROM stock_movements WHERE product_id = ? AND occurred_at < ?''',
-      cutoff == null ? [productId] : [productId, cutoff],
+          : endOfDay
+              ? '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
+                   FROM stock_movements WHERE product_id = ? AND occurred_at < ?'''
+              : '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
+                   FROM stock_movements WHERE product_id = ? AND occurred_at <= ?''',
+      asOf == null
+          ? [productId]
+          : [
+              productId,
+              endOfDay
+                  ? DateTime(asOf.year, asOf.month, asOf.day + 1).toIso8601String()
+                  : asOf.toIso8601String(),
+            ],
     );
     return (rows.first['quantity'] as num).toDouble();
   }
