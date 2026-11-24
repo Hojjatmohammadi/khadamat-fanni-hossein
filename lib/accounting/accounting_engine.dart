@@ -946,35 +946,41 @@ class AccountingEngine {
   ) async {
     // Opening balance includes every movement strictly before the selected period.
     var openingBalance = 0.0;
-    if (from != null) {
-      // Preserve the full opening balance before the selected calendar day.
-      final fromInclusive = DateTime(from.year, from.month, from.day);
+    final fromInclusive = from == null
+        ? null
+        : DateTime(from.year, from.month, from.day);
+    final toExclusive = to == null
+        ? null
+        : DateTime(to.year, to.month, to.day + 1);
+
+    // Normalize ISO-8601 offsets before comparing calendar-day boundaries.
+    // Raw string comparisons can put an offset timestamp on the wrong day.
+    if (fromInclusive != null) {
       final openingRows = await db.rawQuery(
         '''SELECT COALESCE(SUM(quantity_delta), 0) AS opening
            FROM stock_movements
-           WHERE product_id = ? AND occurred_at < ?''',
+           WHERE product_id = ? AND datetime(occurred_at) < datetime(?)''',
         [productId, fromInclusive.toIso8601String()],
       );
       openingBalance = (openingRows.first['opening'] as num).toDouble();
     }
+
     final clauses = <String>['product_id = ?'];
     final args = <Object?>[productId];
-    if (from != null) {
-      final fromInclusive = DateTime(from.year, from.month, from.day);
-      clauses.add('occurred_at >= ?');
+    if (fromInclusive != null) {
+      clauses.add('datetime(occurred_at) >= datetime(?)');
       args.add(fromInclusive.toIso8601String());
     }
-    if (to != null) {
+    if (toExclusive != null) {
       // Include the entire selected calendar day, not the following day.
-      final toExclusive = DateTime(to.year, to.month, to.day + 1);
-      clauses.add('occurred_at < ?');
+      clauses.add('datetime(occurred_at) < datetime(?)');
       args.add(toExclusive.toIso8601String());
     }
-    final rows = await db.query(
-      'stock_movements',
-      where: clauses.join(' AND '),
-      whereArgs: args,
-      orderBy: 'occurred_at ASC, id ASC',
+    final rows = await db.rawQuery(
+      '''SELECT * FROM stock_movements
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY datetime(occurred_at) ASC, id ASC''',
+      args,
     );
     var balance = openingBalance;
     return rows.map((row) {
