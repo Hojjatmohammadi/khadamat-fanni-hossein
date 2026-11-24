@@ -683,6 +683,37 @@ void main() {
     expect(rows.single['running_balance'], 100);
   });
 
+  test('backup is blocked when SQLite WAL checkpoint is incomplete', () {
+    expect(
+      () => DemoStore.validateWalCheckpointResult([
+        {'busy': 0, 'log': 5, 'checkpointed': 5},
+      ]),
+      returnsNormally,
+    );
+    expect(
+      () => DemoStore.validateWalCheckpointResult([
+        {'busy': 0, 'log': -1, 'checkpointed': -1},
+      ]),
+      returnsNormally,
+    );
+    expect(
+      () => DemoStore.validateWalCheckpointResult([
+        {'busy': 1, 'log': 5, 'checkpointed': 4},
+      ]),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      () => DemoStore.validateWalCheckpointResult([
+        {'busy': 0, 'log': 5, 'checkpointed': 3},
+      ]),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      () => DemoStore.validateWalCheckpointResult(const []),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('supplier ledger includes miscellaneous debit and credit operations', () async {
     final supplierId = await db.insert('suppliers', {
       'name': 'فروشنده آزمایشی',
