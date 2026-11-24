@@ -1673,6 +1673,55 @@ void main() {
     expect(cardex.map((row) => row['movement_type']).toList(), ['purchase', 'sale']);
   });
 
+  test('stock cardex normalizes timezone offsets at day boundaries', () async {
+    final productId = await addProduct('کالای کاردکس با منطقه زمانی');
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'opening_balance',
+      'quantity_delta': 5.0,
+      'unit_cost': 10.0,
+      'total_cost': 50.0,
+      'reference_type': 'test',
+      'reference_id': 'cardex-offset-before',
+      'occurred_at': '2026-03-02T00:30:00+03:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 4.0,
+      'unit_cost': 10.0,
+      'total_cost': 40.0,
+      'reference_type': 'test',
+      'reference_id': 'cardex-offset-inside',
+      'occurred_at': '2026-03-01T23:30:00-02:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 7.0,
+      'unit_cost': 10.0,
+      'total_cost': 70.0,
+      'reference_type': 'test',
+      'reference_id': 'cardex-offset-after',
+      'occurred_at': '2026-03-02T22:30:00-03:00',
+      'notes': '',
+    });
+
+    final cardex = await AccountingEngine.stockCardex(
+      db,
+      productId,
+      from: DateTime(2026, 3, 2),
+      to: DateTime(2026, 3, 2),
+    );
+
+    expect(cardex, hasLength(1));
+    expect(cardex.single['reference_id'], 'cardex-offset-inside');
+    expect(cardex.single['opening_quantity'], 5.0);
+    expect(cardex.single['running_quantity'], 9.0);
+  });
+
   test('stock cardex start date includes full selected day and opening quantity', () async {
     final productId = await addProduct('کالای آزمون ابتدای کارتکس');
     await AccountingEngine.recordStockMovement(
