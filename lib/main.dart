@@ -2528,7 +2528,13 @@ class _HomePageState extends State<HomePage> {
               IconButton(tooltip: 'جست‌وجو', onPressed: () => _showScopedSearch(context, _scopeForTab()), icon: const Icon(Icons.search)),
             ],
           ),
-          body: pages[tab],
+          body: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: pages[tab],
+            ),
+          ),
           drawer: Drawer(
             child: ListView(
               children: [
