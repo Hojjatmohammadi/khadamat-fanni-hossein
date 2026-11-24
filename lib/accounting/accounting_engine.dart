@@ -628,15 +628,14 @@ class AccountingEngine {
     if (normalSide != 'debit' && normalSide != 'credit') {
       throw ArgumentError('سمت عادی مانده باید بدهکار یا بستانکار باشد.');
     }
-    final rows = await db.rawQuery(
+    final rows = (await db.rawQuery(
       '''SELECT e.id AS entry_id, e.occurred_at, l.id AS line_id,
                 l.debit, l.credit
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
-         WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?
-           AND e.source_type != ?''',
-      [accountId, partyType, partyId, 'document_return'],
-    );
+         WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?''',
+      [accountId, partyType, partyId],
+    )).toList();
     rows.sort((a, b) {
       final dateOrder = DateTime.parse(a['occurred_at'].toString())
           .toUtc()
