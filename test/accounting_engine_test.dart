@@ -524,6 +524,156 @@ void main() {
     expect(customerReceipt['credit'], 90);
   });
 
+  test('FIFO settlement keeps a later supplier payable separate from a paid purchase', () async {
+    final supplierId = await AppDatabaseSchema.ensureSupplier(db, 'فروشنده آزمون FIFO');
+    final payableId = await AccountingEngine.accountId(db, '2000');
+    final inventoryId = await AccountingEngine.accountId(db, '1200');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final day1 = DateTime(2026, 7, 1, 9);
+    final day2 = DateTime(2026, 7, 2, 9);
+    final day3 = DateTime(2026, 7, 3, 9);
+
+    final sourceEntryId = await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-SUPPLIER-ORIGINAL',
+      occurredAt: day1,
+      description: 'خرید نسیه اول',
+      sourceType: 'purchase',
+      sourceId: 'fifo-supplier-original',
+      lines: [
+        JournalLineInput(accountId: inventoryId, debit: 200),
+        JournalLineInput(
+          accountId: payableId,
+          credit: 200,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-SUPPLIER-PAYMENT',
+      occurredAt: day2,
+      description: 'تسویه کامل خرید اول',
+      sourceType: 'operation',
+      sourceId: 'fifo-supplier-payment',
+      lines: [
+        JournalLineInput(
+          accountId: payableId,
+          debit: 200,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+        JournalLineInput(accountId: cashId, credit: 200),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-SUPPLIER-LATER',
+      occurredAt: day3,
+      description: 'خرید دوم و بدهی مستقل',
+      sourceType: 'purchase',
+      sourceId: 'fifo-supplier-later',
+      lines: [
+        JournalLineInput(accountId: inventoryId, debit: 100),
+        JournalLineInput(
+          accountId: payableId,
+          credit: 100,
+          partyType: 'supplier',
+          partyId: supplierId,
+        ),
+      ],
+    );
+
+    final open = await AccountingEngine.sourceOutstandingPartyBalance(
+      db,
+      accountId: payableId,
+      partyType: 'supplier',
+      partyId: supplierId,
+      sourceEntryId: sourceEntryId,
+      normalSide: 'credit',
+      asOf: day3.add(const Duration(days: 1)),
+    );
+    expect(open, closeTo(0, 0.001));
+  });
+
+  test('FIFO settlement keeps a later customer receivable separate from a paid sale', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'آزمون FIFO',
+      'created_at': DateTime(2026, 7, 1).toIso8601String(),
+    });
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+    final day1 = DateTime(2026, 7, 1, 9);
+    final day2 = DateTime(2026, 7, 2, 9);
+    final day3 = DateTime(2026, 7, 3, 9);
+
+    final sourceEntryId = await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-CUSTOMER-ORIGINAL',
+      occurredAt: day1,
+      description: 'فروش نسیه اول',
+      sourceType: 'sale',
+      sourceId: 'fifo-customer-original',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 300,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 300),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-CUSTOMER-RECEIPT',
+      occurredAt: day2,
+      description: 'تسویه کامل فروش اول',
+      sourceType: 'operation',
+      sourceId: 'fifo-customer-receipt',
+      lines: [
+        JournalLineInput(accountId: cashId, debit: 300),
+        JournalLineInput(
+          accountId: receivableId,
+          credit: 300,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+      ],
+    );
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-FIFO-CUSTOMER-LATER',
+      occurredAt: day3,
+      description: 'فروش دوم و طلب مستقل',
+      sourceType: 'sale',
+      sourceId: 'fifo-customer-later',
+      lines: [
+        JournalLineInput(
+          accountId: receivableId,
+          debit: 100,
+          partyType: 'customer',
+          partyId: customerId,
+        ),
+        JournalLineInput(accountId: revenueId, credit: 100),
+      ],
+    );
+
+    final open = await AccountingEngine.sourceOutstandingPartyBalance(
+      db,
+      accountId: receivableId,
+      partyType: 'customer',
+      partyId: customerId,
+      sourceEntryId: sourceEntryId,
+      normalSide: 'debit',
+      asOf: day3.add(const Duration(days: 1)),
+    );
+    expect(open, closeTo(0, 0.001));
+  });
+
   test('supplier return reduces outstanding payable before cash refund', () {
     final partial = AccountingEngine.supplierReturnSettlementAmounts(
       returnAmount: 400,
