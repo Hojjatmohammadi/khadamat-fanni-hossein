@@ -634,8 +634,8 @@ class AccountingEngine {
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?
-           AND e.source_type != 'document_return'''',
-      [accountId, partyType, partyId],
+           AND e.source_type != ?''',
+      [accountId, partyType, partyId, 'document_return'],
     );
     rows.sort((a, b) {
       final dateOrder = DateTime.parse(a['occurred_at'].toString())
