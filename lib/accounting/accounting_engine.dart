@@ -734,7 +734,7 @@ class AccountingEngine {
         FROM journal_lines l
         JOIN journal_entries e ON e.id = l.entry_id
         JOIN accounts a ON a.id = l.account_id
-        WHERE $partyWhere AND e.occurred_at < ?$accountFilter
+        WHERE $partyWhere AND datetime(e.occurred_at) < datetime(?)$accountFilter
       ''', [...partyArgs, fromInclusive.toIso8601String(), ...codes]);
       balance = (openingRows.first['debit_total'] as num).toDouble() -
           (openingRows.first['credit_total'] as num).toDouble();
@@ -744,14 +744,14 @@ class AccountingEngine {
     final args = <Object?>[...partyArgs];
     if (from != null) {
       final fromInclusive = DateTime(from.year, from.month, from.day);
-      clauses.add('e.occurred_at >= ?');
+      clauses.add('datetime(e.occurred_at) >= datetime(?)');
       args.add(fromInclusive.toIso8601String());
     }
     if (to != null) {
       // Treat `to` as an inclusive calendar date, regardless of the time
       // component supplied by a date picker or caller.
       final toExclusive = DateTime(to.year, to.month, to.day + 1);
-      clauses.add('e.occurred_at < ?');
+      clauses.add('datetime(e.occurred_at) < datetime(?)');
       args.add(toExclusive.toIso8601String());
     }
     if (codes.isNotEmpty) {
@@ -765,7 +765,7 @@ class AccountingEngine {
       JOIN journal_entries e ON e.id = l.entry_id
       JOIN accounts a ON a.id = l.account_id
       WHERE ${clauses.join(' AND ')}
-      ORDER BY e.occurred_at ASC, e.id ASC, l.id ASC
+      ORDER BY datetime(e.occurred_at) ASC, e.id ASC, l.id ASC
     ''', args);
     return rows.map((row) {
       balance += (row['debit'] as num).toDouble() - (row['credit'] as num).toDouble();
@@ -870,7 +870,7 @@ class AccountingEngine {
            COALESCE(SUM(CASE WHEN quantity_delta >= 0
              THEN total_cost ELSE -total_cost END), 0) AS value
          FROM stock_movements
-         WHERE product_id = ? AND (? IS NULL OR occurred_at <= ?)''',
+         WHERE product_id = ? AND (? IS NULL OR datetime(occurred_at) <= datetime(?))''',
       [productId, asOf?.toIso8601String(), asOf?.toIso8601String()],
     );
     final quantity = (rows.first['quantity'] as num).toDouble();
