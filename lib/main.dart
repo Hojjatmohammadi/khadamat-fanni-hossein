@@ -2370,14 +2370,22 @@ class _HomePageState extends State<HomePage> {
         title: const Text('تغییرات ذخیره نشده‌اند'),
         content: const Text('در تنظیمات تغییراتی انجام داده‌اید. قبل از خروج چه کاری انجام شود؟'),
         actions: [
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 4,
-            runSpacing: 4,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextButton(onPressed: () => Navigator.pop(d, 'stay'), child: const Text('ادامه ویرایش')),
-              TextButton(onPressed: () => Navigator.pop(d, 'discard'), child: const Text('خروج بدون ذخیره')),
-              FilledButton(onPressed: () => Navigator.pop(d, 'save'), child: const Text('ذخیره و خروج')),
+              TextButton(
+                onPressed: () => Navigator.pop(d, 'stay'),
+                child: const Text('ادامه ویرایش'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(d, 'discard'),
+                child: const Text('خروج بدون ذخیره'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(d, 'save'),
+                child: const Text('ذخیره و خروج'),
+              ),
             ],
           ),
         ],
