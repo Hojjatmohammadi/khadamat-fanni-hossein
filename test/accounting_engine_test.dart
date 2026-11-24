@@ -3465,9 +3465,9 @@ void main() {
       where: 'entry_id = ?',
       whereArgs: [returnEntry['id']],
     );
+    final payableAccountId = await AccountingEngine.accountId(db, '2000');
     final payableDebits = returnLines
-        .where((line) => line['account_id'] ==
-            await AccountingEngine.accountId(db, '2000'))
+        .where((line) => line['account_id'] == payableAccountId)
         .fold<double>(0, (sum, line) => sum + (line['debit'] as num).toDouble());
     expect(payableDebits, 0);
   });
