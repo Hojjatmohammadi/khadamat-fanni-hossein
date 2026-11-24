@@ -913,6 +913,34 @@ class AccountingEngine {
     return (rows.first['quantity'] as num).toDouble();
   }
 
+  /// Returns the total inventory valuation from immutable stock movements.
+  /// When [endOfDay] is true, every movement on [asOf]'s calendar day is included.
+  /// SQLite datetime() normalizes ISO timestamps and timezone offsets before comparison.
+  static Future<double> stockValueAt(
+    DatabaseExecutor db, {
+    DateTime? asOf,
+    bool endOfDay = false,
+  }) async {
+    final rows = await db.rawQuery(
+      asOf == null
+          ? '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+               THEN total_cost ELSE -total_cost END), 0) AS value
+               FROM stock_movements'''
+          : '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+               THEN total_cost ELSE -total_cost END), 0) AS value
+               FROM stock_movements
+               WHERE datetime(occurred_at) ${endOfDay ? '<' : '<='} datetime(?)''',
+      asOf == null
+          ? const <Object?>[]
+          : <Object?>[
+              endOfDay
+                  ? DateTime(asOf.year, asOf.month, asOf.day + 1).toIso8601String()
+                  : asOf.toIso8601String(),
+            ],
+    );
+    return (rows.first['value'] as num).toDouble();
+  }
+
   static Future<List<Map<String, Object?>>> stockCardex(
     DatabaseExecutor db, int productId, {DateTime? from, DateTime? to}
   ) async {
