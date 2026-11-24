@@ -2597,6 +2597,25 @@ void main() {
     // 80 original COGS - 40 restored on return = 40.
     expect(netCostOfGoods, closeTo(40, 0.001));
     expect(netIncome - netCostOfGoods, closeTo(50, 0.001));
+
+    // Inventory subledger valuation must reconcile with GL account 1200
+    // after the purchase, sale and partial sales return.
+    final inventoryAccountId = await AccountingEngine.accountId(db, '1200');
+    final inventoryLedgerRows = await db.rawQuery(
+      'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE account_id = ?',
+      [inventoryAccountId],
+    );
+    final movementValueRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+           THEN total_cost ELSE -total_cost END), 0) AS value
+         FROM stock_movements WHERE product_id = ?''',
+      [productId],
+    );
+    expect(
+      (inventoryLedgerRows.single['balance'] as num).toDouble(),
+      closeTo((movementValueRows.single['value'] as num).toDouble(), 0.001),
+    );
+    expect((inventoryLedgerRows.single['balance'] as num).toDouble(), closeTo(160, 0.001));
   });
 
 
@@ -2959,6 +2978,25 @@ void main() {
       (totals['debit_total'] as num).toDouble(),
       closeTo((totals['credit_total'] as num).toDouble(), 0.001),
     );
+
+    // Purchase returns must reduce the inventory subledger and GL by
+    // exactly the same historical cost.
+    final inventoryAccountId = await AccountingEngine.accountId(db, '1200');
+    final inventoryLedgerRows = await db.rawQuery(
+      'SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM journal_lines WHERE account_id = ?',
+      [inventoryAccountId],
+    );
+    final movementValueRows = await db.rawQuery(
+      '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
+           THEN total_cost ELSE -total_cost END), 0) AS value
+         FROM stock_movements WHERE product_id = ?''',
+      [productId],
+    );
+    expect(
+      (inventoryLedgerRows.single['balance'] as num).toDouble(),
+      closeTo((movementValueRows.single['value'] as num).toDouble(), 0.001),
+    );
+    expect((inventoryLedgerRows.single['balance'] as num).toDouble(), closeTo(800, 0.001));
   });
 
 
