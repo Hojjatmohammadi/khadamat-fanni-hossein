@@ -3326,4 +3326,95 @@ void main() {
     );
   });
 
+
+  test('moving average cost normalizes timezone offsets at historical cutoff', () async {
+    final productId = await addProduct('کالای بهای میانگین منطقه زمانی');
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 5.0,
+      'unit_cost': 100.0,
+      'total_cost': 500.0,
+      'reference_type': 'test',
+      'reference_id': 'average-offset-before',
+      'occurred_at': '2026-03-01T23:30:00+02:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 5.0,
+      'unit_cost': 200.0,
+      'total_cost': 1000.0,
+      'reference_type': 'test',
+      'reference_id': 'average-offset-after',
+      'occurred_at': '2026-03-01T23:30:00-02:00',
+      'notes': '',
+    });
+
+    expect(
+      await AccountingEngine.averageUnitCost(
+        db, productId, asOf: DateTime(2026, 3, 2),
+      ),
+      closeTo(100.0, 0.001),
+    );
+  });
+
+  test('party ledger date boundaries normalize timezone offsets and opening balance', () async {
+    final customerId = await db.insert('customers', {
+      'first_name': 'مشتری',
+      'last_name': 'آزمون منطقه زمانی دفتر',
+      'created_at': DateTime(2026, 1, 1).toIso8601String(),
+    });
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final cashId = await AccountingEngine.accountId(db, '1000');
+
+    Future<void> addEntry(String number, String occurredAt, double amount) async {
+      final entryId = await db.insert('journal_entries', {
+        'entry_number': number,
+        'occurred_at': occurredAt,
+        'description': number,
+        'source_type': 'timezone_test',
+        'source_id': number,
+        'created_at': DateTime(2026, 1, 1).toIso8601String(),
+      });
+      await db.insert('journal_lines', {
+        'entry_id': entryId,
+        'account_id': receivableId,
+        'debit': amount,
+        'credit': 0,
+        'party_type': 'customer',
+        'party_id': customerId,
+        'memo': '',
+      });
+      await db.insert('journal_lines', {
+        'entry_id': entryId,
+        'account_id': cashId,
+        'debit': 0,
+        'credit': amount,
+        'party_type': '',
+        'party_id': null,
+        'memo': '',
+      });
+    }
+
+    // This timestamp is March 1 at 21:30 UTC, so it belongs to opening balance.
+    await addEntry('TZ-OPENING', '2026-03-02T00:30:00+03:00', 20);
+    // This timestamp is March 2 at 01:30 UTC, so it belongs inside March 2.
+    await addEntry('TZ-IN-PERIOD', '2026-03-01T23:30:00-02:00', 30);
+
+    final ledger = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: customerId,
+      from: DateTime(2026, 3, 2),
+      to: DateTime(2026, 3, 2),
+      accountCodes: const ['1100'],
+    );
+
+    expect(ledger, hasLength(1));
+    expect(ledger.single['entry_number'], 'TZ-IN-PERIOD');
+    expect(ledger.single['running_balance'], 50);
+  });
+
 }
