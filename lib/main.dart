@@ -6389,14 +6389,16 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     final liveFile = File(dbPath);
     final emergency = File(p.join(appDir.path, 'before_restore_${_stamp()}.db'));
     await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    // Preserve the live database before closing it; if this copy fails the
+    // current connection and database remain untouched.
+    if (await liveFile.exists()) await liveFile.copy(emergency.path);
     await DemoStore.database.close();
     DemoStore._db = null;
-    if (await liveFile.exists()) await liveFile.copy(emergency.path);
-    for (final suffix in ['-wal', '-shm']) {
-      final sidecar = File('$dbPath$suffix');
-      if (await sidecar.exists()) await sidecar.delete();
-    }
     try {
+      for (final suffix in ['-wal', '-shm']) {
+        final sidecar = File('$dbPath$suffix');
+        if (await sidecar.exists()) await sidecar.delete();
+      }
       await candidate.copy(dbPath);
       await DemoStore.init();
       if (settingsData != null) await AppSettings.restoreBackup(settingsData);
