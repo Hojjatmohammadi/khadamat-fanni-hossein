@@ -2581,6 +2581,27 @@ void main() {
       occurredAt: saleDate.subtract(const Duration(days: 1)),
     );
 
+    // The opening stock movement must have its matching inventory
+    // journal posting; otherwise this test creates an unbalanced subledger.
+    await AccountingEngine.postJournalInTransaction(
+      db,
+      entryNumber: 'TEST-PROFIT-RETURN-OPENING-STOCK',
+      occurredAt: saleDate.subtract(const Duration(days: 1)),
+      description: 'خرید اولیه برای آزمون تطبیق ارزش موجودی',
+      sourceType: 'unit_test',
+      sourceId: 'profit-return-stock-journal',
+      lines: [
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1200'),
+          debit: 200,
+        ),
+        JournalLineInput(
+          accountId: await AccountingEngine.accountId(db, '1000'),
+          credit: 200,
+        ),
+      ],
+    );
+
     final sale = <String, String>{
       'شماره فاکتور': 'TEST-PROFIT-RETURN',
       'مبلغ کل': '200',
