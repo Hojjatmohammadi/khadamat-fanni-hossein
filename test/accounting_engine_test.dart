@@ -1449,7 +1449,7 @@ void main() {
     );
 
     expect(
-      await AccountingEngine.stockQuantityAt(db, productId, asOf: DateTime(2026, 4, 5, 17)),
+      await AccountingEngine.stockQuantityAt(db, productId, asOf: DateTime(2026, 4, 5, 17), endOfDay: true),
       7.0,
     );
     expect(await AccountingEngine.stockQuantityAt(db, productId), 14.0);
