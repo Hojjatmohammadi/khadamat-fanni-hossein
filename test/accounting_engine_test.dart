@@ -44,6 +44,58 @@ void main() {
   }
 
 
+  test('historical inventory valuation normalizes timezone offsets and end-of-day cutoff', () async {
+    final firstProductId = await addProduct('کالای ارزش تاریخی اول');
+    final secondProductId = await addProduct('کالای ارزش تاریخی دوم');
+
+    await db.insert('stock_movements', {
+      'product_id': firstProductId,
+      'movement_type': 'purchase',
+      'quantity_delta': 5.0,
+      'unit_cost': 10.0,
+      'total_cost': 50.0,
+      'reference_type': 'test',
+      'reference_id': 'valuation-purchase-1',
+      'occurred_at': '2026-01-01T23:30:00+02:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': firstProductId,
+      'movement_type': 'sale',
+      'quantity_delta': -2.0,
+      'unit_cost': 10.0,
+      'total_cost': 20.0,
+      'reference_type': 'test',
+      'reference_id': 'valuation-sale-1',
+      'occurred_at': '2026-01-02T00:30:00+02:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': secondProductId,
+      'movement_type': 'purchase',
+      'quantity_delta': 3.0,
+      'unit_cost': 20.0,
+      'total_cost': 60.0,
+      'reference_type': 'test',
+      'reference_id': 'valuation-purchase-2',
+      'occurred_at': '2026-01-02T00:15:00Z',
+      'notes': '',
+    });
+
+    expect(
+      await AccountingEngine.stockValueAt(
+        db,
+        asOf: DateTime(2026, 1, 1),
+        endOfDay: true,
+      ),
+      closeTo(30.0, 0.001),
+    );
+    expect(
+      await AccountingEngine.stockValueAt(db),
+      closeTo(90.0, 0.001),
+    );
+  });
+
   test('report expense date parser honors Jalali transaction date over creation date', () {
     final date = reportRecordDate({
       'category': 'operations',
