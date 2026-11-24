@@ -2404,6 +2404,34 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _selectTabAndAdd(int nextTab) async {
+    if (nextTab < 1 || nextTab > 4) return;
+    if (nextTab != tab) {
+      if (!await _confirmSettingsExit()) return;
+      if (!mounted) return;
+      setState(() {
+        _tabHistory.add(tab);
+        tab = nextTab;
+      });
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted) return;
+    switch (nextTab) {
+      case 1:
+        await _productPageKey.currentState?.addProduct();
+        break;
+      case 2:
+        await _customerPageKey.currentState?.addItem();
+        break;
+      case 3:
+        await _repairPageKey.currentState?.addItem();
+        break;
+      case 4:
+        await _salesPageKey.currentState?.addItem();
+        break;
+    }
+  }
+
   Future<void> _handleBack() async {
     if (scaffoldKey.currentState?.isDrawerOpen == true) {
       scaffoldKey.currentState?.closeDrawer();
@@ -2454,7 +2482,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      Dashboard(onSelect: _selectTab),
+      Dashboard(onSelect: _selectTab, onAdd: _selectTabAndAdd),
       ProductPage(key: _productPageKey, onChanged: () => setState(() {})),
       CustomerPage(pageKey: _customerPageKey, onChanged: () => setState(() {})),
       RepairPage(pageKey: _repairPageKey, onChanged: () => setState(() {})),
@@ -2553,7 +2581,8 @@ class _HomePageState extends State<HomePage> {
 
 class Dashboard extends StatelessWidget {
   final ValueChanged<int> onSelect;
-  const Dashboard({super.key, required this.onSelect});
+  final ValueChanged<int> onAdd;
+  const Dashboard({super.key, required this.onSelect, required this.onAdd});
 
   @override
   Widget build(BuildContext context) {
@@ -2579,25 +2608,41 @@ class Dashboard extends StatelessWidget {
             for (final s in stats)
               Card(
                 clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () => onSelect(s.$4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(s.$3, color: Colors.amber.shade800, size: 28),
-                        const SizedBox(height: 6),
-                        Text(s.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.25)),
-                        Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, height: 1.25)),
-                        const SizedBox(height: 4),
-                        const Icon(Icons.touch_app_outlined, size: 16, color: Colors.grey),
-                      ],
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: InkWell(
+                        onTap: () => onSelect(s.$4),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(s.$3, color: Colors.amber.shade800, size: 28),
+                              const SizedBox(height: 6),
+                              Text(s.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.25)),
+                              Text(s.$1, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, height: 1.25)),
+                              const SizedBox(height: 4),
+                              const Icon(Icons.touch_app_outlined, size: 16, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                    if (s.$4 >= 1 && s.$4 <= 4)
+                      Positioned(
+                        top: 2,
+                        left: 2,
+                        child: IconButton(
+                          tooltip: 'افزودن مورد جدید',
+                          icon: const Icon(Icons.add_circle, color: Colors.deepOrange, size: 28),
+                          onPressed: () => onAdd(s.$4),
+                        ),
+                      ),
+                  ],
                 ),
               ),
           ],
