@@ -6733,11 +6733,11 @@ class _ReportsPageState extends State<ReportsPage> {
     final where = <String>[];
     final args = <Object?>[];
     if (_fromDate != null) {
-      where.add('e.occurred_at >= ?');
+      where.add('datetime(e.occurred_at) >= datetime(?)');
       args.add(_fromDate!.toDateTime().toIso8601String());
     }
     if (_toDate != null) {
-      where.add('e.occurred_at < ?');
+      where.add('datetime(e.occurred_at) < datetime(?)');
       args.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
     }
     final sqlWhere = where.isEmpty ? '' : 'WHERE ' + where.join(' AND ');
@@ -6769,11 +6769,11 @@ class _ReportsPageState extends State<ReportsPage> {
     final movementWhere = <String>["movement_type IN ('purchase', 'purchase_return')"];
     final movementArgs = <Object?>[];
     if (_fromDate != null) {
-      movementWhere.add('occurred_at >= ?');
+      movementWhere.add('datetime(occurred_at) >= datetime(?)');
       movementArgs.add(_fromDate!.toDateTime().toIso8601String());
     }
     if (_toDate != null) {
-      movementWhere.add('occurred_at < ?');
+      movementWhere.add('datetime(occurred_at) < datetime(?)');
       movementArgs.add(_toDate!.toDateTime().add(const Duration(days: 1)).toIso8601String());
     }
     final purchaseRows = await DemoStore.database.rawQuery(
