@@ -2404,6 +2404,17 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _runDrawerSearch() {
+    final query = drawerSearchController.text.trim();
+    Navigator.of(context).pop();
+    if (query.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _showScopedSearch(context, 'all', initialQuery: query, showSearchField: false);
+      }
+    });
+  }
+
   Future<void> _selectTabAndAdd(int nextTab) async {
     if (nextTab < 1 || nextTab > 4) return;
     if (nextTab != tab) {
@@ -2562,9 +2573,13 @@ class _HomePageState extends State<HomePage> {
                   decoration: InputDecoration(
                     labelText: 'جست‌وجو در کل برنامه',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: () => _showScopedSearch(context, 'all', initialQuery: drawerSearchController.text)),
+                    suffixIcon: IconButton(
+                      tooltip: 'نمایش نتیجه‌ها',
+                      icon: const Icon(Icons.search),
+                      onPressed: _runDrawerSearch,
+                    ),
                   ),
-                  onSubmitted: (value) => _showScopedSearch(context, 'all', initialQuery: value),
+                  onSubmitted: (_) => _runDrawerSearch(),
                 )),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
@@ -2702,7 +2717,12 @@ class Dashboard extends StatelessWidget {
   }
 }
 
-Future<void> _showScopedSearch(BuildContext context, String scope, {String initialQuery = ''}) async {
+Future<void> _showScopedSearch(
+  BuildContext context,
+  String scope, {
+  String initialQuery = '',
+  bool showSearchField = true,
+}) async {
   final controller = TextEditingController(text: initialQuery);
   final records = <({String section, Map<String, String> data})>[];
   void add(String section, List<Map<String, String>> items) {
@@ -2722,7 +2742,9 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
       {'عنوان گزارش': 'تعداد عملیات مالی', 'مقدار': DemoStore.operations.length.toString()},
     ]);
   }
-  String title = scope == 'all' ? 'جست‌وجو در کل برنامه' : 'جست‌وجو در این بخش';
+  final title = showSearchField
+      ? (scope == 'all' ? 'جست‌وجو در کل برنامه' : 'جست‌وجو در این بخش')
+      : 'نتایج جست‌وجو';
   await showDialog<void>(context: context, builder: (dialogContext) => Directionality(
     textDirection: TextDirection.rtl,
     child: StatefulBuilder(builder: (dialogContext, refresh) {
@@ -2734,7 +2756,7 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
       return AlertDialog(
         title: Text(title),
         content: SizedBox(width: 420, height: 480, child: Column(children: [
-          TextField(
+          if (showSearchField) TextField(
             controller: controller,
             autofocus: true,
             decoration: InputDecoration(
@@ -2761,7 +2783,7 @@ Future<void> _showScopedSearch(BuildContext context, String scope, {String initi
             onChanged: (_) => refresh(() {}),
             onSubmitted: (_) => refresh(() {}),
           ),
-          const SizedBox(height: 8),
+          if (showSearchField) const SizedBox(height: 8),
           Expanded(child: query.isEmpty
               ? const Center(child: Text('برای شروع، عبارت موردنظر را وارد کنید.'))
               : filtered.isEmpty
