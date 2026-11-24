@@ -6362,6 +6362,29 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     );
     if (confirmed != true) return;
 
+    // Keep the current preferences as well as the database so a failed
+    // restore can roll back the complete app state, not only SQLite.
+    final previousSettings = <String, Object?>{
+      'store_name': AppSettings.storeName,
+      'app_name': AppSettings.appName,
+      'currency': AppSettings.currency,
+      'vat_percent': AppSettings.vatPercent,
+      'default_discount_percent': AppSettings.defaultDiscountPercent,
+      'invoice_prefix': AppSettings.invoicePrefix,
+      'next_invoice_number': AppSettings.nextInvoiceNumber,
+      'manager_name': AppSettings.managerName,
+      'phone': AppSettings.phone,
+      'address': AppSettings.address,
+      'postal_code': AppSettings.postalCode,
+      'theme_mode': AppSettings.themeMode,
+      'dark_mode': AppSettings.darkMode,
+      'drawer_image': AppSettings.drawerImage,
+      'invoice_stamp_image': AppSettings.stampImage,
+      'invoice_signature_image': AppSettings.signatureImage,
+      'font_scale': AppSettings.fontScale,
+      'product_image_mode': AppSettings.productImageMode,
+      'product_groups': AppSettings.productGroups,
+    };
     final dbPath = DemoStore.database.path;
     final liveFile = File(dbPath);
     final emergency = File(p.join(appDir.path, 'before_restore_${_stamp()}.db'));
@@ -6380,15 +6403,24 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       if (!mounted) return;
       setState(() => lastSaved = 'بازیابی انجام شد؛ نسخه اضطراری اطلاعات قبلی: ${emergency.path}');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('بازیابی پایگاه داده با موفقیت انجام شد.')));
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (await emergency.exists()) {
-        final failed = File('$dbPath.failed');
-        if (await failed.exists()) await failed.delete();
+        // Close the restored connection before replacing its database file.
+        final activeDatabase = DemoStore._db;
+        if (activeDatabase != null && activeDatabase.isOpen) {
+          await activeDatabase.close();
+        }
+        DemoStore._db = null;
+        for (final suffix in ['-wal', '-shm']) {
+          final sidecar = File('$dbPath$suffix');
+          if (await sidecar.exists()) await sidecar.delete();
+        }
         if (await liveFile.exists()) await liveFile.delete();
         await emergency.copy(dbPath);
         await DemoStore.init();
+        await AppSettings.restoreBackup(previousSettings);
       }
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
