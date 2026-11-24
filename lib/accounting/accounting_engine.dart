@@ -896,9 +896,11 @@ class AccountingEngine {
                FROM stock_movements WHERE product_id = ?'''
           : endOfDay
               ? '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
-                   FROM stock_movements WHERE product_id = ? AND occurred_at < ?'''
+                   FROM stock_movements
+                   WHERE product_id = ? AND datetime(occurred_at) < datetime(?)'''
               : '''SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
-                   FROM stock_movements WHERE product_id = ? AND occurred_at <= ?''',
+                   FROM stock_movements
+                   WHERE product_id = ? AND datetime(occurred_at) <= datetime(?)''',
       asOf == null
           ? [productId]
           : [
