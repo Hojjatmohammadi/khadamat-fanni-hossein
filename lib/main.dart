@@ -6913,6 +6913,7 @@ class _ReportsPageState extends State<ReportsPage> {
             DemoStore.database,
             selectedId,
             asOf: _toDate!.toDateTime(),
+            endOfDay: true,
           );
     const movementLabels = <String, String>{
       'purchase': 'خرید',
@@ -6957,6 +6958,7 @@ class _ReportsPageState extends State<ReportsPage> {
                               DemoStore.database,
                               value,
                               asOf: _toDate!.toDateTime(),
+                              endOfDay: true,
                             );
                       refresh(() {
                         selectedId = value;
