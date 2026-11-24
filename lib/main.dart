@@ -663,6 +663,34 @@ class DemoStore {
   static Database? _db;
   static Database get database => _db!;
 
+  /// Ensures every committed WAL page is present in the main database file
+  /// before it is copied into a backup bundle.
+  static Future<void> checkpointForBackup() async {
+    final result = await database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    validateWalCheckpointResult(result);
+  }
+
+  @visibleForTesting
+  static void validateWalCheckpointResult(
+    List<Map<String, Object?>> result,
+  ) {
+    if (result.isEmpty) {
+      throw StateError('وضعیت همگام‌سازی پایگاه داده برای پشتیبان‌گیری دریافت نشد.');
+    }
+    final row = result.first;
+    final busy = (row['busy'] as num?)?.toInt() ?? 0;
+    final logFrames = (row['log'] as num?)?.toInt() ?? -1;
+    final checkpointedFrames = (row['checkpointed'] as num?)?.toInt() ?? -1;
+    if (busy != 0 ||
+        (logFrames >= 0 &&
+            checkpointedFrames >= 0 &&
+            checkpointedFrames < logFrames)) {
+      throw StateError(
+        'همگام‌سازی پایگاه داده کامل نشد؛ برای جلوگیری از تهیه نسخه ناقص، پشتیبان‌گیری متوقف شد.',
+      );
+    }
+  }
+
   @visibleForTesting
   static void useDatabaseForTesting(Database database) {
     _db = database;
@@ -838,7 +866,7 @@ class DemoStore {
           now.day.toString().padLeft(2, '0');
       final backupFile = File(p.join(folder.path, 'backup_' + day + '.hfbak'));
       if (await backupFile.exists()) return;
-      await database.rawQuery('PRAGMA wal_checkpoint(FULL)');
+      await checkpointForBackup();
       final source = File(database.path);
       if (!await source.exists()) return;
       final settings = <String, Object?>{
@@ -6226,7 +6254,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
   }
 
   Future<void> _createBackup() async {
-    await DemoStore.database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    await DemoStore.checkpointForBackup();
     final source = File(DemoStore.database.path);
     if (!await source.exists()) throw Exception('فایل پایگاه داده پیدا نشد.');
     final settingsData = <String, Object?>{
