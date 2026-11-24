@@ -6780,19 +6780,11 @@ class _ReportsPageState extends State<ReportsPage> {
       "SELECT COALESCE(SUM(CASE WHEN movement_type = 'purchase_return' THEN -total_cost ELSE total_cost END), 0) AS total FROM stock_movements WHERE " + movementWhere.join(' AND '),
       movementArgs,
     );
-    final stockCutoff = _toDate?.toDateTime().add(const Duration(days: 1));
-    final stockRows = stockCutoff == null
-        ? await DemoStore.database.rawQuery(
-            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
-                 THEN total_cost ELSE -total_cost END), 0) AS total
-               FROM stock_movements''',
-          )
-        : await DemoStore.database.rawQuery(
-            '''SELECT COALESCE(SUM(CASE WHEN quantity_delta >= 0
-                 THEN total_cost ELSE -total_cost END), 0) AS total
-               FROM stock_movements WHERE occurred_at < ?''',
-            [stockCutoff.toIso8601String()],
-          );
+    final inventoryValue = await AccountingEngine.stockValueAt(
+      DemoStore.database,
+      asOf: _toDate?.toDateTime(),
+      endOfDay: _toDate != null,
+    );
     final expenseRows = await DemoStore.database.query(
       'records',
       columns: ['data', 'created_at'],
@@ -6828,7 +6820,7 @@ class _ReportsPageState extends State<ReportsPage> {
       'grossProfit': income - costOfGoods,
       'netProfit': income - costOfGoods - expenses,
       'purchases': (purchaseRows.first['total'] as num).toDouble(),
-      'inventoryValue': (stockRows.first['total'] as num).toDouble(),
+      'inventoryValue': inventoryValue,
     };
   }
 
