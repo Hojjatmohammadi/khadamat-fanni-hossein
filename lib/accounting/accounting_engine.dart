@@ -610,6 +610,76 @@ class AccountingEngine {
     return rows.first['id'] as int;
   }
 
+  /// Calculates the still-open part of one source document's party balance.
+  ///
+  /// Party settlements are recorded against the party's aggregate balance, not
+  /// directly against an invoice. To avoid a return consuming another
+  /// invoice's balance, settlements are allocated FIFO across dated journal
+  /// entries. Prior returns are naturally included as settlement movements.
+  static Future<double> sourceOutstandingPartyBalance(
+    DatabaseExecutor db, {
+    required int accountId,
+    required String partyType,
+    required int partyId,
+    required int sourceEntryId,
+    required String normalSide,
+    required DateTime asOf,
+  }) async {
+    if (normalSide != 'debit' && normalSide != 'credit') {
+      throw ArgumentError('سمت عادی مانده باید بدهکار یا بستانکار باشد.');
+    }
+    final rows = await db.rawQuery(
+      '''SELECT e.id AS entry_id, e.occurred_at, l.id AS line_id,
+                l.debit, l.credit
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entry_id
+         WHERE l.account_id = ? AND l.party_type = ? AND l.party_id = ?''',
+      [accountId, partyType, partyId],
+    );
+    rows.sort((a, b) {
+      final dateOrder = DateTime.parse(a['occurred_at'].toString())
+          .toUtc()
+          .compareTo(DateTime.parse(b['occurred_at'].toString()).toUtc());
+      if (dateOrder != 0) return dateOrder;
+      final entryOrder = (a['entry_id'] as num).compareTo(b['entry_id'] as num);
+      if (entryOrder != 0) return entryOrder;
+      return (a['line_id'] as num).compareTo(b['line_id'] as num);
+    });
+
+    final cutoff = asOf.toUtc();
+    final lots = <Map<String, Object>>[];
+    for (final row in rows) {
+      final occurredAt = DateTime.parse(row['occurred_at'].toString()).toUtc();
+      if (occurredAt.isAfter(cutoff)) continue;
+      final debit = (row['debit'] as num).toDouble();
+      final credit = (row['credit'] as num).toDouble();
+      final delta = normalSide == 'debit' ? debit - credit : credit - debit;
+      if (delta > 0.000001) {
+        lots.add({
+          'entry_id': row['entry_id'] as int,
+          'remaining': delta,
+        });
+      } else if (delta < -0.000001) {
+        var settlement = -delta;
+        for (final lot in lots) {
+          if (settlement <= 0.000001) break;
+          final open = lot['remaining'] as double;
+          if (open <= 0.000001) continue;
+          final applied = open < settlement ? open : settlement;
+          lot['remaining'] = open - applied;
+          settlement -= applied;
+        }
+      }
+    }
+
+    return lots
+        .where((lot) => lot['entry_id'] == sourceEntryId)
+        .fold<double>(
+          0,
+          (sum, lot) => sum + (lot['remaining'] as double),
+        );
+  }
+
   static Future<int> postJournal(
     Database db, {
     required String entryNumber,
