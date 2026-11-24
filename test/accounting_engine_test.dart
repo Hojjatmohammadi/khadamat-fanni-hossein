@@ -1752,6 +1752,118 @@ void main() {
     expect(cardex.single['running_quantity'], 6.0);
   });
 
+
+  test('party ledger normalizes timezone offsets for opening and selected-day boundaries', () async {
+    final receivableId = await AccountingEngine.accountId(db, '1100');
+    final revenueId = await AccountingEngine.accountId(db, '4000');
+
+    final openingEntry = await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'LEDGER-TZ-OPENING',
+      occurredAt: DateTime(2026, 3, 1),
+      description: 'مانده پیش از روز انتخاب‌شده',
+      sourceType: 'unit_test',
+      sourceId: 'ledger-tz-opening',
+      lines: [
+        JournalLineInput(accountId: receivableId, debit: 50, partyType: 'customer', partyId: 901),
+        JournalLineInput(accountId: revenueId, credit: 50),
+      ],
+    );
+    await db.update('journal_entries',
+      {'occurred_at': '2026-03-02T00:30:00+03:00'},
+      where: 'id = ?', whereArgs: [openingEntry]);
+
+    final periodEntry = await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'LEDGER-TZ-PERIOD',
+      occurredAt: DateTime(2026, 3, 2),
+      description: 'گردش داخل روز انتخاب‌شده',
+      sourceType: 'unit_test',
+      sourceId: 'ledger-tz-period',
+      lines: [
+        JournalLineInput(accountId: receivableId, debit: 40, partyType: 'customer', partyId: 901),
+        JournalLineInput(accountId: revenueId, credit: 40),
+      ],
+    );
+    await db.update('journal_entries',
+      {'occurred_at': '2026-03-01T23:30:00-02:00'},
+      where: 'id = ?', whereArgs: [periodEntry]);
+
+    final afterEntry = await AccountingEngine.postJournal(
+      db,
+      entryNumber: 'LEDGER-TZ-AFTER',
+      occurredAt: DateTime(2026, 3, 3),
+      description: 'گردش خارج از روز انتخاب‌شده',
+      sourceType: 'unit_test',
+      sourceId: 'ledger-tz-after',
+      lines: [
+        JournalLineInput(accountId: receivableId, debit: 70, partyType: 'customer', partyId: 901),
+        JournalLineInput(accountId: revenueId, credit: 70),
+      ],
+    );
+    await db.update('journal_entries',
+      {'occurred_at': '2026-03-02T22:30:00-03:00'},
+      where: 'id = ?', whereArgs: [afterEntry]);
+
+    final rows = await AccountingEngine.partyLedger(
+      db,
+      partyType: 'customer',
+      partyId: 901,
+      from: DateTime(2026, 3, 2),
+      to: DateTime(2026, 3, 2),
+      accountCodes: const ['1100'],
+    );
+
+    expect(rows, hasLength(1));
+    expect(rows.single['running_balance'], 90.0);
+    expect(rows.single['debit'], 40);
+  });
+
+  test('historical moving average cost normalizes timezone offsets', () async {
+    final productId = await addProduct('کالای میانگین بهای منطقه زمانی');
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 5.0,
+      'unit_cost': 10.0,
+      'total_cost': 50.0,
+      'reference_type': 'test',
+      'reference_id': 'average-tz-before',
+      'occurred_at': '2026-03-02T00:30:00+03:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 5.0,
+      'unit_cost': 30.0,
+      'total_cost': 150.0,
+      'reference_type': 'test',
+      'reference_id': 'average-tz-inside',
+      'occurred_at': '2026-03-01T23:30:00-02:00',
+      'notes': '',
+    });
+    await db.insert('stock_movements', {
+      'product_id': productId,
+      'movement_type': 'purchase',
+      'quantity_delta': 10.0,
+      'unit_cost': 100.0,
+      'total_cost': 1000.0,
+      'reference_type': 'test',
+      'reference_id': 'average-tz-after',
+      'occurred_at': '2026-03-02T22:30:00-03:00',
+      'notes': '',
+    });
+
+    final cost = await AccountingEngine.averageUnitCost(
+      db,
+      productId,
+      asOf: DateTime(2026, 3, 2, 23, 59),
+    );
+
+    expect(cost, closeTo(20.0, 0.000001));
+  });
+
   test('weighted average cost uses immutable movement costs rather than current product price',
       () async {
     final productId = await addProduct('کالای آزمون بهای تمام‌شده');
