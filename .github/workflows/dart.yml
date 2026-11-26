@@ -284,6 +284,18 @@ jobs:
           done
           echo "All APKs use the configured persistent release certificate: $keystore_fingerprint"
 
+      - name: Generate APK SHA-256 checksums
+        if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
+        run: |
+          set -euo pipefail
+          cd build/app/outputs/flutter-apk
+          sha256sum \
+            app-release.apk \
+            app-arm64-v8a-release.apk \
+            app-armeabi-v7a-release.apk \
+            app-x86_64-release.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Upload installable APKs
         if: "${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: build APK')) }}"
         uses: actions/upload-artifact@v4
@@ -294,5 +306,6 @@ jobs:
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
             build/app/outputs/flutter-apk/app-x86_64-release.apk
+            build/app/outputs/flutter-apk/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
