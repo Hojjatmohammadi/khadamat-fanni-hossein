@@ -53,6 +53,9 @@ class InvoicePrintLine {
 
 class InvoicePrintData {
   final String invoiceNumber;
+  final String documentType;
+  final String originalInvoiceNumber;
+  final String correctionReason;
   final String invoiceDate;
   final String issuedAt;
   final String deliveryDate;
@@ -74,6 +77,9 @@ class InvoicePrintData {
 
   const InvoicePrintData({
     required this.invoiceNumber,
+    required this.documentType,
+    required this.originalInvoiceNumber,
+    required this.correctionReason,
     required this.invoiceDate,
     required this.issuedAt,
     required this.deliveryDate,
@@ -141,6 +147,9 @@ class InvoicePrintData {
 
     return InvoicePrintData(
       invoiceNumber: (snapshot['شماره فاکتور'] ?? 'شماره ${fallbackIndex + 1}').trim(),
+      documentType: (snapshot['نوع سند'] ?? 'فاکتور فروش').trim(),
+      originalInvoiceNumber: (snapshot['شماره فاکتور مرجع'] ?? '').trim(),
+      correctionReason: (snapshot['علت اصلاح'] ?? '').trim(),
       invoiceDate: (snapshot['تاریخ'] ?? '').trim(),
       issuedAt: (snapshot['تاریخ و ساعت صدور'] ?? '').trim(),
       deliveryDate: (snapshot['تاریخ تحویل / اتمام تعمیر'] ?? '').trim(),
