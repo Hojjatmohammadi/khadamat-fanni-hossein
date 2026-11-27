@@ -84,17 +84,17 @@ class InvoicePdfImagePaginator {
     }
 
     final pageCount = (sourceHeight + maxContentHeight - 1) ~/ maxContentHeight;
-    final balancedContentHeight = (sourceHeight + pageCount - 1) ~/ pageCount;
+    final baseContentHeight = sourceHeight ~/ pageCount;
+    final extraPixels = sourceHeight % pageCount;
     final slices = <InvoicePdfPageSlice>[];
     var sourceTop = 0;
 
     for (var pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-      final remaining = sourceHeight - sourceTop;
-      final cropHeight = remaining < balancedContentHeight
-          ? remaining
-          : balancedContentHeight;
-      if (cropHeight <= 0) {
-        throw StateError('برش صفحه فاکتور خالی محاسبه شد.');
+      // Distribute the remainder over the first pages so no page ends up
+      // with a visibly shorter final strip.
+      final cropHeight = baseContentHeight + (pageIndex < extraPixels ? 1 : 0);
+      if (cropHeight <= 0 || cropHeight > maxContentHeight) {
+        throw StateError('برش صفحه فاکتور خالی یا بزرگ‌تر از فضای صفحه محاسبه شد.');
       }
       slices.add(InvoicePdfPageSlice(
         sourceTop: sourceTop,
