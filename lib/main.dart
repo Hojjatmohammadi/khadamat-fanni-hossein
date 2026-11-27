@@ -1836,7 +1836,9 @@ class DemoStore {
       } catch (error) {
         debugPrint('Could not cache next invoice number: $error');
       }
-      archivedSales.add(Map<String, String>.from(item));
+      final archivedItem = Map<String, String>.from(item)
+        ..['شناسه سند داخلی'] = newRecordId.toString();
+      archivedSales.add(archivedItem);
     }
   }
 
