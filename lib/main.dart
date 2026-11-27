@@ -7094,7 +7094,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
           margin: const pw.EdgeInsets.all(20),
           build: (_) => pw.Image(
             pw.MemoryImage(pageImage),
-            fit: pw.BoxFit.fill,
+            fit: pw.BoxFit.contain,
           ),
         ));
       }
