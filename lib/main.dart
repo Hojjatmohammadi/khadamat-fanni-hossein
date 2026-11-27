@@ -29,6 +29,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 import 'invoice/invoice_number_allocator.dart';
+import 'invoice/invoice_print_data.dart';
 
 const _dailyBackupTask = 'khadamatDailyLocalBackup';
 final FlutterLocalNotificationsPlugin _checkNotifications =
@@ -1736,9 +1737,43 @@ class DemoStore {
         );
         assignedInvoiceNumber = reservation.invoiceNumber;
         nextInvoiceNumberAfterCommit = reservation.nextNumber;
+
+        // Customer contact details are copied into the immutable invoice
+        // snapshot. Later edits to the customer profile must not rewrite old
+        // issued documents.
+        final customerId = int.tryParse(
+          (item['شناسه مشتری'] ?? '').trim(),
+        );
+        var customerNameSnapshot = (item['نام مشتری'] ?? '').trim();
+        var customerPhoneSnapshot = '';
+        var customerAddressSnapshot = '';
+        if (customerId != null) {
+          final customerRows = await txn.query(
+            'customers',
+            columns: const ['first_name', 'last_name', 'phone', 'address'],
+            where: 'id = ?',
+            whereArgs: [customerId],
+            limit: 1,
+          );
+          if (customerRows.isNotEmpty) {
+            final customer = customerRows.single;
+            final firstName = (customer['first_name'] ?? '').toString().trim();
+            final lastName = (customer['last_name'] ?? '').toString().trim();
+            final fullName = '$firstName $lastName'.trim();
+            if (fullName.isNotEmpty) customerNameSnapshot = fullName;
+            customerPhoneSnapshot = (customer['phone'] ?? '').toString().trim();
+            customerAddressSnapshot = (customer['address'] ?? '').toString().trim();
+          }
+        }
+
         item = <String, String>{
           ...item,
           'شماره فاکتور': assignedInvoiceNumber!,
+          'شناسه مشتری در زمان صدور': customerId?.toString() ?? '',
+          'نام مشتری در زمان صدور': customerNameSnapshot,
+          'شماره تماس مشتری در زمان صدور': customerPhoneSnapshot,
+          'نشانی مشتری در زمان صدور': customerAddressSnapshot,
+          'تاریخ و ساعت صدور': createdAt,
         };
       }
       final recordId = await txn.insert('records', {
@@ -6565,64 +6600,249 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
   }
 
   Widget _invoicePreview(Map<String, String> item, int index) {
-    final gross = double.tryParse((item['مبلغ کل'] ?? '0').replaceAll(',', '')) ?? 0;
-    final discount = double.tryParse((item['تخفیف'] ?? '0').replaceAll(',', '')) ?? 0;
-    final received = double.tryParse((item['مبلغ دریافتی'] ?? '0').replaceAll(',', '')) ?? 0;
-    final tax = double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0;
-    final net = (gross - discount + tax).clamp(0, double.infinity).toDouble();
+    final invoice = InvoicePrintData.fromSnapshot(item, fallbackIndex: index);
+    final issuedAt = DateTime.tryParse(invoice.issuedAt)?.toLocal();
+    final issuedAtLabel = issuedAt == null
+        ? ''
+        : '${Jalali.fromDateTime(issuedAt).formatCompactDate()} ساعت '
+            '${issuedAt.hour.toString().padLeft(2, '0')}:'
+            '${issuedAt.minute.toString().padLeft(2, '0')}';
+
+    Widget cell(
+      String value, {
+      bool header = false,
+      TextAlign textAlign = TextAlign.center,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+        child: Text(
+          value,
+          textAlign: textAlign,
+          softWrap: true,
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: header ? 10 : 10.5,
+            fontWeight: header ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      );
+    }
+
+    final invoiceRows = <TableRow>[
+      TableRow(
+        decoration: const BoxDecoration(color: Color(0xFFF0F1F3)),
+        children: [
+          cell('ردیف', header: true),
+          cell('شرح کالا / خدمت', header: true, textAlign: TextAlign.right),
+          cell('تعداد', header: true),
+          cell('واحد', header: true),
+          cell('قیمت واحد', header: true),
+          cell('مبلغ', header: true),
+        ],
+      ),
+      for (var rowIndex = 0; rowIndex < invoice.lines.length; rowIndex++)
+        TableRow(
+          children: [
+            cell((rowIndex + 1).toString()),
+            cell(
+              invoice.lines[rowIndex].description,
+              textAlign: TextAlign.right,
+            ),
+            cell(invoice.lines[rowIndex].quantityLabel),
+            cell(invoice.lines[rowIndex].unit),
+            cell(invoice.lines[rowIndex].unitPrice.toStringAsFixed(0)),
+            cell(invoice.lines[rowIndex].lineTotal.toStringAsFixed(0)),
+          ],
+        ),
+    ];
+
+    final currency = invoice.currency.isEmpty ? AppSettings.currency : invoice.currency;
+    final stampImage = item['مهر فروشگاه در زمان صدور'] ?? '';
+    final signatureImage = item['امضای فروشگاه در زمان صدور'] ?? '';
+    final storeLogo = item['لوگوی فروشگاه در زمان صدور'] ?? '';
+
     return Container(
       width: 560,
       color: Colors.white,
       padding: const EdgeInsets.all(28),
       child: DefaultTextStyle(
-        style: const TextStyle(color: Colors.black, fontSize: 15),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          if ((item['لوگوی فروشگاه در زمان صدور'] ?? '').isNotEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Image.memory(base64Decode(item['لوگوی فروشگاه در زمان صدور']!), height: 62, fit: BoxFit.contain),
+        style: const TextStyle(color: Colors.black, fontSize: 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (storeLogo.isNotEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Image.memory(
+                    base64Decode(storeLogo),
+                    height: 62,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            Text(
+              item['نام فروشگاه در زمان صدور'] ?? AppSettings.storeName,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 25,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
               ),
             ),
-          Text(item['نام فروشگاه در زمان صدور'] ?? AppSettings.storeName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold, color: Colors.black)),
-          const SizedBox(height: 5),
-          if ((item['نام صاحب فروشگاه در زمان صدور'] ?? '').isNotEmpty)
-            Text('صاحب فروشگاه: ' + (item['نام صاحب فروشگاه در زمان صدور'] ?? ''), textAlign: TextAlign.center),
-          if ((item['کد پستی در زمان صدور'] ?? '').isNotEmpty)
-            Text('کد پستی: ' + (item['کد پستی در زمان صدور'] ?? ''), textAlign: TextAlign.center),
-          if ((item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address).isNotEmpty) Text(item['نشانی فروشگاه در زمان صدور'] ?? AppSettings.address, textAlign: TextAlign.center),
-          if ((item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone).isNotEmpty) Text('تلفن: ${item['تلفن فروشگاه در زمان صدور'] ?? AppSettings.phone}', textAlign: TextAlign.center),
-          const Divider(color: Colors.black, height: 28),
-          Text('فاکتور فروش ${item['شماره فاکتور'] ?? 'شماره ${index + 1}'}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Text('تاریخ فاکتور: ${item['تاریخ'] ?? Jalali.now().formatCompactDate()}'),
-          if ((item['تاریخ تحویل / اتمام تعمیر'] ?? '').trim().isNotEmpty)
-            Text('تاریخ تحویل / اتمام تعمیر: ${item['تاریخ تحویل / اتمام تعمیر']}'),
-          Text('نام مشتری: ${item['نام مشتری'] ?? '—'}'),
-          Text('شرح کالا / خدمت: ${item['شرح کالا/خدمت'] ?? '—'}'),
-          Text('تعداد: ${item['تعداد'] ?? '۱'}'),
-          const Divider(color: Colors.black),
-          _invoiceLine('مبلغ کل قبل از تخفیف', gross, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          _invoiceLine('تخفیف', discount, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          _invoiceLine('مالیات بر ارزش افزوده', double.tryParse((item['مبلغ مالیات'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency) ,
-          _invoiceLine('مبلغ نهایی', net, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          _invoiceLine('بیعانه تخصیص‌یافته از قبل', double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          _invoiceLine('مبلغ جدید دریافتی', received, item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          _invoiceLine('مانده پس از بیعانه و دریافت', (net - received - (double.tryParse((item['بیعانه تخصیص‌یافته'] ?? '0').replaceAll(',', '')) ?? 0)).clamp(0, net), item['واحد پول در زمان صدور'] ?? AppSettings.currency),
-          const SizedBox(height: 22),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if ((item['مهر فروشگاه در زمان صدور'] ?? '').isNotEmpty)
-                Image.memory(base64Decode(item['مهر فروشگاه در زمان صدور']!), width: 92, height: 76, fit: BoxFit.contain),
-              const Spacer(),
-              if ((item['امضای فروشگاه در زمان صدور'] ?? '').isNotEmpty)
-                Image.memory(base64Decode(item['امضای فروشگاه در زمان صدور']!), width: 120, height: 64, fit: BoxFit.contain),
+            const SizedBox(height: 5),
+            if ((item['نام صاحب فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+              Text(
+                'صاحب فروشگاه: ${item['نام صاحب فروشگاه در زمان صدور']}',
+                textAlign: TextAlign.center,
+              ),
+            if ((item['نشانی فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+              Text(
+                item['نشانی فروشگاه در زمان صدور']!,
+                textAlign: TextAlign.center,
+              ),
+            if ((item['تلفن فروشگاه در زمان صدور'] ?? '').isNotEmpty)
+              Text(
+                'تلفن: ${item['تلفن فروشگاه در زمان صدور']}',
+                textAlign: TextAlign.center,
+              ),
+            if ((item['کد پستی در زمان صدور'] ?? '').isNotEmpty)
+              Text(
+                'کد پستی: ${item['کد پستی در زمان صدور']}',
+                textAlign: TextAlign.center,
+              ),
+            const Divider(color: Colors.black, height: 28),
+            Text(
+              'فاکتور فروش ${invoice.invoiceNumber}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Text('تاریخ فاکتور: ${invoice.invoiceDate.isEmpty ? '—' : invoice.invoiceDate}'),
+            if (issuedAtLabel.isNotEmpty) Text('تاریخ و ساعت صدور: $issuedAtLabel'),
+            if (invoice.deliveryDate.isNotEmpty)
+              Text('تاریخ تحویل / اتمام تعمیر: ${invoice.deliveryDate}'),
+            const SizedBox(height: 8),
+            Text('نام مشتری: ${invoice.customerName.isEmpty ? '—' : invoice.customerName}'),
+            if (invoice.customerPhone.isNotEmpty)
+              Text('شماره تماس مشتری: ${invoice.customerPhone}'),
+            if (invoice.customerAddress.isNotEmpty)
+              Text('نشانی مشتری: ${invoice.customerAddress}'),
+            const Divider(color: Colors.black, height: 24),
+            const Text(
+              'شرح اقلام و خدمات',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            if (invoiceRows.length > 1)
+              Table(
+                border: TableBorder.all(color: Colors.black26, width: 0.7),
+                columnWidths: const {
+                  0: FixedColumnWidth(28),
+                  1: FlexColumnWidth(2.5),
+                  2: FixedColumnWidth(40),
+                  3: FixedColumnWidth(44),
+                  4: FixedColumnWidth(78),
+                  5: FixedColumnWidth(78),
+                },
+                children: invoiceRows,
+              )
+            else if (invoice.lines.isNotEmpty)
+              Table(
+                border: TableBorder.all(color: Colors.black26, width: 0.7),
+                columnWidths: const {
+                  0: FixedColumnWidth(28),
+                  1: FlexColumnWidth(2.5),
+                  2: FixedColumnWidth(40),
+                  3: FixedColumnWidth(44),
+                  4: FixedColumnWidth(78),
+                  5: FixedColumnWidth(78),
+                },
+                children: invoiceRows,
+              )
+            else
+              const Text('ردیفی برای این فاکتور ثبت نشده است.'),
+            const Divider(color: Colors.black, height: 24),
+            _invoiceLine('جمع مبلغ اقلام', invoice.gross, currency),
+            _invoiceLine('تخفیف', invoice.discount, currency),
+            _invoiceLine('مالیات و عوارض', invoice.tax, currency),
+            _invoiceLine('مبلغ نهایی', invoice.total, currency),
+            _invoiceLine('بیعانه تخصیص‌یافته', invoice.depositApplied, currency),
+            _invoiceLine('مبلغ دریافت‌شده هنگام صدور', invoice.received, currency),
+            if (invoice.payableBalance > 0)
+              _invoiceLine('مانده قابل پرداخت', invoice.payableBalance, currency),
+            if (invoice.customerCredit > 0)
+              _invoiceLine('اعتبار مازاد مشتری', invoice.customerCredit, currency),
+            const SizedBox(height: 10),
+            Text(
+              'روش پرداخت: ${invoice.paymentMethod.isEmpty ? 'ثبت نشده' : invoice.paymentMethod}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            if (invoice.paymentMethod == 'چک') ...[
+              if (invoice.chequeNumber.isNotEmpty)
+                Text('شماره چک: ${invoice.chequeNumber}'),
+              if (invoice.chequeBank.isNotEmpty)
+                Text('بانک: ${invoice.chequeBank}'),
+              if (invoice.chequeDueDate.isNotEmpty)
+                Text('سررسید چک: ${invoice.chequeDueDate}'),
             ],
-          ),
-          const SizedBox(height: 8),
-          const Text('با تشکر از اعتماد شما', textAlign: TextAlign.center),
-        ]),
+            const SizedBox(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      if (stampImage.isNotEmpty)
+                        Image.memory(
+                          base64Decode(stampImage),
+                          height: 70,
+                          fit: BoxFit.contain,
+                        )
+                      else
+                        const SizedBox(height: 54),
+                      const Divider(color: Colors.black54),
+                      const Text('مهر فروشگاه', textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    children: [
+                      if (signatureImage.isNotEmpty)
+                        Image.memory(
+                          base64Decode(signatureImage),
+                          height: 64,
+                          fit: BoxFit.contain,
+                        )
+                      else
+                        const SizedBox(height: 54),
+                      const Divider(color: Colors.black54),
+                      const Text('امضای فروشنده', textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    children: [
+                      SizedBox(height: 54),
+                      Divider(color: Colors.black54),
+                      Text('امضای مشتری', textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'با تشکر از اعتماد شما به خدمات فنی حسین',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
       ),
     );
   }
