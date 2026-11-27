@@ -22,9 +22,9 @@ class InvoiceNumberAllocator {
   static const defaultWidth = 5;
 
   static String normalizePrefix(String value) {
-    final prefix = value.trim().replaceAll(RegExp(r'\\s+'), '');
+    final prefix = value.trim().replaceAll(RegExp(r'\s+'), '');
     if (prefix.isEmpty || prefix.length > 32 ||
-        prefix.contains('/') || prefix.contains(r'\\')) {
+        prefix.contains('/') || prefix.contains(String.fromCharCode(92))) {
       throw ArgumentError('پیشوند شماره فاکتور معتبر نیست.');
     }
     return prefix;
