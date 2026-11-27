@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - feature/first-test-apk
+      - 'fix/**'
   workflow_dispatch:
 
 concurrency:

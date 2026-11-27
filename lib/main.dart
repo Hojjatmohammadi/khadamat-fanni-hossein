@@ -28,6 +28,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
+import 'invoice/invoice_number_allocator.dart';
 
 const _dailyBackupTask = 'khadamatDailyLocalBackup';
 final FlutterLocalNotificationsPlugin _checkNotifications =
@@ -307,6 +308,15 @@ class AppSettings {
         productGroups = decoded.map((k, v) => MapEntry(k, (v as List).map((x) => x.toString()).toList()));
       } catch (_) {}
     }
+
+    // Reconcile preferences with the durable SQLite counter. This also
+    // migrates invoice prefixes already present in the immutable archive.
+    nextInvoiceNumber = await InvoiceNumberAllocator.initialize(
+      DemoStore.database,
+      prefix: invoicePrefix,
+      preferredNextNumber: nextInvoiceNumber,
+    );
+    await _prefs.setInt('next_invoice_number', nextInvoiceNumber);
   }
 
   static Future<void> save({
@@ -349,6 +359,11 @@ class AppSettings {
     await _prefs.setDouble('vat_percent', vatPercent);
     await _prefs.setDouble('default_discount_percent', defaultDiscountPercent);
     await _prefs.setString('invoice_prefix', invoicePrefix);
+    nextInvoiceNumber = await InvoiceNumberAllocator.initialize(
+      DemoStore.database,
+      prefix: invoicePrefix,
+      preferredNextNumber: nextInvoiceNumber,
+    );
     await _prefs.setInt('next_invoice_number', nextInvoiceNumber);
     await _prefs.setBool('pin_enabled', pinEnabled);
     if (pinEnabled) {
@@ -707,7 +722,7 @@ class DemoStore {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 14,
+      version: 15,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -724,6 +739,7 @@ class DemoStore {
         await AppDatabaseSchema.create(db);
         await _createInvoiceArchive(db);
         await _createPurchaseArchive(db);
+        await InvoiceNumberAllocator.createTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -765,6 +781,9 @@ class DemoStore {
         }
         if (oldVersion < 14) {
           await AppDatabaseSchema.migrateHistoricalJournals(db);
+        }
+        if (oldVersion < 15) {
+          await InvoiceNumberAllocator.createTable(db);
         }
       },
     );
@@ -1685,10 +1704,13 @@ class DemoStore {
     final createdAt = DateTime.now().toIso8601String();
     int? newRecordId;
     String? assignedInvoiceNumber;
+    int? nextInvoiceNumberAfterCommit;
+    final invoicePrefixForIssue = AppSettings.invoicePrefix;
+    final fallbackInvoiceNumber = AppSettings.nextInvoiceNumber;
     if (category == 'sales') {
-      assignedInvoiceNumber = '${AppSettings.invoicePrefix}-${AppSettings.nextInvoiceNumber.toString().padLeft(5, '0')}';
+      // Capture store identity before entering the transaction. The serial
+      // itself is allocated below inside that same transaction.
       item = <String, String>{...item,
-        'شماره فاکتور': assignedInvoiceNumber,
         'نام فروشگاه در زمان صدور': (item['نام فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
             ? item['نام فروشگاه در فاکتور']!.trim() : AppSettings.storeName,
         'نام صاحب فروشگاه در زمان صدور': (item['نام صاحب فروشگاه در فاکتور'] ?? '').trim().isNotEmpty
@@ -1706,6 +1728,19 @@ class DemoStore {
       };
     }
     await _db!.transaction((txn) async {
+      if (category == 'sales') {
+        final reservation = await InvoiceNumberAllocator.reserve(
+          txn,
+          prefix: invoicePrefixForIssue,
+          fallbackNextNumber: fallbackInvoiceNumber,
+        );
+        assignedInvoiceNumber = reservation.invoiceNumber;
+        nextInvoiceNumberAfterCommit = reservation.nextNumber;
+        item = <String, String>{
+          ...item,
+          'شماره فاکتور': assignedInvoiceNumber!,
+        };
+      }
       final recordId = await txn.insert('records', {
         'category': category,
         'data': jsonEncode(item),
@@ -1752,8 +1787,14 @@ class DemoStore {
     };
     target.add(Map<String, String>.from(item));
     if (category == 'sales' && newRecordId != null) {
-      AppSettings.nextInvoiceNumber++;
-      await AppSettings._prefs.setInt('next_invoice_number', AppSettings.nextInvoiceNumber);
+      // SQLite committed the sequence and invoice together. Preferences are
+      // only a cached copy and are never allowed to decide the next number.
+      AppSettings.nextInvoiceNumber = nextInvoiceNumberAfterCommit!;
+      try {
+        await AppSettings._prefs.setInt('next_invoice_number', AppSettings.nextInvoiceNumber);
+      } catch (error) {
+        debugPrint('Could not cache next invoice number: $error');
+      }
       archivedSales.add(Map<String, String>.from(item));
     }
   }
