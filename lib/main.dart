@@ -718,12 +718,13 @@ class DemoStore {
   static final operations = <Map<String, String>>[];
   static final returns = <Map<String, String>>[];
   static final archivedSales = <Map<String, String>>[];
+  static final invoiceCorrections = <Map<String, String>>[];
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 15,
+      version: 16,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -786,6 +787,9 @@ class DemoStore {
         if (oldVersion < 15) {
           await InvoiceNumberAllocator.createTable(db);
         }
+        if (oldVersion < 16) {
+          await AppDatabaseSchema.createInvoiceCorrections(db);
+        }
       },
     );
     await _loadCategory('products', products);
@@ -794,6 +798,7 @@ class DemoStore {
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
     await _loadCategory('returns', returns);
+    await _loadCategory('invoice_corrections', invoiceCorrections);
     await _backfillInvoiceArchive(_db!);
     await _backfillPurchaseArchive(_db!);
     await AccountingEngine.ensureDefaultAccounts(_db!);
@@ -950,6 +955,7 @@ class DemoStore {
       ..addAll(archived.map((row) {
         final data = (jsonDecode(row['snapshot_json'] as String) as Map<String, dynamic>).map((k,v)=>MapEntry(k,v?.toString() ?? ''));
         data['شماره فاکتور'] = row['invoice_number'].toString();
+        data['شناسه سند داخلی'] = row['legacy_source_id'].toString();
         return data;
       }));
   }
@@ -1830,8 +1836,167 @@ class DemoStore {
       } catch (error) {
         debugPrint('Could not cache next invoice number: $error');
       }
-      archivedSales.add(Map<String, String>.from(item));
+      final archivedItem = Map<String, String>.from(item)
+        ..['شناسه سند داخلی'] = newRecordId.toString();
+      archivedSales.add(archivedItem);
     }
+  }
+
+  /// Issues a non-financial correction document. The original sales invoice,
+  /// its archive and all accounting entries remain unchanged.
+  static Future<Map<String, String>> addInvoiceCorrection({
+    required int originalSourceId,
+    required String reason,
+    required Map<String, String> correctedFields,
+  }) async {
+    final saved = await _db!.transaction((txn) =>
+        addInvoiceCorrectionInTransaction(
+          txn,
+          originalSourceId: originalSourceId,
+          reason: reason,
+          correctedFields: correctedFields,
+          correctionPrefix: 'COR',
+        ));
+    invoiceCorrections.add(Map<String, String>.from(saved));
+    archivedSales.add(Map<String, String>.from(saved));
+    return saved;
+  }
+
+  /// Transaction-level correction service shared with unit tests.
+  /// Only customer/store identity and contact fields are accepted. Financial
+  /// totals, payment, tax, quantities and stock lines are immutable here.
+  static Future<Map<String, String>> addInvoiceCorrectionInTransaction(
+    DatabaseExecutor txn, {
+    required int originalSourceId,
+    required String reason,
+    required Map<String, String> correctedFields,
+    required String correctionPrefix,
+    DateTime? issuedAt,
+  }) async {
+    final normalizedReason = reason.trim();
+    if (originalSourceId <= 0 || normalizedReason.isEmpty) {
+      throw ArgumentError('فاکتور اصلی و علت اصلاح الزامی است.');
+    }
+
+    const editableFields = <String>{
+      'نام مشتری در زمان صدور',
+      'شماره تماس مشتری در زمان صدور',
+      'نشانی مشتری در زمان صدور',
+      'نام فروشگاه در زمان صدور',
+      'نام صاحب فروشگاه در زمان صدور',
+      'تلفن فروشگاه در زمان صدور',
+      'نشانی فروشگاه در زمان صدور',
+      'کد پستی در زمان صدور',
+    };
+    if (correctedFields.isEmpty ||
+        correctedFields.keys.any((key) => !editableFields.contains(key))) {
+      throw ArgumentError(
+        'در این مرحله فقط اصلاح مشخصات مشتری و سربرگ فروشگاه مجاز است؛ مبالغ و ردیف‌های مالی تغییر نمی‌کنند.',
+      );
+    }
+
+    final sourceRows = await txn.query(
+      'records',
+      columns: const ['category'],
+      where: 'id = ?',
+      whereArgs: [originalSourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty || sourceRows.single['category'] != 'sales') {
+      throw StateError('فقط فاکتور فروش اصلی قابلیت صدور اصلاحیه دارد.');
+    }
+    final archiveRows = await txn.query(
+      'invoice_archive',
+      where: 'legacy_source_id = ?',
+      whereArgs: [originalSourceId],
+      limit: 1,
+    );
+    if (archiveRows.isEmpty) {
+      throw StateError('نسخه ثابت فاکتور اصلی پیدا نشد؛ صدور اصلاحیه متوقف شد.');
+    }
+
+    final archive = archiveRows.single;
+    final originalInvoiceNumber = (archive['invoice_number'] ?? '').toString();
+    final rawSnapshot =
+        jsonDecode(archive['snapshot_json'] as String) as Map<String, dynamic>;
+    final original = rawSnapshot.map(
+      (key, value) => MapEntry(key, value?.toString() ?? ''),
+    );
+
+    final changes = <String, Map<String, String>>{};
+    for (final entry in correctedFields.entries) {
+      final before = (original[entry.key] ?? '').trim();
+      final after = entry.value.trim();
+      if (before != after) {
+        changes[entry.key] = {'مقدار قبلی': before, 'مقدار اصلاح‌شده': after};
+      }
+    }
+    if (changes.isEmpty) {
+      throw StateError('هیچ تفاوتی برای ثبت در اصلاحیه وجود ندارد.');
+    }
+    final correctedCustomerName = correctedFields['نام مشتری در زمان صدور'];
+    if (correctedCustomerName != null && correctedCustomerName.trim().isEmpty) {
+      throw ArgumentError('نام مشتری در اصلاحیه نمی‌تواند خالی باشد.');
+    }
+    final correctedStoreName = correctedFields['نام فروشگاه در زمان صدور'];
+    if (correctedStoreName != null && correctedStoreName.trim().isEmpty) {
+      throw ArgumentError('نام فروشگاه در اصلاحیه نمی‌تواند خالی باشد.');
+    }
+
+    final timestamp = (issuedAt ?? DateTime.now()).toIso8601String();
+    final reservation = await InvoiceNumberAllocator.reserve(
+      txn,
+      prefix: correctionPrefix,
+      fallbackNextNumber: 1,
+    );
+    final correction = <String, String>{...original};
+    for (final entry in correctedFields.entries) {
+      correction[entry.key] = entry.value.trim();
+    }
+    if (correctedFields.containsKey('نام مشتری در زمان صدور')) {
+      correction['نام مشتری'] =
+          correctedFields['نام مشتری در زمان صدور']!.trim();
+    }
+    correction
+      ..['شماره فاکتور'] = reservation.invoiceNumber
+      ..['نوع سند'] = 'فاکتور اصلاحی'
+      ..['شماره فاکتور مرجع'] = originalInvoiceNumber
+      ..['شناسه سند مرجع'] = originalSourceId.toString()
+      ..['علت اصلاح'] = normalizedReason
+      ..['نوع اصلاح'] = 'اصلاح اطلاعات غیرمالی'
+      ..['تاریخ و ساعت صدور'] = timestamp;
+
+    final sourceRecordId = await txn.insert('records', {
+      'category': 'invoice_corrections',
+      'data': jsonEncode(correction),
+      'created_at': timestamp,
+    });
+    correction['شناسه سند داخلی'] = sourceRecordId.toString();
+    await txn.update(
+      'records',
+      {'data': jsonEncode(correction)},
+      where: 'id = ?',
+      whereArgs: [sourceRecordId],
+    );
+
+    await txn.insert('invoice_corrections', {
+      'correction_number': reservation.invoiceNumber,
+      'original_source_id': originalSourceId,
+      'original_invoice_number': originalInvoiceNumber,
+      'source_record_id': sourceRecordId,
+      'reason': normalizedReason,
+      'changes_json': jsonEncode(changes),
+      'snapshot_json': jsonEncode(correction),
+      'created_at': timestamp,
+    });
+    await txn.insert('invoice_archive', {
+      'legacy_source_id': sourceRecordId,
+      'invoice_number': reservation.invoiceNumber,
+      'snapshot_json': jsonEncode(correction),
+      'archived_at': timestamp,
+    });
+
+    return correction;
   }
 
   /// Records a partial or full purchase/sales return without changing the original document.
@@ -6565,6 +6730,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'مشتریان': DemoStore.customers,
       'تعمیرات': DemoStore.repairs,
       'فاکتورها': DemoStore.sales,
+      'اصلاحیه‌های فاکتور': DemoStore.invoiceCorrections,
       'عملیات مالی': DemoStore.operations,
       'برگشت خرید و فروش': DemoStore.returns,
     };
@@ -6713,10 +6879,22 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
               ),
             const Divider(color: Colors.black, height: 28),
             Text(
-              'فاکتور فروش ${invoice.invoiceNumber}',
+              '${invoice.documentType} ${invoice.invoiceNumber}',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
+            if (invoice.documentType == 'فاکتور اصلاحی') ...[
+              Text(
+                'اصلاحیه مرتبط با فاکتور اصلی: ${invoice.originalInvoiceNumber}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (invoice.correctionReason.isNotEmpty)
+                Text('علت اصلاح: ${invoice.correctionReason}'),
+              const Text(
+                'این سند فقط اصلاح اطلاعات غیرمالی است و مبلغ و ثبت حسابداری فاکتور اصلی را تغییر نمی‌دهد.',
+                style: TextStyle(fontSize: 10, color: Colors.black54),
+              ),
+            ],
             const SizedBox(height: 12),
             Text('تاریخ فاکتور: ${invoice.invoiceDate.isEmpty ? '—' : invoice.invoiceDate}'),
             if (issuedAtLabel.isNotEmpty) Text('تاریخ و ساعت صدور: $issuedAtLabel'),
@@ -6912,7 +7090,157 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     if (!mounted) return;
     setState(() => lastSaved = file.path);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فاکتور به صورت ${pdf ? 'PDF' : 'عکس'} ذخیره شد.')));
-    await _shareFile(file, 'فاکتور فروش خدمات فنی حسین');
+    final documentType = (item['نوع سند'] ?? 'فاکتور فروش').trim();
+    await _shareFile(file, '$documentType خدمات فنی حسین');
+  }
+
+  Future<void> _createInvoiceCorrection(Map<String, String> invoice) async {
+    final sourceId = int.tryParse(invoice['شناسه سند داخلی'] ?? '');
+    if (sourceId == null || invoice['نوع سند'] == 'فاکتور اصلاحی') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('برای این سند امکان صدور اصلاحیه مستقیم وجود ندارد.')),
+      );
+      return;
+    }
+
+    const labels = <String, String>{
+      'نام مشتری در زمان صدور': 'نام مشتری',
+      'شماره تماس مشتری در زمان صدور': 'شماره تماس مشتری',
+      'نشانی مشتری در زمان صدور': 'نشانی مشتری',
+      'نام فروشگاه در زمان صدور': 'نام فروشگاه',
+      'نام صاحب فروشگاه در زمان صدور': 'نام صاحب فروشگاه',
+      'تلفن فروشگاه در زمان صدور': 'تلفن فروشگاه',
+      'نشانی فروشگاه در زمان صدور': 'نشانی فروشگاه',
+      'کد پستی در زمان صدور': 'کد پستی فروشگاه',
+    };
+    final controllers = <String, TextEditingController>{
+      for (final entry in labels.entries)
+        entry.key: TextEditingController(
+          text: (invoice[entry.key] ??
+                  (entry.key == 'نام مشتری در زمان صدور'
+                      ? invoice['نام مشتری']
+                      : '')) ??
+              '',
+        ),
+    };
+    final reasonController = TextEditingController();
+
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        var saving = false;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (dialogContext, refresh) => AlertDialog(
+              title: const Text('صدور فاکتور اصلاحی'),
+              content: SizedBox(
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'فاکتور اصلی: ${invoice['شماره فاکتور'] ?? '—'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'این اصلاحیه فقط برای اصلاح اطلاعات هویتی و تماس یا سربرگ فروشگاه است. اقلام، تعداد، تخفیف، مالیات، پرداخت و مبالغ فاکتور اصلی تغییر نمی‌کنند.',
+                        style: TextStyle(fontSize: 12, color: Colors.deepOrange),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final entry in labels.entries) ...[
+                        TextField(
+                          controller: controllers[entry.key],
+                          decoration: InputDecoration(labelText: entry.value),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      TextField(
+                        controller: reasonController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'علت صدور اصلاحیه *',
+                          hintText: 'مثلاً اصلاح اشتباه تایپی در نام یا نشانی مشتری',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: const Text('انصراف'),
+                ),
+                FilledButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (reasonController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('علت اصلاح را وارد کنید.'),
+                              ),
+                            );
+                            return;
+                          }
+                          refresh(() => saving = true);
+                          try {
+                            await DemoStore.addInvoiceCorrection(
+                              originalSourceId: sourceId,
+                              reason: reasonController.text.trim(),
+                              correctedFields: {
+                                for (final entry in controllers.entries)
+                                  entry.key: entry.value.text.trim(),
+                              },
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext, true);
+                            }
+                          } catch (error) {
+                            if (dialogContext.mounted) {
+                              refresh(() => saving = false);
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(
+                                  content: Text('صدور اصلاحیه ناموفق بود: $error'),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.fact_check_outlined),
+                  label: const Text('صدور و ثبت اصلاحیه'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+    reasonController.dispose();
+    if (saved == true && mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('فاکتور اصلاحی با شماره مستقل ثبت شد؛ فاکتور اصلی بدون تغییر باقی ماند.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -6943,16 +7271,24 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('فاکتور PDF و عکس', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('برای هر فاکتور ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
+        const Text('برای هر فاکتور اصلی یا اصلاحیه ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
         const SizedBox(height: 8),
         if (DemoStore.archivedSales.isEmpty)
           const Text('هنوز فاکتور آرشیوشده‌ای ثبت نشده است.')
         else
           for (int i = 0; i < DemoStore.archivedSales.length; i++)
             Card(child: ListTile(
-              title: Text('${DemoStore.archivedSales[i]['شماره فاکتور']} ـ ${DemoStore.archivedSales[i]['نام مشتری'] ?? 'بدون نام'}'),
+              title: Text('${DemoStore.archivedSales[i]['نوع سند'] ?? 'فاکتور فروش'} ${DemoStore.archivedSales[i]['شماره فاکتور']} ـ ${DemoStore.archivedSales[i]['نام مشتری'] ?? 'بدون نام'}'),
               subtitle: Text(DemoStore.archivedSales[i]['شرح کالا/خدمت'] ?? ''),
               trailing: Wrap(spacing: 2, children: [
+                if (DemoStore.archivedSales[i]['نوع سند'] != 'فاکتور اصلاحی')
+                  IconButton(
+                    tooltip: 'صدور فاکتور اصلاحی',
+                    onPressed: busy
+                        ? null
+                        : () => _run(() => _createInvoiceCorrection(DemoStore.archivedSales[i])),
+                    icon: const Icon(Icons.edit_note),
+                  ),
                 IconButton(tooltip: 'خروجی PDF', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: true)), icon: const Icon(Icons.picture_as_pdf)),
                 IconButton(tooltip: 'خروجی عکس', onPressed: busy ? null : () => _run(() => _exportInvoice(DemoStore.archivedSales[i], i, pdf: false)), icon: const Icon(Icons.image)),
               ]),
