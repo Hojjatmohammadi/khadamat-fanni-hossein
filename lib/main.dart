@@ -6728,6 +6728,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       'مشتریان': DemoStore.customers,
       'تعمیرات': DemoStore.repairs,
       'فاکتورها': DemoStore.sales,
+      'اصلاحیه‌های فاکتور': DemoStore.invoiceCorrections,
       'عملیات مالی': DemoStore.operations,
       'برگشت خرید و فروش': DemoStore.returns,
     };
@@ -7087,7 +7088,8 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     if (!mounted) return;
     setState(() => lastSaved = file.path);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فاکتور به صورت ${pdf ? 'PDF' : 'عکس'} ذخیره شد.')));
-    await _shareFile(file, 'فاکتور فروش خدمات فنی حسین');
+    final documentType = (item['نوع سند'] ?? 'فاکتور فروش').trim();
+    await _shareFile(file, '$documentType خدمات فنی حسین');
   }
 
   Future<void> _createInvoiceCorrection(Map<String, String> invoice) async {
@@ -7267,7 +7269,7 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('فاکتور PDF و عکس', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('برای هر فاکتور ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
+        const Text('برای هر فاکتور اصلی یا اصلاحیه ثبت‌شده می‌توانید پیش‌نمایش بگیرید، سپس PDF یا تصویر PNG بسازید و با پیام‌رسان یا Google Drive به اشتراک بگذارید.'),
         const SizedBox(height: 8),
         if (DemoStore.archivedSales.isEmpty)
           const Text('هنوز فاکتور آرشیوشده‌ای ثبت نشده است.')
