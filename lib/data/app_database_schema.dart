@@ -107,6 +107,8 @@ class AppDatabaseSchema {
       )
     ''');
 
+    await createInvoiceCorrections(db);
+
     await db.execute('CREATE INDEX IF NOT EXISTS customers_phone_idx ON customers(phone)');
     await db.execute('CREATE INDEX IF NOT EXISTS customers_name_idx ON customers(last_name, first_name)');
     await db.execute('CREATE INDEX IF NOT EXISTS products_code_idx ON products(code)');
@@ -118,6 +120,39 @@ class AppDatabaseSchema {
     await db.execute('CREATE INDEX IF NOT EXISTS invoices_created_idx ON invoices(created_at)');
     await db.execute('CREATE INDEX IF NOT EXISTS invoice_items_invoice_idx ON invoice_items(invoice_id)');
     await AccountingEngine.createTables(db);
+  }
+
+  /// Stores append-only, non-financial invoice corrections linked to the
+  /// original sales record. Monetary or quantity changes must use a separate
+  /// return/adjustment workflow so the original ledger posting is not replayed.
+  static Future<void> createInvoiceCorrections(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS invoice_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        correction_number TEXT NOT NULL UNIQUE,
+        original_source_id INTEGER NOT NULL,
+        original_invoice_number TEXT NOT NULL,
+        source_record_id INTEGER NOT NULL UNIQUE,
+        reason TEXT NOT NULL,
+        changes_json TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (original_source_id) REFERENCES records(id) ON DELETE RESTRICT,
+        FOREIGN KEY (source_record_id) REFERENCES records(id) ON DELETE RESTRICT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS invoice_corrections_original_idx '
+      'ON invoice_corrections(original_source_id, created_at, id)',
+    );
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS invoice_corrections_no_update
+      BEFORE UPDATE ON invoice_corrections BEGIN
+        SELECT RAISE(ABORT, 'Invoice corrections are immutable');
+      END''');
+    await db.execute('''CREATE TRIGGER IF NOT EXISTS invoice_corrections_no_delete
+      BEFORE DELETE ON invoice_corrections BEGIN
+        SELECT RAISE(ABORT, 'Invoice corrections cannot be deleted');
+      END''');
   }
 
   /// Creates or finds a supplier by normalized name. The caller should pass a
