@@ -92,4 +92,20 @@ void main() {
     expect(invoice.lines, hasLength(1));
     expect(invoice.lines.single.description, 'خدمت تعمیر');
   });
+
+  test('identifies a correction document and preserves its original reference', () {
+    final invoice = InvoicePrintData.fromSnapshot({
+      'نوع سند': 'فاکتور اصلاحی',
+      'شماره فاکتور': 'COR-00001',
+      'شماره فاکتور مرجع': 'HOS-00017',
+      'علت اصلاح': 'اصلاح نشانی مشتری',
+      'مبلغ کل': '800000',
+    });
+
+    expect(invoice.documentType, 'فاکتور اصلاحی');
+    expect(invoice.invoiceNumber, 'COR-00001');
+    expect(invoice.originalInvoiceNumber, 'HOS-00017');
+    expect(invoice.correctionReason, 'اصلاح نشانی مشتری');
+    expect(invoice.total, 800000);
+  });
 }
