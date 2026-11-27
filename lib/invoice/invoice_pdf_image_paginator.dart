@@ -96,7 +96,9 @@ class InvoicePdfImagePaginator {
               canvas,
               ui.Offset(
                 sideMarginPx.toDouble(),
-                ((headerHeight - textPainter.height) / 2).clamp(0, double.infinity),
+                ((headerHeight - textPainter.height) / 2)
+                    .clamp(0, double.infinity)
+                    .toDouble(),
               ),
             );
             canvas.drawLine(
