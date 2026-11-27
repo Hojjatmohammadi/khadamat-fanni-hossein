@@ -718,12 +718,13 @@ class DemoStore {
   static final operations = <Map<String, String>>[];
   static final returns = <Map<String, String>>[];
   static final archivedSales = <Map<String, String>>[];
+  static final invoiceCorrections = <Map<String, String>>[];
 
   static Future<void> init() async {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'khadamat_fanni_hosein.db'),
-      version: 15,
+      version: 16,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -786,6 +787,9 @@ class DemoStore {
         if (oldVersion < 15) {
           await InvoiceNumberAllocator.createTable(db);
         }
+        if (oldVersion < 16) {
+          await AppDatabaseSchema.createInvoiceCorrections(db);
+        }
       },
     );
     await _loadCategory('products', products);
@@ -794,6 +798,7 @@ class DemoStore {
     await _loadCategory('sales', sales);
     await _loadCategory('operations', operations);
     await _loadCategory('returns', returns);
+    await _loadCategory('invoice_corrections', invoiceCorrections);
     await _backfillInvoiceArchive(_db!);
     await _backfillPurchaseArchive(_db!);
     await AccountingEngine.ensureDefaultAccounts(_db!);
@@ -950,6 +955,7 @@ class DemoStore {
       ..addAll(archived.map((row) {
         final data = (jsonDecode(row['snapshot_json'] as String) as Map<String, dynamic>).map((k,v)=>MapEntry(k,v?.toString() ?? ''));
         data['شماره فاکتور'] = row['invoice_number'].toString();
+        data['شناسه سند داخلی'] = row['legacy_source_id'].toString();
         return data;
       }));
   }
@@ -1832,6 +1838,163 @@ class DemoStore {
       }
       archivedSales.add(Map<String, String>.from(item));
     }
+  }
+
+  /// Issues a non-financial correction document. The original sales invoice,
+  /// its archive and all accounting entries remain unchanged.
+  static Future<Map<String, String>> addInvoiceCorrection({
+    required int originalSourceId,
+    required String reason,
+    required Map<String, String> correctedFields,
+  }) async {
+    final saved = await _db!.transaction((txn) =>
+        addInvoiceCorrectionInTransaction(
+          txn,
+          originalSourceId: originalSourceId,
+          reason: reason,
+          correctedFields: correctedFields,
+          correctionPrefix: 'COR',
+        ));
+    invoiceCorrections.add(Map<String, String>.from(saved));
+    archivedSales.add(Map<String, String>.from(saved));
+    return saved;
+  }
+
+  /// Transaction-level correction service shared with unit tests.
+  /// Only customer/store identity and contact fields are accepted. Financial
+  /// totals, payment, tax, quantities and stock lines are immutable here.
+  static Future<Map<String, String>> addInvoiceCorrectionInTransaction(
+    DatabaseExecutor txn, {
+    required int originalSourceId,
+    required String reason,
+    required Map<String, String> correctedFields,
+    required String correctionPrefix,
+    DateTime? issuedAt,
+  }) async {
+    final normalizedReason = reason.trim();
+    if (originalSourceId <= 0 || normalizedReason.isEmpty) {
+      throw ArgumentError('فاکتور اصلی و علت اصلاح الزامی است.');
+    }
+
+    const editableFields = <String>{
+      'نام مشتری در زمان صدور',
+      'شماره تماس مشتری در زمان صدور',
+      'نشانی مشتری در زمان صدور',
+      'نام فروشگاه در زمان صدور',
+      'نام صاحب فروشگاه در زمان صدور',
+      'تلفن فروشگاه در زمان صدور',
+      'نشانی فروشگاه در زمان صدور',
+      'کد پستی در زمان صدور',
+    };
+    if (correctedFields.isEmpty ||
+        correctedFields.keys.any((key) => !editableFields.contains(key))) {
+      throw ArgumentError(
+        'در این مرحله فقط اصلاح مشخصات مشتری و سربرگ فروشگاه مجاز است؛ مبالغ و ردیف‌های مالی تغییر نمی‌کنند.',
+      );
+    }
+
+    final sourceRows = await txn.query(
+      'records',
+      columns: const ['category'],
+      where: 'id = ?',
+      whereArgs: [originalSourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty || sourceRows.single['category'] != 'sales') {
+      throw StateError('فقط فاکتور فروش اصلی قابلیت صدور اصلاحیه دارد.');
+    }
+    final archiveRows = await txn.query(
+      'invoice_archive',
+      where: 'legacy_source_id = ?',
+      whereArgs: [originalSourceId],
+      limit: 1,
+    );
+    if (archiveRows.isEmpty) {
+      throw StateError('نسخه ثابت فاکتور اصلی پیدا نشد؛ صدور اصلاحیه متوقف شد.');
+    }
+
+    final archive = archiveRows.single;
+    final originalInvoiceNumber = (archive['invoice_number'] ?? '').toString();
+    final rawSnapshot =
+        jsonDecode(archive['snapshot_json'] as String) as Map<String, dynamic>;
+    final original = rawSnapshot.map(
+      (key, value) => MapEntry(key, value?.toString() ?? ''),
+    );
+
+    final changes = <String, Map<String, String>>{};
+    for (final entry in correctedFields.entries) {
+      final before = (original[entry.key] ?? '').trim();
+      final after = entry.value.trim();
+      if (before != after) {
+        changes[entry.key] = {'مقدار قبلی': before, 'مقدار اصلاح‌شده': after};
+      }
+    }
+    if (changes.isEmpty) {
+      throw StateError('هیچ تفاوتی برای ثبت در اصلاحیه وجود ندارد.');
+    }
+    final correctedCustomerName = correctedFields['نام مشتری در زمان صدور'];
+    if (correctedCustomerName != null && correctedCustomerName.trim().isEmpty) {
+      throw ArgumentError('نام مشتری در اصلاحیه نمی‌تواند خالی باشد.');
+    }
+    final correctedStoreName = correctedFields['نام فروشگاه در زمان صدور'];
+    if (correctedStoreName != null && correctedStoreName.trim().isEmpty) {
+      throw ArgumentError('نام فروشگاه در اصلاحیه نمی‌تواند خالی باشد.');
+    }
+
+    final timestamp = (issuedAt ?? DateTime.now()).toIso8601String();
+    final reservation = await InvoiceNumberAllocator.reserve(
+      txn,
+      prefix: correctionPrefix,
+      fallbackNextNumber: 1,
+    );
+    final correction = <String, String>{...original};
+    for (final entry in correctedFields.entries) {
+      correction[entry.key] = entry.value.trim();
+    }
+    if (correctedFields.containsKey('نام مشتری در زمان صدور')) {
+      correction['نام مشتری'] =
+          correctedFields['نام مشتری در زمان صدور']!.trim();
+    }
+    correction
+      ..['شماره فاکتور'] = reservation.invoiceNumber
+      ..['نوع سند'] = 'فاکتور اصلاحی'
+      ..['شماره فاکتور مرجع'] = originalInvoiceNumber
+      ..['شناسه سند مرجع'] = originalSourceId.toString()
+      ..['علت اصلاح'] = normalizedReason
+      ..['نوع اصلاح'] = 'اصلاح اطلاعات غیرمالی'
+      ..['تاریخ و ساعت صدور'] = timestamp;
+
+    final sourceRecordId = await txn.insert('records', {
+      'category': 'invoice_corrections',
+      'data': jsonEncode(correction),
+      'created_at': timestamp,
+    });
+    correction['شناسه سند داخلی'] = sourceRecordId.toString();
+    await txn.update(
+      'records',
+      {'data': jsonEncode(correction)},
+      where: 'id = ?',
+      whereArgs: [sourceRecordId],
+    );
+
+    await txn.insert('invoice_corrections', {
+      'correction_number': reservation.invoiceNumber,
+      'original_source_id': originalSourceId,
+      'original_invoice_number': originalInvoiceNumber,
+      'source_record_id': sourceRecordId,
+      'reason': normalizedReason,
+      'changes_json': jsonEncode(changes),
+      'snapshot_json': jsonEncode(correction),
+      'created_at': timestamp,
+    });
+    await txn.insert('invoice_archive', {
+      'legacy_source_id': sourceRecordId,
+      'invoice_number': reservation.invoiceNumber,
+      'snapshot_json': jsonEncode(correction),
+      'archived_at': timestamp,
+    });
+
+    return correction;
   }
 
   /// Records a partial or full purchase/sales return without changing the original document.
