@@ -30,6 +30,7 @@ import 'data/app_database_schema.dart';
 import 'accounting/accounting_engine.dart';
 import 'invoice/invoice_number_allocator.dart';
 import 'invoice/invoice_print_data.dart';
+import 'invoice/invoice_pdf_image_paginator.dart';
 
 const _dailyBackupTask = 'khadamatDailyLocalBackup';
 final FlutterLocalNotificationsPlugin _checkNotifications =
@@ -7078,11 +7079,25 @@ class _ExportBackupPageState extends State<ExportBackupPage> {
     final file = File(p.join(dir.path, 'factor_${index + 1}_${_stamp()}.$extension'));
     if (pdf) {
       final document = pw.Document();
-      document.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(20),
-        build: (_) => pw.Center(child: pw.Image(pw.MemoryImage(imageBytes), fit: pw.BoxFit.contain)),
-      ));
+      final documentType = (item['نوع سند'] ?? 'فاکتور فروش').trim();
+      final invoiceNumber = (item['شماره فاکتور'] ?? 'بدون-شماره').trim();
+      final pageImages = await InvoicePdfImagePaginator.paginate(
+        imageBytes,
+        pageWidth: PdfPageFormat.a4.width,
+        pageHeight: PdfPageFormat.a4.height,
+        margin: 20,
+        continuationHeader: 'ادامه $documentType $invoiceNumber',
+      );
+      for (final pageImage in pageImages) {
+        document.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(20),
+          build: (_) => pw.Image(
+            pw.MemoryImage(pageImage),
+            fit: pw.BoxFit.contain,
+          ),
+        ));
+      }
       await file.writeAsBytes(await document.save(), flush: true);
     } else {
       await file.writeAsBytes(imageBytes, flush: true);
